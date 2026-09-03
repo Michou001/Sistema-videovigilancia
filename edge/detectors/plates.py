@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import sys
 import time
 import warnings
 from typing import Any, Optional
@@ -31,9 +32,16 @@ from typing import Any, Optional
 warnings.filterwarnings("ignore", category=FutureWarning, module="yolov5.*")
 warnings.filterwarnings("ignore", message=r".*torch\.cuda\.amp\.autocast.*")
 
-# Los pesos se entrenaron en Linux y guardan rutas PosixPath. Sin este parche,
-# torch.load truena en Windows al deserializar. Debe ir ANTES de importar torch.
-pathlib.PosixPath = pathlib.WindowsPath
+# Los pesos se entrenaron en Linux y guardan rutas PosixPath serializadas. Al
+# deserializarlos en Windows, donde PosixPath no se puede instanciar, torch.load
+# truena. El parche redirige esa clase.
+#
+# SOLO EN WINDOWS. En Linux este parche seria destructivo: sustituiria la clase
+# de rutas nativa del sistema por la de Windows y romperia el manejo de archivos
+# de todo el proceso, no solo el de este modulo. En Linux los pesos cargan bien
+# sin tocar nada, que es donde se entrenaron.
+if sys.platform == "win32":
+    pathlib.PosixPath = pathlib.WindowsPath
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
