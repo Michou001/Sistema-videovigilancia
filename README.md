@@ -26,12 +26,20 @@ Tres procesos con responsabilidades separadas, unidos por un contrato de evento:
    │  api/     FastAPI            │   guarda, cruza LISTA NEGRA,
    │                              │   decide severidad
    └──────────────┬───────────────┘
-                  │  WebSocket /ws/alerts
+                  │  WebSocket /ws/alerts  +  MJPEG /api/preview
                   ▼
    ┌──────────────────────────────┐
-   │  web/     dashboard          │   video, timeline, alertas
+   │  web/     dashboard          │   Monitoreo: cámaras en vivo
+   │                              │   Registro:  eventos y alertas
    └──────────────────────────────┘
 ```
+
+El video en vivo sube del worker a la API como JPEG y baja al navegador como
+MJPEG. No va directo de la cámara al navegador por tres razones: ningún
+navegador reproduce RTSP, la cámara suele estar en una red privada a la que el
+operador no llega, y sobre todo el operador necesita ver **las cajas
+dibujadas** — y esas solo existen en el worker, que es quien corrió los
+modelos.
 
 **Regla de diseño:** el borde no decide qué es una alerta. Solo reporta *"vi
 esto, con esta confianza"*. El cruce contra la lista negra y la severidad los
@@ -152,6 +160,22 @@ python -m edge.worker
 ```
 
 Dashboard en `http://localhost:8000`, documentación de la API en `/docs`.
+
+**El dashboard tiene dos apartados**, porque no se usan a la vez ni para lo
+mismo:
+
+| Apartado | Para qué | Qué muestra |
+|---|---|---|
+| **Monitoreo** | Pantalla de guardia: se mira | Cámaras en vivo con las cajas dibujadas y, a su lado, las detecciones conforme entran |
+| **Registro** | Pantalla de trabajo: se opera | Histórico de eventos y alertas por atender o descartar |
+
+Al salir de Monitoreo los flujos de video se cierran, y con la pestaña del
+navegador en segundo plano también. La API le dice al worker cuántos
+dashboards están mirando cada cámara, y con cero el worker deja de codificar y
+subir frames: **la vista en vivo no cuesta nada mientras nadie mira.** Se
+ajusta con `PREVIEW_*` en el `.env` del worker, o se apaga con
+`PREVIEW_ENABLED=false` si el enlace es estrecho o el video no debe salir de la
+red de las cámaras.
 
 **Cómo funciona el cruce contra lista negra.** El borde no decide qué es una
 alerta: solo reporta *"vi esto, con esta confianza"*. La API decide, y por eso

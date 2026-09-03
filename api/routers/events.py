@@ -125,7 +125,13 @@ async def ingerir(lote: EventBatch, session: SesionBD) -> IngestResponse:
     aceptados = 0
     duplicados = 0
     resultados: list[MatchResult] = []
-    a_difundir: list[tuple[dict, dict | None]] = []
+    # La alerta se guarda como OBJETO, no como diccionario ya armado: su `id` lo
+    # asigna la base de datos en el commit, que ocurre despues. Armando el
+    # diccionario aqui, el `id` viajaba en None y el dashboard pintaba la alerta
+    # sin los botones de "Atendida" y "Falso positivo" -- el operador tenia que
+    # recargar la pagina para poder resolver una alerta que acababa de ver
+    # entrar. Justo la que mas prisa corre.
+    a_difundir: list[tuple[dict, Alert | None]] = []
 
     for evento in lote.events:
         # Idempotencia: el borde reintenta ante fallos de red.
@@ -153,18 +159,7 @@ async def ingerir(lote: EventBatch, session: SesionBD) -> IngestResponse:
                 "snapshot_path": evento.snapshot_path,
                 "observations": evento.observations,
             },
-            {
-                "title": alerta.title,
-                "detail": alerta.detail,
-                "severity": alerta.severity,
-                "type": alerta.type,
-                "camera_id": alerta.camera_id,
-                "event_id": alerta.event_id,
-                "snapshot_path": alerta.snapshot_path,
-                "match_kind": alerta.match_kind,
-                "match_score": alerta.match_score,
-                "ts": evento.ts,
-            } if alerta else None,
+            alerta,
         ))
 
     # Heartbeat de la camara: saber que sigue viva sin consultar el video.
@@ -179,13 +174,27 @@ async def ingerir(lote: EventBatch, session: SesionBD) -> IngestResponse:
     session.commit()
 
     # La difusion va DESPUES del commit: si se difunde antes y el commit falla,
-    # el dashboard muestra una alerta que no existe en la base de datos.
-    for datos_evento, datos_alerta in a_difundir:
+    # el dashboard muestra una alerta que no existe en la base de datos. Y solo
+    # aqui la alerta ya tiene `id`, que es lo que el dashboard necesita para
+    # poder resolverla.
+    for datos_evento, alerta in a_difundir:
         await hub.difundir("event", datos_evento)
-        if datos_alerta:
-            await hub.difundir("alert", datos_alerta)
-            log.warning("ALERTA %s: %s", datos_alerta["severity"].upper(),
-                        datos_alerta["title"])
+        if alerta:
+            await hub.difundir("alert", {
+                "id": alerta.id,
+                "title": alerta.title,
+                "detail": alerta.detail,
+                "severity": alerta.severity,
+                "type": alerta.type,
+                "camera_id": alerta.camera_id,
+                "event_id": alerta.event_id,
+                "snapshot_path": alerta.snapshot_path,
+                "match_kind": alerta.match_kind,
+                "match_score": alerta.match_score,
+                "status": alerta.status,
+                "ts": datos_evento["ts"],
+            })
+            log.warning("ALERTA %s: %s", alerta.severity.upper(), alerta.title)
 
     return IngestResponse(accepted=aceptados, duplicates=duplicados, matches=resultados)
 

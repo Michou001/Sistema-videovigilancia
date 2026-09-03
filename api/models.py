@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
+from pydantic import field_serializer
 from sqlmodel import Field, Index, SQLModel
 
 
@@ -20,11 +21,44 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class FechasEnUtc:
+    """Marca como UTC las fechas sin zona al serializarlas.
+
+    Todo se guarda en UTC, pero SQLite no tiene tipo con zona horaria: al leer
+    devuelve un datetime NAIVE. Sin zona, FastAPI serializa "2026-09-03T15:23:18"
+    y el navegador lo interpreta como hora LOCAL, asi que en Mexico (UTC-6) el
+    operador veia las 15:23 un evento de las 09:23. Seis horas en el futuro.
+
+    Y era inconsistente, que es peor que estar mal: los eventos que llegan por
+    WebSocket si llevan zona (van directos del worker, sin pasar por SQLite) y
+    salian bien. En la misma lista convivian la hora correcta y la desplazada.
+
+    Solo etiqueta: no convierte nada ni toca la base de datos. Dice la verdad
+    sobre lo que ya habia guardado.
+
+    Es un mixin plano y no una subclase de SQLModel para que sirva a las dos
+    familias que salen por la API: los modelos de tabla de aqui y los esquemas
+    de respuesta (`response_model`) de los routers, que son BaseModel y
+    revalidan la fila -- con lo que se perderia un serializador puesto solo en
+    el modelo de tabla.
+    """
+
+    @field_serializer("*")
+    def _fechas_a_utc(self, valor: Any, _info) -> Any:
+        if isinstance(valor, datetime) and valor.tzinfo is None:
+            return valor.replace(tzinfo=timezone.utc)
+        return valor
+
+
+class EnUtc(FechasEnUtc, SQLModel):
+    """Base de los modelos de tabla, con las fechas etiquetadas al salir."""
+
+
 # --------------------------------------------------------------------------
 # Camaras
 # --------------------------------------------------------------------------
 
-class Camera(SQLModel, table=True):
+class Camera(EnUtc, table=True):
     """Una camara registrada. La URL RTSP vive aqui, no en el codigo."""
 
     __tablename__ = "cameras"
@@ -53,7 +87,7 @@ class Camera(SQLModel, table=True):
 # Eventos (lo que el borde vio)
 # --------------------------------------------------------------------------
 
-class Event(SQLModel, table=True):
+class Event(EnUtc, table=True):
     """Una deteccion consolidada. Espejo de shared.events.DetectionEvent.
 
     Esta tabla crece rapido: una camara con trafico genera miles de filas al
@@ -104,7 +138,7 @@ class Event(SQLModel, table=True):
         return json.loads(self.meta_json) if self.meta_json else {}
 
 
-class FaceEmbedding(SQLModel, table=True):
+class FaceEmbedding(EnUtc, table=True):
     """Embeddings de rostros DETECTADOS, separados de `events`.
 
     Van en su propia tabla por dos razones: pesan 2 KB cada uno y ensuciarian
@@ -126,7 +160,7 @@ class FaceEmbedding(SQLModel, table=True):
 # Lista negra
 # --------------------------------------------------------------------------
 
-class BlacklistPlate(SQLModel, table=True):
+class BlacklistPlate(EnUtc, table=True):
     """Placa buscada.
 
     `plate_normalized` guarda la placa sin guiones ni espacios y con los
@@ -154,7 +188,7 @@ class BlacklistPlate(SQLModel, table=True):
     )
 
 
-class BlacklistFace(SQLModel, table=True):
+class BlacklistFace(EnUtc, table=True):
     """Persona buscada, identificada por embedding facial.
 
     DATO BIOMETRICO SENSIBLE (LFPDPPP). Requiere base legal documentada para
@@ -184,7 +218,7 @@ class BlacklistFace(SQLModel, table=True):
 # Alertas
 # --------------------------------------------------------------------------
 
-class Alert(SQLModel, table=True):
+class Alert(EnUtc, table=True):
     """Una coincidencia que amerita atencion humana.
 
     Separada de `events` a proposito: hay miles de eventos y decenas de
@@ -221,7 +255,7 @@ class Alert(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 
-class Operator(SQLModel, table=True):
+class Operator(EnUtc, table=True):
     """Usuario del dashboard. Reutiliza el enfoque de FamNet (bcrypt + JWT),
     sin el 3FA facial: aqui la camara es el sensor, no el metodo de login."""
 

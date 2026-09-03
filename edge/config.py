@@ -116,6 +116,28 @@ class EdgeConfig:
     snapshot_dir: Path = BASE_DIR / "data" / "snapshots"
     send_snapshot_b64: bool = field(default_factory=lambda: _env_bool("SEND_SNAPSHOT_B64", True))
 
+    # --- Vista en vivo en el dashboard -------------------------------------
+    preview_enabled: bool = field(default_factory=lambda: _env_bool("PREVIEW_ENABLED", True))
+    """Manda el frame anotado a la API para que el operador vea la camara en el
+    navegador. No cuesta nada mientras nadie tenga el dashboard abierto: la API
+    responde cuantos lo estan mirando y el worker deja de enviar si son cero.
+
+    Apagalo si el enlace hasta la API es estrecho (un 4G compartido) o si por
+    politica el video no debe salir de la red de las camaras: los eventos y sus
+    capturas siguen llegando igual, solo se pierde el video en vivo."""
+
+    preview_fps: float = field(default_factory=lambda: _env_float("PREVIEW_FPS", 6.0))
+    """Fps del preview, independiente de INFER_FPS. Por encima de ~8 no se
+    aprecia diferencia en una rejilla de camaras y cada frame cuesta red."""
+
+    preview_width: int = field(default_factory=lambda: _env_int("PREVIEW_WIDTH", 640))
+    """Ancho al que se reduce antes de enviar. 640 px se ve bien en un recuadro
+    del dashboard y pesa ~8x menos que 1080p."""
+
+    preview_quality: int = field(default_factory=lambda: _env_int("PREVIEW_QUALITY", 70))
+    """Calidad JPEG (20-95). 70 es el punto donde el artefacto todavia no se
+    nota y el tamano ya bajo bastante."""
+
     # --- Depuracion --------------------------------------------------------
     show_window: bool = field(default_factory=lambda: _env_bool("SHOW_WINDOW", False))
     """Ventana de OpenCV con las cajas dibujadas. Util en desarrollo, SIEMPRE

@@ -178,6 +178,7 @@ def construir_detectores(cfg: EdgeConfig) -> list:
 
 def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
     """Bucle principal: captura -> detectores -> eventos."""
+    from edge.preview import crear_publicador
     from edge.sink import crear_sink
 
     print("=" * 68)
@@ -192,6 +193,7 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
     print(f"  detectores: {', '.join(d.name for d in detectores)}")
 
     sink = crear_sink(cfg)
+    preview = crear_publicador(cfg)
     fuente = open_source(cfg.source)
     total_eventos = 0
 
@@ -216,24 +218,34 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
                         sink.enviar(evento)
                         total_eventos += 1
 
-                if cfg.show_window:
+                # El frame anotado se calcula UNA sola vez y sirve para las dos
+                # cosas que lo quieren: la ventana local de depuracion y la
+                # vista en vivo del dashboard. Se pregunta primero para no
+                # dibujar cajas que nadie va a ver.
+                para_preview = preview is not None and preview.quiere_frame()
+                if cfg.show_window or para_preview:
                     vista = frame.frame.copy()
                     for det in detectores:
                         vista = det.anotar(vista)
-                    cv2.imshow("Videovigilancia - 'q' para salir", vista)
-                    if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
-                        break
+
+                    if para_preview:
+                        preview.publicar(vista)
+
+                    if cfg.show_window:
+                        cv2.imshow("Videovigilancia - 'q' para salir", vista)
+                        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                            break
 
                 ahora = time.monotonic()
                 if ahora - ultimo_reporte >= 10.0:
                     st = fuente.status
-                    partes = " | ".join(
-                        f"{d.name}: {d.stats.get('tracks_activos', 0)} tracks, "
-                        f"{d.stats.get('ms_inferencia_promedio', 0)}ms"
-                        for d in detectores
-                    )
+                    partes = " | ".join(f"{d.name}: {d.resumen}" for d in detectores)
+                    mirando = ""
+                    if preview is not None and preview.espectadores:
+                        mirando = f" | {preview.espectadores} viendo"
                     print(f"  [{ahora - inicio:5.0f}s] {frames} frames, "
-                          f"{st.measured_fps:.1f} fps camara, {total_eventos} eventos | {partes}")
+                          f"{st.measured_fps:.1f} fps camara, {total_eventos} eventos "
+                          f"| {partes}{mirando}")
                     ultimo_reporte = ahora
 
                 if segundos and (ahora - inicio) >= segundos:
@@ -248,6 +260,8 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
     finally:
         if cfg.show_window:
             cv2.destroyAllWindows()
+        if preview is not None:
+            preview.cerrar()
         for det in detectores:
             print(f"\n  Estadisticas de {det.name}: {det.stats}")
             det.cerrar()

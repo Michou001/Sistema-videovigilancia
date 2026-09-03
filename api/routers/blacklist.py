@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import col, select
 
 from api.deps import Admin, OperadorActual, SesionBD
-from api.models import BlacklistPlate
+from api.models import BlacklistPlate, FechasEnUtc
 from shared.plates import es_placa_valida, formatear, normalizar
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class AltaPlaca(BaseModel):
         return v
 
 
-class PlacaLeida(BaseModel):
+class PlacaLeida(FechasEnUtc, BaseModel):
     id: int
     plate: str
     plate_normalized: str
