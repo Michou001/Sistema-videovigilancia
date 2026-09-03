@@ -49,3 +49,14 @@ class Detector(ABC):
     def stats(self) -> dict:
         """Metricas para el dashboard y para diagnosticar rendimiento."""
         return {}
+
+    @property
+    def resumen(self) -> str:
+        """Linea corta para el reporte periodico del worker.
+
+        Cada detector elige que numeros importan mirar en vivo. No es lo mismo
+        depurar placas (cuantas lecturas de OCR van) que armas (cuanta evidencia
+        lleva acumulada antes de confirmar).
+        """
+        s = self.stats
+        return f"{s.get('tracks_activos', 0)} tracks, {s.get('ms_inferencia_promedio', 0)}ms"

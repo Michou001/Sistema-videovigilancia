@@ -18,10 +18,20 @@ import logging
 import os
 import sys
 import time
+import warnings
 from typing import Any, Optional
 
-import cv2
-import numpy as np
+# InsightFace llama a una API de scikit-image ya deprecada (`tform.estimate`).
+# El aviso se emite UNA VEZ POR ROSTRO Y POR FRAME, asi que con una persona
+# frente a la camara salen ~20 lineas por segundo y la salida util del worker
+# queda enterrada. No es un error y el codigo es de terceros: no hay nada que
+# corregir, solo que callar.
+warnings.filterwarnings("ignore", category=FutureWarning, module="insightface.*")
+warnings.filterwarnings("ignore", message=r".*`estimate` is deprecated.*")
+warnings.filterwarnings("ignore", message=r".*SimilarityTransform\.from_estimate.*")
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
 
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector
