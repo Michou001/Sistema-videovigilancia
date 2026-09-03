@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Videovigilancia</title>
+<style>
+  :root {
+    --fondo: #0e1116;
+    --panel: #161b22;
+    --panel2: #1c232c;
+    --borde: #2a323d;
+    --texto: #e6edf3;
+    --tenue: #8b949e;
+    --acento: #2f81f7;
+    --critico: #f85149;
+    --aviso: #d29922;
+    --ok: #3fb950;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--fondo); color: var(--texto);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+  button {
+    font: inherit; cursor: pointer; border: none; border-radius: 6px;
+    padding: 8px 14px; background: var(--acento); color: #fff; font-weight: 500;
+  }
+  button:hover { filter: brightness(1.15); }
+  button.sec { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde); }
+  button.peligro { background: var(--critico); }
+  input, select, textarea {
+    font: inherit; background: var(--fondo); color: var(--texto);
+    border: 1px solid var(--borde); border-radius: 6px; padding: 8px 10px; width: 100%;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--acento); outline-offset: -1px; }
+
+  /* ---------- Login ---------- */
+  #login { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+  .tarjeta {
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
+    padding: 32px; width: 100%; max-width: 380px;
+  }
+  .tarjeta h1 { font-size: 20px; margin-bottom: 4px; }
+  .tarjeta p.sub { color: var(--tenue); margin-bottom: 24px; font-size: 13px; }
+  .campo { margin-bottom: 14px; }
+  .campo label { display: block; font-size: 12px; color: var(--tenue); margin-bottom: 5px; }
+  .error { color: var(--critico); font-size: 13px; margin-top: 12px; min-height: 18px; }
+
+  /* ---------- Layout ---------- */
+  #app { display: none; }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--borde);
+    position: sticky; top: 0; z-index: 20;
+  }
+  header h1 { font-size: 15px; font-weight: 600; }
+  .estado { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tenue); }
+  .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); }
+  .punto.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .punto.off { background: var(--critico); }
+  .crece { flex: 1; }
+
+  .metricas { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 20px 0; }
+  .metrica {
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
+    padding: 12px 18px; min-width: 130px;
+  }
+  .metrica .n { font-size: 24px; font-weight: 600; }
+  .metrica .e { font-size: 11px; color: var(--tenue); text-transform: uppercase; letter-spacing: .5px; }
+  .metrica.critica .n { color: var(--critico); }
+
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px 20px 40px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; }
+  .panel > h2 {
+    font-size: 13px; font-weight: 600; padding: 12px 16px;
+    border-bottom: 1px solid var(--borde); display: flex; align-items: center; gap: 8px;
+  }
+  .panel > h2 .crece { text-align: right; font-weight: 400; color: var(--tenue); font-size: 12px; }
+  .lista { max-height: 62vh; overflow-y: auto; }
+  .vacio { padding: 32px 16px; text-align: center; color: var(--tenue); font-size: 13px; }
+
+  /* ---------- Alertas ---------- */
+  .alerta {
+    display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borde);
+    border-left: 3px solid transparent;
+  }
+  .alerta.critical { border-left-color: var(--critico); background: rgba(248,81,73,.06); }
+  .alerta.warning  { border-left-color: var(--aviso);   background: rgba(210,153,34,.05); }
+  .alerta.resuelta { opacity: .45; }
+  .alerta img { width: 78px; height: 52px; object-fit: cover; border-radius: 5px; background: var(--panel2); }
+  .alerta .t { font-weight: 600; font-size: 13px; }
+  .alerta .d { color: var(--tenue); font-size: 12px; margin-top: 2px; }
+  .alerta .meta { color: var(--tenue); font-size: 11px; margin-top: 6px; }
+  .alerta .acciones { display: flex; gap: 6px; margin-top: 8px; }
+  .alerta .acciones button { padding: 4px 10px; font-size: 12px; }
+
+  /* ---------- Eventos ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; color: var(--tenue); text-transform: uppercase;
+       letter-spacing: .5px; padding: 8px 16px; border-bottom: 1px solid var(--borde); }
+  td { padding: 9px 16px; border-bottom: 1px solid var(--borde); }
+  tr.nuevo { animation: entra 1.2s ease-out; }
+  @keyframes entra { from { background: rgba(47,129,247,.22); } to { background: transparent; } }
+  .etiqueta { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .etiqueta.critical { background: rgba(248,81,73,.18); color: var(--critico); }
+  .etiqueta.warning  { background: rgba(210,153,34,.18); color: var(--aviso); }
+  .etiqueta.info     { background: var(--panel2); color: var(--tenue); }
+  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  /* ---------- Banner critico ---------- */
+  #banner {
+    display: none; position: fixed; inset: 0 0 auto 0; z-index: 50;
+    background: var(--critico); color: #fff; padding: 14px 20px;
+    align-items: center; gap: 14px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    animation: pulso 1.1s ease-in-out infinite;
+  }
+  @keyframes pulso { 0%,100% { filter: brightness(1);} 50% { filter: brightness(1.22);} }
+  #banner .t { font-weight: 700; font-size: 15px; }
+  #banner .d { font-size: 13px; opacity: .92; }
+  #banner button { background: rgba(0,0,0,.28); }
+
+  /* ---------- Modal ---------- */
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.72);
+           z-index: 60; place-items: center; padding: 20px; }
+  #modal .tarjeta { max-width: 460px; }
+  .fila { display: flex; gap: 10px; align-items: center; padding: 9px 0;
+          border-bottom: 1px solid var(--borde); font-size: 13px; }
+  .pestanas { display: flex; gap: 6px; align-items: center; margin-bottom: 16px;
+              border-bottom: 1px solid var(--borde); padding-bottom: 10px; }
+  .pest { background: transparent; color: var(--tenue); padding: 6px 12px; font-size: 13px; }
+  .pest.activa { background: var(--panel2); color: var(--texto); }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login">
+  <form class="tarjeta" id="formLogin">
+    <h1>Sistema de Videovigilancia</h1>
+    <p class="sub">Detección de placas, rostros y armas</p>
+    <div class="campo">
+      <label for="usuario">Usuario</label>
+      <input id="usuario" autocomplete="username" required autofocus>
+    </div>
+    <div class="campo">
+      <label for="password">Contraseña</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" style="width:100%;margin-top:8px">Entrar</button>
+    <div class="error" id="errorLogin"></div>
+  </form>
+</div>
+
+<!-- ============ BANNER CRITICO ============ -->
+<div id="banner">
+  <div class="crece">
+    <div class="t" id="bannerTitulo"></div>
+    <div class="d" id="bannerDetalle"></div>
+  </div>
+  <button onclick="cerrarBanner()">Entendido</button>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <header>
+    <h1>Videovigilancia</h1>
+    <div class="estado"><span class="punto" id="puntoWs"></span><span id="textoWs">conectando…</span></div>
+    <div class="estado" id="estadoCamaras"></div>
+    <div class="crece"></div>
+    <span style="font-size:13px;color:var(--tenue)" id="quien"></span>
+    <button class="sec" id="btnListaNegra">Lista negra</button>
+    <button class="sec" onclick="salir()">Salir</button>
+  </header>
+
+  <div class="metricas">
+    <div class="metrica"><div class="n" id="mEventos">0</div><div class="e">Eventos</div></div>
+    <div class="metrica critica"><div class="n" id="mAlertas">0</div><div class="e">Alertas sin ver</div></div>
+    <div class="metrica"><div class="n" id="mPlacas">0</div><div class="e">Placas leídas</div></div>
+    <div class="metrica"><div class="n" id="mLista">0</div><div class="e">En lista negra</div></div>
+  </div>
+
+  <main>
+    <div class="panel">
+      <h2>Eventos <span class="crece" id="contadorEventos"></span></h2>
+      <div class="lista">
+        <table>
+          <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th></tr></thead>
+          <tbody id="tablaEventos"></tbody>
+        </table>
+        <div class="vacio" id="sinEventos">Sin eventos todavía. Inicia el worker para empezar a detectar.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Alertas</h2>
+      <div class="lista" id="listaAlertas"></div>
+      <div class="vacio" id="sinAlertas">Ninguna alerta activa.</div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ MODAL LISTA NEGRA ============ -->
+<div id="modal">
+  <div class="tarjeta">
+    <div class="pestanas">
+      <button class="pest activa" data-tab="placas" type="button">Placas</button>
+      <button class="pest" data-tab="rostros" type="button">Personas</button>
+      <span class="crece"></span>
+      <button class="sec" type="button" onclick="cerrarModal()">Cerrar</button>
+    </div>
+
+    <div id="tabPlacas">
+      <p class="sub">Una placa aquí genera alerta cada vez que se detecte.</p>
+      <form id="formPlaca">
+        <div class="campo">
+          <label for="nuevaPlaca">Placa</label>
+          <input id="nuevaPlaca" placeholder="ABC-123" required>
+        </div>
+        <div class="campo">
+          <label for="motivo">Motivo</label>
+          <input id="motivo" placeholder="Reporte de robo, orden judicial…" required>
+        </div>
+        <button type="submit">Agregar placa</button>
+        <div class="error" id="errorPlaca"></div>
+      </form>
+      <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaPlacas"></div>
+    </div>
+
+    <div id="tabRostros" style="display:none">
+      <p class="sub" style="color:var(--aviso)">
+        Los rostros son <strong>datos personales sensibles</strong> (LFPDPPP).
+        Cada alta exige declarar su fundamento legal.
+      </p>
+      <form id="formRostro">
+        <div class="campo">
+          <label for="nombreRostro">Nombre o identificador</label>
+          <input id="nombreRostro" required>
+        </div>
+        <div class="campo">
+          <label for="motivoRostro">Motivo</label>
+          <input id="motivoRostro" placeholder="Orden de búsqueda, acceso denegado…" required>
+        </div>
+        <div class="campo">
+          <label for="fundamento">Fundamento legal</label>
+          <input id="fundamento" placeholder="Carpeta de investigación, orden judicial…" required>
+        </div>
+        <div class="campo">
+          <label for="fotoRostro">Foto (rostro frontal, buena luz)</label>
+          <input id="fotoRostro" type="file" accept="image/*" required>
+        </div>
+        <button type="submit">Agregar persona</button>
+        <div class="error" id="errorRostro"></div>
+      </form>
+      <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaRostros"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
