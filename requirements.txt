@@ -1,53 +1,66 @@
-# YOLOv5 requirements
-# Usage: pip install -r requirements.txt
+# Dependencias del sistema de videovigilancia.
+#
+# ############################################################################
+# LEE ESTO ANTES DE INSTALAR
+# ############################################################################
+#
+# NO instales torch desde este archivo. `pip install torch` baja la build de
+# CPU y todo corre 5-10x mas lento sin avisarte de nada -- fue exactamente lo
+# que le paso a este proyecto. torch va aparte, con el indice de CUDA:
+#
+#   pip install torch==2.13.0+cu126 torchvision==0.28.0+cu126 \
+#       --index-url https://download.pytorch.org/whl/cu126
+#
+# Verifica siempre despues de instalar:
+#
+#   python -c "import torch; print(torch.cuda.is_available())"   # debe decir True
+#
+# cu126 sirve para GPUs NVIDIA de arquitectura Turing en adelante (RTX 20xx,
+# 30xx, 40xx). La de este proyecto es una RTX 4050 Laptop (sm_89).
+# ############################################################################
 
-# Base ------------------------------------------------------------------------
-gitpython>=3.1.30
-matplotlib>=3.3
-numpy>=1.23.5
-opencv-python>=4.1.1
-pillow>=10.3.0
-psutil  # system resources
-PyYAML>=5.3.1
-requests>=2.32.2
-scipy>=1.4.1
-thop>=0.1.1  # FLOPs computation
-torch>=1.8.0  # see https://pytorch.org/get-started/locally (recommended)
-torchvision>=0.9.0
-tqdm>=4.66.3
-ultralytics>=8.2.64  # https://ultralytics.com
-# protobuf<=3.20.1  # https://github.com/ultralytics/yolov5/issues/8012
+# --- Vision y modelos --------------------------------------------------------
+ultralytics>=8.4.0          # YOLO11 + trackers (ByteTrack/BoT-SORT) integrados
+opencv-python>=4.10
+numpy>=1.26
+pillow>=10.4
 
-# Logging ---------------------------------------------------------------------
-# tensorboard>=2.4.1
-# clearml>=1.2.0
-# comet
+# --- OCR de placas -----------------------------------------------------------
+easyocr>=1.7.2
 
-# Plotting --------------------------------------------------------------------
-pandas>=1.1.4
-seaborn>=0.11.0
+# --- Contrato de datos (compartido entre borde y API) ------------------------
+pydantic>=2.9
 
-# Export ----------------------------------------------------------------------
-# coremltools>=6.0  # CoreML export
-# onnx>=1.10.0  # ONNX export
-# onnx-simplifier>=0.4.1  # ONNX simplifier
-# nvidia-pyindex  # TensorRT export
-# nvidia-tensorrt  # TensorRT export
-# scikit-learn<=1.1.2  # CoreML quantization
-# tensorflow>=2.4.0,<=2.13.1  # TF exports (-cpu, -aarch64, -macos)
-# tensorflowjs>=3.9.0  # TF.js export
-# openvino-dev>=2023.0  # OpenVINO export
+# --- Plataforma web (Fase 3) -------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlmodel>=0.0.22
+python-multipart>=0.0.9
+passlib[bcrypt]>=1.7.4
+pyjwt>=2.9
+httpx>=0.27                 # el worker envia eventos a la API
 
-# Deploy ----------------------------------------------------------------------
-packaging  # Migration of deprecated pkg_resources packages
-setuptools>=70.0.0 # Snyk vulnerability fix
-# tritonclient[all]~=2.24.0
+# --- Rostros -----------------------------------------------------------------
+# InsightFace en vez de face_recognition/dlib: no necesita CMake ni Visual
+# Studio Build Tools en Windows, y da embeddings de 512-d mucho mas precisos.
+insightface>=1.0.1
 
-# Extras ----------------------------------------------------------------------
-# ipython  # interactive notebook
-# mss  # screenshots
-# albumentations>=1.0.3
-# pycocotools>=2.0.6  # COCO mAP
+# LA VERSION ESTA FIJADA A PROPOSITO, NO LA SUBAS SIN LEER ESTO:
+# onnxruntime-gpu 1.23 en adelante esta compilado contra CUDA 13 y pide
+# cudart64_13.dll / cublasLt64_13.dll, que PyTorch cu126 no incluye. Cuando no
+# las encuentra NO lanza ningun error: cae a CPU en silencio y el
+# reconocimiento facial pasa de 12 ms a 77 ms por frame sin que nada lo avise.
+# 1.22.0 es la ultima build contra CUDA 12, que es la que corresponde a
+# torch cu126.
+onnxruntime-gpu==1.22.0
 
-# OCR y procesamiento adicional
-easyocr>=1.7.0
+# Al instalar insightface, pip arrastra `onnxruntime` (CPU) como dependencia y
+# ese paquete ECLIPSA a onnxruntime-gpu: comparten el mismo directorio. Si
+# `ort.get_available_providers()` no lista CUDAExecutionProvider, corre:
+#     pip uninstall -y onnxruntime
+#     pip install --force-reinstall --no-deps onnxruntime-gpu==1.22.0
+# (el --force-reinstall es necesario porque desinstalar uno rompe al otro)
+
+# --- Utilidades --------------------------------------------------------------
+psutil
+pyyaml>=6.0

@@ -1,3 +1,7 @@
+import pathlib
+# Solución para compatibilidad de modelos entrenados en Linux/Posix al cargarse en Windows
+pathlib.PosixPath = pathlib.WindowsPath
+
 import torch
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -6,7 +10,11 @@ import cv2
 from detectarTexto import detectar_texto
 
 # Cargar modelo YOLOv5 entrenado
-model = torch.hub.load('yolov5', 'custom', path='yolov5/runs/train/exp/weights/best.pt',force_reload=True, source='local')
+from pathlib import Path
+model = torch.hub.load('yolov5', 'custom',
+                       path=str(Path("yolov5/runs/train/exp/weights/best.pt")),
+                       force_reload=True, source='local')
+
 
 #Cargar imagen (Modificar si es necesario)
 img = Image.open('imagenes-prueba/img5.jpg')

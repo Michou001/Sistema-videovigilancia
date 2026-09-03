@@ -1,1 +1,43 @@
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Credenciales - NUNCA subir. La URL RTSP lleva la contrasena de la camara.
+.env
+*.pem
+*.key
+
+# Datos generados en tiempo de ejecucion
+data/
+*.db
+*.sqlite3
+*.log
+
+# Evidencia: capturas de rostros y placas son datos personales.
+# No deben salir de la maquina ni acabar en un repositorio.
+snapshots/
+placa_recortada.jpg
+placas_detectadas.csv
+
+# Salidas de entrenamiento/inferencia de YOLO
+runs/detect/
+runs/predict/
+
+# Editores / SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# Videos de prueba (pueden pesar)
+videos/
+
+# Modelos descargables (se bajan solos, no versionar)
+models/yolo11n.pt
+models/yolo11*.pt
