@@ -50,17 +50,42 @@
 
   /* ---------- Layout ---------- */
   #app { display: none; }
+  /* El banner critico y la cabecera viajan juntos en una barra pegada arriba.
+     Van en el mismo contenedor y en flujo normal -- no el banner flotando por
+     encima -- para que el banner EMPUJE la cabecera en vez de taparla. Taparla
+     dejaba al operador sin los botones de los apartados justo durante una
+     alerta critica, y compensarlo midiendo el alto del banner por JavaScript
+     se desincronizaba en cada reflujo: al rotar el movil el banner pasa de una
+     linea a tres y el hueco reservado ya no correspondia. Asi no hay nada que
+     medir ni que sincronizar. */
+  #barra { position: sticky; top: 0; z-index: 30; }
   header {
     display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
     padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--borde);
-    position: sticky; top: 0; z-index: 20;
   }
   header h1 { font-size: 15px; font-weight: 600; }
   .estado { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tenue); }
-  .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); }
+  .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); flex: none; }
   .punto.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .punto.off { background: var(--critico); }
   .crece { flex: 1; }
+
+  /* ---------- Navegacion de los dos apartados ---------- */
+  nav.apartados { display: flex; gap: 4px; background: var(--fondo);
+                  border: 1px solid var(--borde); border-radius: 8px; padding: 3px; }
+  nav.apartados button {
+    background: transparent; color: var(--tenue); padding: 6px 16px;
+    font-size: 13px; border-radius: 6px; display: flex; align-items: center; gap: 7px;
+  }
+  nav.apartados button.activo { background: var(--panel2); color: var(--texto); }
+  nav.apartados .globo {
+    background: var(--critico); color: #fff; font-size: 10px; font-weight: 700;
+    border-radius: 10px; padding: 0 6px; min-width: 17px; text-align: center;
+  }
+  nav.apartados .globo:empty, nav.apartados .globo[hidden] { display: none; }
+
+  .vista { display: none; }
+  .vista.activa { display: block; }
 
   .metricas { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 20px 0; }
   .metrica {
@@ -82,6 +107,63 @@
   .panel > h2 .crece { text-align: right; font-weight: 400; color: var(--tenue); font-size: 12px; }
   .lista { max-height: 62vh; overflow-y: auto; }
   .vacio { padding: 32px 16px; text-align: center; color: var(--tenue); font-size: 13px; }
+
+  /* ---------- Camaras en vivo ---------- */
+  #rejilla {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 14px; padding: 14px;
+  }
+  /* Con una sola camara no se estira a lo ancho de todo el panel: a 1600 px un
+     recuadro unico quedaria enorme y con la imagen reescalada muy por encima de
+     los 640 px que manda el worker, que es peor que verla a su tamano. */
+  #rejilla.una { grid-template-columns: minmax(330px, 760px); }
+
+  .camara { border: 1px solid var(--borde); border-radius: 8px; overflow: hidden;
+            background: var(--fondo); }
+  /* Se llama 'destacada' y no 'alerta' porque .alerta ya existe abajo para las
+     tarjetas del panel de alertas, con display:flex. Reutilizar ese nombre
+     convertia el recuadro de la camara en una fila y descuadraba el video. */
+  .camara.destacada { border-color: var(--critico); box-shadow: 0 0 0 1px var(--critico); }
+  .camara-cab { display: flex; align-items: center; gap: 8px; padding: 8px 11px;
+                background: var(--panel2); font-size: 12px; }
+  .camara-cab .nom { font-weight: 600; }
+  .camara-cab .fps { color: var(--tenue); font-size: 11px; }
+
+  .camara-video { position: relative; aspect-ratio: 16 / 9; background: #000;
+                  display: grid; place-items: center; }
+  .camara-video img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .camara-video .sinsenal { color: var(--tenue); font-size: 12px; text-align: center;
+                            padding: 0 16px; line-height: 1.7; }
+  .camara-video .sinsenal .icono { font-size: 26px; display: block; opacity: .5; }
+
+  /* Ultima deteccion sobreimpresa: el operador ve la camara y lo que acaba de
+     encontrar sin mover los ojos a la otra columna. */
+  .camara-video .ultima {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,.86) 55%);
+    padding: 22px 11px 8px; font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+    opacity: 0; transition: opacity .35s;
+  }
+  .camara-video .ultima.visible { opacity: 1; }
+  .camara-video .ultima .v { font-weight: 700;
+                             font-family: ui-monospace, Consolas, monospace; }
+  .camara-video .ultima .c { color: #cbd5e1; }
+
+  /* ---------- Detecciones en vivo ---------- */
+  .deteccion { display: flex; gap: 11px; padding: 10px 14px;
+               border-bottom: 1px solid var(--borde); border-left: 3px solid transparent; }
+  .deteccion.critical { border-left-color: var(--critico); background: rgba(248,81,73,.06); }
+  .deteccion.warning  { border-left-color: var(--aviso);   background: rgba(210,153,34,.05); }
+  .deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 5px;
+                   background: var(--panel2); flex: none; }
+  .deteccion .sinfoto { width: 66px; height: 44px; border-radius: 5px; flex: none;
+                        background: var(--panel2); display: grid; place-items: center;
+                        font-size: 19px; opacity: .5; }
+  .deteccion .v { font-weight: 600; font-size: 13px;
+                  font-family: ui-monospace, Consolas, monospace; }
+  .deteccion .m { color: var(--tenue); font-size: 11px; margin-top: 3px; }
+  .deteccion.nueva { animation: entra 1.2s ease-out; }
 
   /* ---------- Alertas ---------- */
   .alerta {
@@ -113,7 +195,7 @@
 
   /* ---------- Banner critico ---------- */
   #banner {
-    display: none; position: fixed; inset: 0 0 auto 0; z-index: 50;
+    display: none;
     background: var(--critico); color: #fff; padding: 14px 20px;
     align-items: center; gap: 14px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
     animation: pulso 1.1s ease-in-out infinite;
@@ -155,19 +237,31 @@
   </form>
 </div>
 
-<!-- ============ BANNER CRITICO ============ -->
-<div id="banner">
-  <div class="crece">
-    <div class="t" id="bannerTitulo"></div>
-    <div class="d" id="bannerDetalle"></div>
-  </div>
-  <button onclick="cerrarBanner()">Entendido</button>
-</div>
-
 <!-- ============ APP ============ -->
 <div id="app">
+  <div id="barra">
+  <!-- El banner va DENTRO de la barra pegada arriba, no flotando sobre ella:
+       asi empuja la cabecera hacia abajo en vez de ocultar su navegacion. -->
+  <div id="banner">
+    <div class="crece">
+      <div class="t" id="bannerTitulo"></div>
+      <div class="d" id="bannerDetalle"></div>
+    </div>
+    <button onclick="cerrarBanner()">Entendido</button>
+  </div>
+
   <header>
     <h1>Videovigilancia</h1>
+
+    <nav class="apartados">
+      <button id="navMonitoreo" class="activo" data-vista="monitoreo">
+        Monitoreo
+      </button>
+      <button id="navRegistro" data-vista="registro">
+        Registro <span class="globo" id="globoAlertas" hidden></span>
+      </button>
+    </nav>
+
     <div class="estado"><span class="punto" id="puntoWs"></span><span id="textoWs">conectando…</span></div>
     <div class="estado" id="estadoCamaras"></div>
     <div class="crece"></div>
@@ -175,6 +269,7 @@
     <button class="sec" id="btnListaNegra">Lista negra</button>
     <button class="sec" onclick="salir()">Salir</button>
   </header>
+  </div><!-- /#barra -->
 
   <div class="metricas">
     <div class="metrica"><div class="n" id="mEventos">0</div><div class="e">Eventos</div></div>
@@ -183,24 +278,48 @@
     <div class="metrica"><div class="n" id="mLista">0</div><div class="e">En lista negra</div></div>
   </div>
 
-  <main>
-    <div class="panel">
-      <h2>Eventos <span class="crece" id="contadorEventos"></span></h2>
-      <div class="lista">
-        <table>
-          <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th></tr></thead>
-          <tbody id="tablaEventos"></tbody>
-        </table>
-        <div class="vacio" id="sinEventos">Sin eventos todavía. Inicia el worker para empezar a detectar.</div>
+  <!-- ---------- APARTADO 1: MONITOREO EN VIVO ---------- -->
+  <div class="vista activa" id="vistaMonitoreo">
+    <main>
+      <div class="panel">
+        <h2>Cámaras en vivo <span class="crece" id="contadorCamaras"></span></h2>
+        <div id="rejilla"></div>
+        <div class="vacio" id="sinCamaras">
+          Ninguna cámara está enviando video.<br>
+          Inicia el worker con <span class="mono">python -m edge.worker</span>
+          y <span class="mono">PREVIEW_ENABLED=true</span> en su <span class="mono">.env</span>.
+        </div>
       </div>
-    </div>
 
-    <div class="panel">
-      <h2>Alertas</h2>
-      <div class="lista" id="listaAlertas"></div>
-      <div class="vacio" id="sinAlertas">Ninguna alerta activa.</div>
-    </div>
-  </main>
+      <div class="panel">
+        <h2>Detecciones en vivo <span class="crece" id="contadorDetecciones"></span></h2>
+        <div class="lista" id="listaDetecciones" style="max-height:none"></div>
+        <div class="vacio" id="sinDetecciones">Esperando detecciones…</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ---------- APARTADO 2: REGISTRO ---------- -->
+  <div class="vista" id="vistaRegistro">
+    <main>
+      <div class="panel">
+        <h2>Eventos <span class="crece" id="contadorEventos"></span></h2>
+        <div class="lista">
+          <table>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th></tr></thead>
+            <tbody id="tablaEventos"></tbody>
+          </table>
+          <div class="vacio" id="sinEventos">Sin eventos todavía. Inicia el worker para empezar a detectar.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Alertas</h2>
+        <div class="lista" id="listaAlertas"></div>
+        <div class="vacio" id="sinAlertas">Ninguna alerta activa.</div>
+      </div>
+    </main>
+  </div>
 </div>
 
 <!-- ============ MODAL LISTA NEGRA ============ -->

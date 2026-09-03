@@ -11,12 +11,12 @@ from sqlmodel import col, func, select
 
 from api.deps import OperadorActual, SesionBD
 from api.hub import hub
-from api.models import Alert, Camera, Event
+from api.models import Alert, Camera, Event, FechasEnUtc
 
 router = APIRouter(prefix="/api", tags=["alertas"])
 
 
-class AlertaLeida(BaseModel):
+class AlertaLeida(FechasEnUtc, BaseModel):
     id: int
     event_id: str
     camera_id: str
@@ -32,7 +32,7 @@ class AlertaLeida(BaseModel):
     created_at: datetime
 
 
-class EventoLeido(BaseModel):
+class EventoLeido(FechasEnUtc, BaseModel):
     event_id: str
     camera_id: str
     ts: datetime

@@ -19,6 +19,7 @@ conserva y qué obligaciones legales aplican.
 | Foto de rostro | **Personal SENSIBLE** | Solo si coincide |
 | Detección de arma | Personal (vinculado a quien la porta) | 1 año |
 | Registros de operadores | Personal | Mientras dure la cuenta |
+| **Video en vivo del dashboard** | Personal (imagen de quien pase) | **No. Solo en memoria** |
 
 ---
 
@@ -106,9 +107,41 @@ La detección de armas no identifica a nadie y no tiene ese problema.
 
 ---
 
+## La vista en vivo del dashboard
+
+El apartado de Monitoreo muestra las cámaras en tiempo real. Es video de
+personas, así que se trata con las mismas reglas que el resto:
+
+- **Los frames no tocan el disco.** Nunca. La única copia vive en memoria de la
+  API y la sobreescribe el frame siguiente, unos 170 ms después. No hay archivo
+  que purgar porque no hay archivo. Lo que se conserva como evidencia son las
+  capturas de los eventos, que sí pasan por `data/snapshots` con su política de
+  retención.
+- **No hay grabación.** No se puede retroceder ni revisar "qué pasó hace diez
+  minutos" en el video. Para eso está el histórico de eventos, que es
+  justamente lo que sí tiene fundamento conservar.
+- **Solo circula mientras alguien mira.** Al cerrar el apartado, o con la
+  pestaña en segundo plano, el flujo se corta y el worker deja de enviar. Con
+  el dashboard cerrado no sale un solo frame de la red de las cámaras.
+- **Pasado el plazo, la API suelta el último frame** de una cámara que dejó de
+  enviar. No es higiene de memoria: es no quedarse con la última imagen de una
+  persona indefinidamente porque el worker murió en mal momento.
+- **Ver requiere sesión de operador.** El flujo valida el JWT antes de entregar
+  el primer byte. Va por query string porque un `<img>` no puede mandar
+  cabeceras — el mismo compromiso que el WebSocket de alertas — así que queda
+  en el DOM y en el historial del navegador: es un token de sesión con
+  caducidad (`JWT_HOURS`), nunca el token de ingesta del worker.
+
+Si por política el video no debe salir de la red de las cámaras,
+`PREVIEW_ENABLED=false` en el `.env` del worker lo desactiva. Los eventos y sus
+capturas siguen llegando igual.
+
+---
+
 ## Lo que este sistema NO hace, a propósito
 
-- **No guarda video continuo.** Solo recortes de eventos concretos.
+- **No guarda video continuo.** Solo recortes de eventos concretos. La vista
+  en vivo del dashboard no se graba en ningún punto.
 - **No identifica a personas que no estén en la lista negra.** No hay un
   "quién es esta persona" — solo un "¿es alguna de estas?".
 - **No rastrea trayectorias** ni construye perfiles de movimiento.

@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from api.config import get_config  # noqa: E402
 from api.database import init_db  # noqa: E402
 from api.hub import hub  # noqa: E402
-from api.routers import alerts, auth, blacklist, events, faces  # noqa: E402
+from api.routers import alerts, auth, blacklist, events, faces, preview  # noqa: E402
 from api.security import decodificar_token  # noqa: E402
 
 logging.basicConfig(
@@ -99,6 +99,7 @@ app.include_router(events.router)
 app.include_router(blacklist.router)
 app.include_router(faces.router)
 app.include_router(alerts.router)
+app.include_router(preview.router)
 
 
 @app.websocket("/ws/alerts")

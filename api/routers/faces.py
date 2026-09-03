@@ -23,7 +23,7 @@ from sqlmodel import col, select
 
 from api.config import get_config
 from api.deps import Admin, OperadorActual, SesionBD
-from api.models import BlacklistFace
+from api.models import BlacklistFace, FechasEnUtc
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/blacklist/faces", tags=["lista negra"])
 MAX_BYTES = 8 * 1024 * 1024
 
 
-class RostroLeido(BaseModel):
+class RostroLeido(FechasEnUtc, BaseModel):
     id: int
     label: str
     reason: str
