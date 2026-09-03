@@ -35,13 +35,56 @@ log = logging.getLogger("api")
 cfg = get_config()
 
 
+async def _purga_periodica() -> None:
+    """Aplica la politica de retencion cada 24 h mientras la API este arriba.
+
+    Va dentro del proceso en vez de depender solo de un cron porque el borrado
+    de datos personales no puede quedar sujeto a que alguien se acuerde de
+    configurarlo. El cron de tools/purgar_datos.py sigue siendo util como red
+    de seguridad si el servidor se reinicia a menudo.
+    """
+    import asyncio
+
+    from sqlmodel import Session
+
+    from api.database import engine
+    from api.retention import Politica, formatear, purgar
+
+    politica = Politica()
+    log.info("Purga automatica cada 24 h -- politica: %s", politica.resumen())
+    while True:
+        try:
+            # A dormir primero: al arrancar la API conviene atender peticiones,
+            # no bloquearse purgando.
+            await asyncio.sleep(24 * 3600)
+            # La purga toca el disco y la BD; en un hilo aparte para no frenar
+            # el bucle de eventos mientras corre.
+            def _tarea():
+                with Session(engine) as s:
+                    return purgar(s, politica)
+
+            cuenta = await asyncio.to_thread(_tarea)
+            log.info("Purga automatica: %s", formatear(cuenta, simular=False))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - nunca debe tumbar la API
+            log.error("Fallo la purga automatica: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     init_db()
     log.info("Token de ingesta del worker: %s...%s",
              cfg.ingest_token[:6], cfg.ingest_token[-4:])
     log.info("Dashboard en http://localhost:8000")
-    yield
+
+    tarea = asyncio.create_task(_purga_periodica())
+    try:
+        yield
+    finally:
+        tarea.cancel()
 
 
 app = FastAPI(

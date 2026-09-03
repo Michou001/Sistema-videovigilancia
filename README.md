@@ -234,7 +234,7 @@ tracking se rompía en cada uno, sin emitir un solo evento.
 | 3 | Plataforma web + lista negra + alerta end-to-end | ✅ Hecho |
 | 4 | Rostros con InsightFace + lista negra biométrica | ✅ Hecho¹ |
 | 5 | Armas con YOLO11 + confirmación temporal | ✅ Hecho² |
-| 6 | Retención, métricas, privacidad | ⬜ |
+| 6 | Retención, privacidad, despliegue 24/7 | ✅ Hecho |
 
 > ² **Solo armas blancas por ahora.** Funciona con `knife`, `scissors` y
 > `baseball bat` de COCO, sin entrenar nada. **COCO no tiene armas de fuego**:
@@ -341,10 +341,66 @@ Dos trampas encontradas midiendo, ambas silenciosas:
 
 ---
 
+## Alcance de lectura de placas (medido)
+
+El sistema necesita que la placa mida **≥48 píxeles de ancho** para leerla —
+medido sobre placas mexicanas reales con este modelo y este OCR. Detecta desde
+25 px, pero detectar no sirve de nada si no se puede leer.
+
+Traducido a distancia, con placa de frente:
+
+| Lente | Sub 1280px | **Main 3200px** |
+|---|---|---|
+| 2.8 mm (gran angular) | 3.1 m | **7.7 m** |
+| 4 mm (estándar) | 4.5 m | **11.3 m** |
+| 6 mm (teleobjetivo) | 8.0 m | **20.0 m** |
+
+En ángulo de 45° multiplica por 0.7. Y **48 px es el mejor caso**: en las
+imágenes de prueba la dispersión fue grande, así que para instalar conviene
+usar el doble de margen (~100 px), lo que corta las distancias a la mitad.
+
+Reproducible con:
+
+```bash
+python tools/calibrar_distancia.py
+```
+
+No hace falta cinta métrica: reduce fotos reales de placas para simular
+distancia. Tres conclusiones prácticas: **usa el main stream** para placas, **el
+lente manda más que el modelo**, y **apunta la cámara al carril**, no al
+estacionamiento entero desde una esquina.
+
 ## Privacidad
 
 Los embeddings faciales son **datos personales sensibles** bajo la LFPDPPP.
-Requieren aviso de privacidad visible en el punto de captura, consentimiento
-expreso, finalidad acotada y política de retención. `data/` y `.env` están en
-`.gitignore`: las capturas de rostros y placas no deben salir de la máquina ni
-llegar a un repositorio.
+
+**Decisión de diseño central: los embeddings de personas que NO están en la
+lista negra no se guardan nunca.** Se calculan en memoria, se comparan y se
+descartan. Guardarlos convertiría el sistema en una base de datos biométrica de
+todo el que pase frente a la cámara, sin finalidad que lo justifique.
+
+Retención por capas, con purga automática cada 24 h:
+
+| Dato | Plazo |
+|---|---|
+| Fotos de eventos sin coincidencia | 7 días |
+| Eventos sin coincidencia (solo texto) | 30 días |
+| Alertas y su evidencia | 1 año |
+
+Para responder *"¿pasó el coche ABC-123 el martes?"* basta el texto; la foto no
+aporta y sí es un dato personal de alguien que no hizo nada.
+
+```bash
+python tools/purgar_datos.py --simular
+```
+
+Ver **[docs/privacidad.md](docs/privacidad.md)** para las obligaciones legales
+al instalarlo, incluyendo el caso de menores de edad en un entorno escolar.
+
+## Despliegue
+
+Para pasarlo a un servidor 24/7 (systemd, varias cámaras, checklist de
+producción): **[docs/despliegue.md](docs/despliegue.md)**.
+
+El código corre igual en Windows y Linux; los parches específicos de Windows
+están condicionados por plataforma.

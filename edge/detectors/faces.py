@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from typing import Any, Optional
 
@@ -48,6 +49,14 @@ def configurar_onnx_gpu() -> None:
     global _onnx_configurado
     if _onnx_configurado:
         return
+    _onnx_configurado = True
+
+    # os.add_dll_directory solo existe en Windows: es el mecanismo de busqueda
+    # de DLLs de ese sistema. En Linux las bibliotecas de CUDA se resuelven por
+    # LD_LIBRARY_PATH o por los paquetes nvidia-*-cu12 de pip, sin intervencion.
+    if sys.platform != "win32":
+        return
+
     try:
         import torch
 
@@ -56,7 +65,6 @@ def configurar_onnx_gpu() -> None:
             os.add_dll_directory(ruta)
     except Exception as e:  # noqa: BLE001
         log.debug("No se pudo anadir el directorio de DLLs de torch: %s", e)
-    _onnx_configurado = True
 
 
 class FaceEmbedder:

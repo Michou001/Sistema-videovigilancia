@@ -84,7 +84,18 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult, session) -> tuple[E
     )
     session.add(fila)
 
-    if evento.embedding:
+    # MINIMIZACION DE DATOS BIOMETRICOS
+    #
+    # El embedding facial solo se guarda si la persona COINCIDIO con la lista
+    # negra. Si no coincidio, ya cumplio su unica funcion -- ser comparado -- y
+    # conservarlo no aporta nada: no se puede consultar por rostro despues, y
+    # nadie va a preguntar "quien mas paso por aqui".
+    #
+    # Guardarlo convertiria el sistema en una base de datos biometrica de todo
+    # el que pase frente a la camara. Bajo la LFPDPPP eso es tratamiento de
+    # datos sensibles sin finalidad que lo justifique, y ademas crea un activo
+    # que hay que proteger. Se descarta en memoria y no toca el disco.
+    if evento.embedding and resultado.severity != Severity.INFO:
         session.add(FaceEmbedding(
             event_id=evento.event_id,
             vector=np.asarray(evento.embedding, dtype=np.float32).tobytes(),
