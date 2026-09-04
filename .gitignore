@@ -41,3 +41,7 @@ videos/
 # Modelos descargables (se bajan solos, no versionar)
 models/yolo11n.pt
 models/yolo11*.pt
+
+# Copias del .env: contienen credenciales de la camara
+.env.*
+!.env.example
