@@ -32,6 +32,30 @@ logging.basicConfig(
 )
 log = logging.getLogger("api")
 
+
+class _SinRuidoDePreview(logging.Filter):
+    """Quita del log de acceso las subidas de frames de la vista en vivo.
+
+    Cada frame es un POST, asi que uvicorn escribia PREVIEW_FPS lineas por
+    segundo -- 10 con la configuracion habitual, y todas identicas. La consola
+    de la API dejaba de servir para lo que importa (alertas, errores, quien
+    entra) porque el 80% era eso.
+
+    Solo se silencian las que salieron BIEN: un 4xx/5xx en el preview sigue
+    apareciendo, que es cuando el log hace falta.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 5:
+            return True
+        ruta, codigo = args[2], args[4]
+        return not (isinstance(ruta, str) and ruta.startswith("/api/preview/")
+                    and isinstance(codigo, int) and codigo < 400)
+
+
+logging.getLogger("uvicorn.access").addFilter(_SinRuidoDePreview())
+
 cfg = get_config()
 
 

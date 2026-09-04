@@ -208,7 +208,12 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
             ultimo_reporte = inicio
             frames = 0
 
-            for frame in fuente.frames(max_fps=cfg.infer_fps):
+            # esperar_cortes: un corte de la camara NO termina el worker. Es un
+            # sistema que corre sin nadie mirando; si un parpadeo de red lo
+            # apaga, nadie se entera hasta que alguien revisa al dia siguiente.
+            # El diagnostico usa el valor por defecto (terminar), que es lo que
+            # se quiere de una herramienta que mide y sale.
+            for frame in fuente.frames(max_fps=cfg.infer_fps, esperar_cortes=True):
                 if _detener:
                     break
                 frames += 1
@@ -303,6 +308,15 @@ def main() -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # httpx escribe una linea INFO por cada peticion. Con la vista en vivo eso
+    # son PREVIEW_FPS lineas por segundo (10 con la configuracion actual), y el
+    # reporte periodico de deteccion -- lo unico que de verdad se mira aqui --
+    # queda enterrado. No aporta nada que el worker no diga mejor por su cuenta:
+    # los fallos de envio ya los reporta el sink y el preview con su propio
+    # mensaje. Se deja en WARNING para no perder los problemas reales.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     signal.signal(signal.SIGINT, _manejar_senal)
 
     if args.ventana:

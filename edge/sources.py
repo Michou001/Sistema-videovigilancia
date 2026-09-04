@@ -131,19 +131,54 @@ class FrameSource(ABC):
     def status(self) -> SourceStatus:
         ...
 
-    def frames(self, max_fps: Optional[float] = None):
+    @property
+    def reconectando(self) -> bool:
+        """Si un corte es temporal y la fuente esta intentando recuperarse.
+
+        Una fuente que no sabe reconectar (un archivo) responde False: para ella
+        quedarse sin frames es el final de verdad.
+        """
+        return False
+
+    def frames(self, max_fps: Optional[float] = None, *,
+               esperar_cortes: bool = False):
         """Generador de frames con limitador de tasa opcional.
 
         `max_fps` es la tasa de INFERENCIA deseada. En una fuente en vivo los
         frames sobrantes simplemente se descartan (siempre te quedas con el mas
         reciente). En un archivo se respetan todos para no perder informacion.
+
+        `esperar_cortes` decide que hacer cuando la camara deja de entregar:
+
+          False (por defecto) -- el generador termina. Es lo correcto para un
+            archivo (se acabo) y para el diagnostico, que debe reportar y salir
+            en vez de quedarse colgado esperando una camara que no responde.
+
+          True -- el corte se trata como temporal mientras la fuente siga
+            reconectando. Es lo que quiere el worker: una camara que parpadea a
+            las tres de la manana no debe apagar el sistema hasta que alguien lo
+            note al dia siguiente.
         """
         min_interval = (1.0 / max_fps) if (max_fps and self.is_live) else 0.0
         next_at = 0.0
+        cortado = False
         while True:
             frame = self.read()
             if frame is None:
+                if esperar_cortes and self.reconectando:
+                    # read() ya dejo su aviso en el log; aqui solo se insiste.
+                    if not cortado:
+                        log.warning("[%s] sin imagen; se sigue esperando a que "
+                                    "la fuente vuelva", getattr(self, "name", "fuente"))
+                        cortado = True
+                    continue
                 return
+            if cortado:
+                log.info("[%s] imagen recuperada", getattr(self, "name", "fuente"))
+                cortado = False
+                # El ritmo se recalcula desde cero: arrastrar el objetivo de
+                # antes del corte dispararia una rafaga de frames al volver.
+                next_at = 0.0
             now = time.monotonic()
             if now < next_at:
                 # Omitido por el limitador de fps: esperado, no es un fallo.
@@ -255,10 +290,37 @@ class LiveSource(FrameSource):
                     if self._status.frames_grabbed:  # no contar la conexion inicial
                         self._status.reconnects += 1
 
-            ok, frame = self._cap.read()
+            # OpenCV NO siempre devuelve ok=False cuando el stream se rompe: con
+            # el backend de FFmpeg hay fallos de RTSP que suben como excepcion
+            # de C++. Sin capturarla, la excepcion mata este hilo -- y con el la
+            # reconexion que esta doce lineas mas abajo, aunque este perfecta.
+            #
+            # El sintoma es enganoso: el hilo muere en silencio, el consumidor
+            # deja de recibir frames, read() agota su espera y el worker termina
+            # "bien", con codigo 0 y sus estadisticas impresas. Parece un cierre
+            # ordenado y en realidad es una caida. Medido dos veces contra una
+            # Hikvision: a los 9 minutos y a las 2 horas, siempre con
+            # `0 reconexiones` en el resumen -- la pista de que nunca se intento.
+            #
+            # Se captura Exception y no solo cv2.error a proposito: este hilo es
+            # el que sostiene todo el sistema, y cualquier excepcion que se
+            # escape aqui lo apaga sin que nadie se entere. Es preferible
+            # reconectar de mas que quedarse ciego.
+            try:
+                ok, frame = self._cap.read()
+            except Exception as e:  # noqa: BLE001
+                log.warning("[%s] error al leer del stream (%s: %s), reconectando",
+                            self.name, type(e).__name__, e)
+                ok, frame = False, None
+
             if not ok or frame is None:
                 log.warning("[%s] se perdio el stream, reconectando", self.name)
-                self._cap.release()
+                # release() tambien puede lanzar sobre un handle ya roto, y aqui
+                # eso volveria a matar el hilo por la misma via.
+                try:
+                    self._cap.release()
+                except Exception:  # noqa: BLE001
+                    pass
                 self._cap = None
                 with self._cond:
                     self._status.connected = False
@@ -326,6 +388,18 @@ class LiveSource(FrameSource):
     def status(self) -> SourceStatus:
         with self._cond:
             return self._status
+
+    @property
+    def reconectando(self) -> bool:
+        """True mientras el hilo lector siga vivo y con reconexion activada.
+
+        Si el hilo murio, un corte ya no es temporal: no queda nadie que pueda
+        recuperar la imagen, y el consumidor debe terminar en vez de esperar
+        para siempre a algo que no va a pasar.
+        """
+        return (self.reconnect
+                and not self._stop.is_set()
+                and self._thread.is_alive())
 
     def wait_until_ready(self, timeout: float = 15.0) -> bool:
         """Bloquea hasta que llegue el primer frame. Util al arrancar para fallar
