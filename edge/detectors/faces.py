@@ -35,6 +35,7 @@ import numpy as np  # noqa: E402
 
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector
+from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
 from edge.tracking import Deteccion, IoUTracker, Track
 from shared.events import BBox, DetectionEvent, EventType
@@ -163,16 +164,21 @@ class FaceDetector(Detector):
         self.cfg = cfg
         self.embedder = FaceEmbedder.compartido(cfg)
         self.tracker = IoUTracker(iou_min=0.3, max_age=20, min_hits=3)
+        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
+            if cfg.snapshot_hd_enabled else None
 
         self._frame_idx = 0
         self._eventos_emitidos = 0
         self._descartados_pequenos = 0
         self._ms_inferencia = 0.0
+        self._forma_frame: tuple[int, int] = (0, 0)
+        self._hd_usados = 0
 
     # ----------------------------------------------------------------------
 
     def procesar(self, frame: FrameInfo) -> list[DetectionEvent]:
         self._frame_idx += 1
+        self._forma_frame = frame.frame.shape[:2]
 
         t0 = time.perf_counter()
         rostros = self.embedder.detectar(frame.frame)
@@ -204,6 +210,16 @@ class FaceDetector(Detector):
                                                       dtype=np.float32)
                 track.state["recorte"] = self._recortar(frame.frame, rostro.bbox)
                 track.state["det_score"] = float(rostro.det_score)
+                track.state["bbox_bajo"] = tuple(float(v) for v in rostro.bbox)
+
+                # Se pide UNA sola vez por track, en la primera deteccion que
+                # ya vale la pena mejorar -- no en cada frame que mejora la
+                # calidad, que dispararia una peticion HTTP por frame. Se pide
+                # temprano (la persona sigue en cuadro) porque para cuando el
+                # track cierre y se arme el evento pueden haber pasado 2-3
+                # segundos, tiempo de sobra para que ya se haya ido.
+                if self.snapshot_hd is not None and "hd_future" not in track.state:
+                    track.state["hd_future"] = self.snapshot_hd.pedir()
 
         eventos = []
         for track in self.tracker.recoger_expirados():
@@ -253,7 +269,44 @@ class FaceDetector(Detector):
         x2, y2 = min(ancho, x2 + mx), min(alto, y2 + my)
         return frame[y1:y2, x1:x2].copy()
 
+    def _mejorar_con_hd(self, track: Track) -> None:
+        """Si ya llego la foto en alta resolucion pedida durante el track,
+        reemplaza el embedding y el recorte por una version mas nitida.
+
+        No vuelve a correr sobre el frame HD completo (3200x1800): busca solo
+        en la region donde ya se sabe que estaba el rostro, escalada desde las
+        coordenadas del frame de deteccion, con margen generoso porque la foto
+        se pidio uno o varios frames antes de este cierre y la persona pudo
+        moverse un poco. Si no aparece nadie ahi (se fue, o la foto tardo
+        demasiado), se deja el recorte de baja resolucion tal cual: nunca es
+        peor que lo que ya se tenia.
+        """
+        frame_hd = SnapshotHD.resultado_listo(track.state.get("hd_future"))
+        bbox_bajo = track.state.get("bbox_bajo")
+        if frame_hd is None or frame_hd.size == 0 or bbox_bajo is None:
+            return
+
+        x1, y1, x2, y2 = escalar_bbox(bbox_bajo, self._forma_frame, frame_hd.shape[:2], margen=0.6)
+        if x2 <= x1 or y2 <= y1:
+            return
+        region = frame_hd[y1:y2, x1:x2]
+        if region.size == 0:
+            return
+
+        rostros_hd = self.embedder.detectar(region)
+        if not rostros_hd:
+            return
+        mejor = max(rostros_hd, key=lambda r: (r.bbox[2] - r.bbox[0]) * (r.bbox[3] - r.bbox[1]))
+        if (mejor.bbox[2] - mejor.bbox[0]) < self.MIN_ANCHO_ROSTRO:
+            return
+
+        track.state["embedding"] = np.asarray(mejor.normed_embedding, dtype=np.float32)
+        track.state["recorte"] = self._recortar(region, mejor.bbox)
+        track.state["det_score"] = float(mejor.det_score)
+        self._hd_usados += 1
+
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
+        self._mejorar_con_hd(track)
         embedding = track.state.get("embedding")
         if embedding is None:
             return None
@@ -296,6 +349,10 @@ class FaceDetector(Detector):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 140, 0), 2)
         return frame
 
+    def cerrar(self) -> None:
+        if self.snapshot_hd is not None:
+            self.snapshot_hd.cerrar()
+
     @property
     def stats(self) -> dict[str, Any]:
         n = max(1, self._frame_idx)
@@ -306,6 +363,7 @@ class FaceDetector(Detector):
             "descartados_pequenos": self._descartados_pequenos,
             "ms_inferencia_promedio": round(self._ms_inferencia / n, 1),
             "provider": self.embedder.provider,
+            "evidencia_hd_usada": self._hd_usados,
         }
 
 

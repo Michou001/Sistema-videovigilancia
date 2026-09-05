@@ -48,6 +48,7 @@ import numpy as np  # noqa: E402
 
 from edge.config import BASE_DIR, EdgeConfig  # noqa: E402
 from edge.detectors.base import Detector  # noqa: E402
+from edge.snapshot_hd import SnapshotHD, escalar_bbox  # noqa: E402
 from edge.sources import FrameInfo  # noqa: E402
 from edge.tracking import Deteccion, IoUTracker, Track  # noqa: E402
 from shared.events import BBox, DetectionEvent, EventType  # noqa: E402
@@ -106,6 +107,9 @@ class PlateDetector(Detector):
         self.reader = easyocr.Reader(["es", "en"], gpu=(self.device == "cuda"), verbose=False)
 
         self.tracker = IoUTracker(iou_min=0.25, max_age=16, min_hits=3)
+        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
+            if cfg.snapshot_hd_enabled else None
+
         self._frame_idx = 0
         self._ocr_ejecutados = 0
         self._eventos_emitidos = 0
@@ -113,6 +117,8 @@ class PlateDetector(Detector):
         self._ms_inferencia = 0.0
         self._ms_ocr = 0.0
         self._emitidas: dict[str, float] = {}  # placa normalizada -> ts del ultimo evento
+        self._forma_frame: tuple[int, int] = (0, 0)
+        self._hd_usados = 0
 
     def _purgar_emitidas(self, ahora: float) -> None:
         """Evita que el diccionario de deduplicacion crezca sin limite en un
@@ -127,6 +133,7 @@ class PlateDetector(Detector):
     def procesar(self, frame: FrameInfo) -> list[DetectionEvent]:
         self._frame_idx += 1
         alto, ancho = frame.frame.shape[:2]
+        self._forma_frame = (alto, ancho)
 
         # 1. Deteccion
         t0 = time.perf_counter()
@@ -198,6 +205,13 @@ class PlateDetector(Detector):
         if recorte.size == 0:
             return False
 
+        # Se pide UNA vez por track, en el primer intento de OCR -- temprano,
+        # mientras el vehiculo sigue en cuadro. Es solo para la EVIDENCIA que
+        # ve el operador; el OCR sigue leyendo del recorte normal, esto no le
+        # cambia nada a la precision de lectura.
+        if self.snapshot_hd is not None and "hd_future" not in track.state:
+            track.state["hd_future"] = self.snapshot_hd.pedir()
+
         t0 = time.perf_counter()
         try:
             resultados = self.reader.readtext(self._preparar(recorte))
@@ -216,6 +230,7 @@ class PlateDetector(Detector):
                 if conf > mejor:
                     track.state["mejor_conf"] = float(conf)
                     track.state["recorte"] = recorte.copy()
+                    track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
         return True
 
     def _preparar(self, recorte: np.ndarray) -> np.ndarray:
@@ -238,6 +253,31 @@ class PlateDetector(Detector):
         return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
     # -- Construccion del evento -------------------------------------------
+
+    def _recorte_hd_o_normal(self, track: Track) -> Optional[np.ndarray]:
+        """Si ya llego la foto HD pedida durante el track, recorta la misma
+        region (escalada) de ahi en vez de usar el recorte de baja resolucion.
+
+        A diferencia de rostros, aqui no hace falta volver a correr el
+        detector: ya se sabe donde estaba la placa (el bbox del momento de
+        mejor lectura), asi que es un recorte geometrico simple. No toca el
+        texto ya leido -- el OCR ya corrio sobre el recorte normal -- esto
+        solo mejora que tan clara se ve la evidencia guardada.
+        """
+        frame_hd = SnapshotHD.resultado_listo(track.state.get("hd_future"))
+        bbox_bajo = track.state.get("bbox_bajo")
+        if frame_hd is None or frame_hd.size == 0 or bbox_bajo is None:
+            return track.state.get("recorte")
+
+        x1, y1, x2, y2 = escalar_bbox(bbox_bajo, self._forma_frame, frame_hd.shape[:2], margen=0.3)
+        if x2 <= x1 or y2 <= y1:
+            return track.state.get("recorte")
+        recorte_hd = frame_hd[y1:y2, x1:x2]
+        if recorte_hd.size == 0:
+            return track.state.get("recorte")
+
+        self._hd_usados += 1
+        return recorte_hd
 
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
         """Consolida un track terminado en un unico evento."""
@@ -294,7 +334,7 @@ class PlateDetector(Detector):
             },
         )
 
-        recorte = track.state.get("recorte")
+        recorte = self._recorte_hd_o_normal(track)
         if recorte is not None:
             ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
             cv2.imwrite(str(ruta), recorte)
@@ -333,6 +373,8 @@ class PlateDetector(Detector):
         return frame
 
     def cerrar(self) -> None:
+        if self.snapshot_hd is not None:
+            self.snapshot_hd.cerrar()
         try:
             import torch
 
@@ -353,6 +395,7 @@ class PlateDetector(Detector):
             "duplicados_suprimidos": self._duplicados_suprimidos,
             "ms_inferencia_promedio": round(self._ms_inferencia / n, 1),
             "ms_ocr_promedio": round(self._ms_ocr / max(1, self._ocr_ejecutados), 1),
+            "evidencia_hd_usada": self._hd_usados,
         }
 
 

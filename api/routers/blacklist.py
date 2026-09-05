@@ -11,12 +11,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import col, select
 
 from api.deps import Admin, OperadorActual, SesionBD
 from api.models import BlacklistPlate, FechasEnUtc
+from api.retroactive import reescanear_placa
 from shared.plates import es_placa_valida, formatear, normalizar
 
 log = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def listar(session: SesionBD, _: OperadorActual, incluir_inactivas: bool = False
 
 
 @router.post("", response_model=PlacaLeida, status_code=status.HTTP_201_CREATED)
-def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin):
+def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: BackgroundTasks):
     valida, limpio, _ = es_placa_valida(datos.plate)
     if not valida:
         raise HTTPException(
@@ -94,6 +95,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin):
         session.commit()
         session.refresh(existente)
         log.info("Placa %s reactivada en lista negra por %s", existente.plate, admin.username)
+        tareas.add_task(reescanear_placa, existente)
         return existente
 
     registro = BlacklistPlate(
@@ -109,6 +111,9 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin):
     session.commit()
     session.refresh(registro)
     log.info("Placa %s agregada a lista negra por %s", registro.plate, admin.username)
+    # En segundo plano: si esta placa ya habia pasado antes de hoy, que el
+    # operador se entere sin tener que acordarse de revisarlo el mismo.
+    tareas.add_task(reescanear_placa, registro)
     return registro
 
 

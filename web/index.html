@@ -292,6 +292,33 @@
   #banner .d { font-size: 13px; opacity: .92; }
   #banner button { background: rgba(0,0,0,.28); color: #fff; }
 
+  /* ---------- Avisos (warning): notorios pero no tan alarmantes como el
+     banner critico. Flotan en una esquina y se autodescartan -- a diferencia
+     del banner, que exige "Entendido" porque un arma o un match de lista
+     negra si amerita bloquear al operador un segundo. Un movimiento subito
+     amerita que lo note, no que lo detenga. ---------- */
+  #toasts {
+    position: fixed; right: 18px; bottom: 18px; z-index: 70;
+    display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 36px));
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    background: var(--panel2); border: 1px solid var(--aviso);
+    border-left: 4px solid var(--aviso); border-radius: 6px;
+    padding: 11px 14px; box-shadow: 0 10px 30px -8px rgba(0,0,0,.6);
+    animation: toast-entra .25s ease-out;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .toast .ico { font-size: 17px; line-height: 1; flex: none; margin-top: 1px; }
+  .toast .t { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--aviso); }
+  .toast .d { font-size: 12.5px; color: var(--texto); margin-top: 3px; }
+  .toast .cerrar { background: none; border: none; color: var(--tenue); padding: 0 0 0 6px;
+                   font-size: 15px; line-height: 1; }
+  .toast.saliendo { animation: toast-sale .25s ease-in forwards; }
+  @keyframes toast-entra { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes toast-sale { to { opacity: 0; transform: translateY(-6px); } }
+
   /* ---------- Modal ---------- */
   #modal { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
            backdrop-filter: blur(2px);
@@ -339,6 +366,7 @@
 
 <!-- ============ APP ============ -->
 <div id="app">
+  <div id="toasts"></div>
   <div id="barra">
   <!-- El banner va DENTRO de la barra pegada arriba, no flotando sobre ella:
        asi empuja la cabecera hacia abajo en vez de ocultar su navegacion. -->
