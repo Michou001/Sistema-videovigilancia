@@ -5,47 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sistema de Videovigilancia</title>
 <style>
+  /* Paleta propia de "centro de monitoreo": grafito frio en vez del gris casi
+     negro generico, cian tecnico en vez del azul de SaaS/GitHub, verde y ambar
+     con la saturacion de un panel de radar. La idea es que se lea como
+     instrumentacion de vigilancia, no como plantilla de dashboard generica. */
   :root {
-    --fondo: #0e1116;
-    --panel: #161b22;
-    --panel2: #1c232c;
-    --borde: #2a323d;
-    --texto: #e6edf3;
-    --tenue: #8b949e;
-    --acento: #2f81f7;
-    --critico: #f85149;
-    --aviso: #d29922;
-    --ok: #3fb950;
+    --fondo: #080b0f;
+    --fondo-alto: #0c1015;
+    --panel: #0f141b;
+    --panel2: #161d27;
+    --borde: #232d3a;
+    --borde-sutil: #1a222c;
+    --texto: #e9eef3;
+    --tenue: #7c8a99;
+    --acento: #2dd4c4;
+    --acento-fuerte: #14b8a6;
+    --critico: #ff4757;
+    --aviso: #f0a83a;
+    --ok: #34d399;
+    --fuente: "Segoe UI", -apple-system, system-ui, "Inter", sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { color-scheme: dark; }
   body {
-    background: var(--fondo); color: var(--texto);
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(1100px 620px at 12% -8%, rgba(45,212,196,.05), transparent 60%),
+      repeating-linear-gradient(180deg, rgba(255,255,255,.012) 0px, rgba(255,255,255,.012) 1px,
+                                 transparent 1px, transparent 3px),
+      var(--fondo);
+    color: var(--texto);
+    font: 14px/1.5 var(--fuente);
     min-height: 100vh;
   }
   button {
-    font: inherit; cursor: pointer; border: none; border-radius: 6px;
-    padding: 8px 14px; background: var(--acento); color: #fff; font-weight: 500;
+    font: inherit; cursor: pointer; border: 1px solid transparent; border-radius: 4px;
+    padding: 8px 14px; background: var(--acento); color: #04231f; font-weight: 600;
+    letter-spacing: .2px;
   }
-  button:hover { filter: brightness(1.15); }
-  button.sec { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde); }
-  button.peligro { background: var(--critico); }
+  button:hover { filter: brightness(1.1); }
+  button:active { filter: brightness(.95); }
+  button.sec { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde); font-weight: 500; }
+  button.peligro { background: var(--critico); color: #2a0506; }
   input, select, textarea {
-    font: inherit; background: var(--fondo); color: var(--texto);
-    border: 1px solid var(--borde); border-radius: 6px; padding: 8px 10px; width: 100%;
+    font: inherit; background: var(--fondo-alto); color: var(--texto);
+    border: 1px solid var(--borde); border-radius: 4px; padding: 9px 11px; width: 100%;
   }
-  input:focus, textarea:focus { outline: 2px solid var(--acento); outline-offset: -1px; }
+  input:focus, textarea:focus { outline: 2px solid var(--acento-fuerte); outline-offset: -1px; }
+  ::selection { background: rgba(45,212,196,.3); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--acento-fuerte); }
 
   /* ---------- Login ---------- */
-  #login { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
-  .tarjeta {
-    background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
-    padding: 32px; width: 100%; max-width: 380px;
+  #login {
+    display: grid; place-items: center; min-height: 100vh; padding: 20px;
+    background: radial-gradient(900px 500px at 50% 20%, rgba(45,212,196,.07), transparent 65%);
   }
-  .tarjeta h1 { font-size: 20px; margin-bottom: 4px; }
+  .marca { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; justify-content: center; }
+  .marca .ojo {
+    width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+    background: rgba(45,212,196,.1); border: 1px solid rgba(45,212,196,.35); flex: none;
+  }
+  .marca .ojo svg { width: 18px; height: 18px; }
+  .marca .nombre { font-size: 12px; letter-spacing: 1.5px; color: var(--tenue); text-transform: uppercase; }
+  .tarjeta {
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--borde); border-radius: 10px;
+    padding: 32px; width: 100%; max-width: 380px;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,.6);
+  }
+  .tarjeta h1 { font-size: 19px; margin-bottom: 4px; letter-spacing: .2px; }
   .tarjeta p.sub { color: var(--tenue); margin-bottom: 24px; font-size: 13px; }
   .campo { margin-bottom: 14px; }
-  .campo label { display: block; font-size: 12px; color: var(--tenue); margin-bottom: 5px; }
+  .campo label {
+    display: block; font-size: 11px; color: var(--tenue); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .6px; font-weight: 600;
+  }
   .error { color: var(--critico); font-size: 13px; margin-top: 12px; min-height: 18px; }
 
   /* ---------- Layout ---------- */
@@ -59,28 +96,43 @@
      linea a tres y el hueco reservado ya no correspondia. Asi no hay nada que
      medir ni que sincronizar. */
   #barra { position: sticky; top: 0; z-index: 30; }
+  #barra::after {
+    content: ""; display: block; height: 2px;
+    background: linear-gradient(90deg, var(--acento-fuerte), transparent 55%);
+    opacity: .55;
+  }
   header {
     display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--borde);
+    padding: 13px 20px; background: var(--panel); border-bottom: 1px solid var(--borde);
   }
-  header h1 { font-size: 15px; font-weight: 600; }
-  .estado { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tenue); }
-  .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); flex: none; }
-  .punto.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-  .punto.off { background: var(--critico); }
+  header h1 {
+    font-size: 14px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 9px;
+  }
+  header h1::before {
+    content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--acento);
+    box-shadow: 0 0 10px rgba(45,212,196,.7); flex: none;
+  }
+  .estado { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--tenue);
+            font-family: var(--mono); }
+  .punto { width: 7px; height: 7px; border-radius: 50%; background: var(--tenue); flex: none; }
+  .punto.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: latido 2s ease-in-out infinite; }
+  .punto.off { background: var(--critico); box-shadow: 0 0 8px var(--critico); }
+  @keyframes latido { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
   .crece { flex: 1; }
 
   /* ---------- Navegacion de los dos apartados ---------- */
-  nav.apartados { display: flex; gap: 4px; background: var(--fondo);
-                  border: 1px solid var(--borde); border-radius: 8px; padding: 3px; }
+  nav.apartados { display: flex; gap: 2px; background: var(--fondo);
+                  border: 1px solid var(--borde); border-radius: 6px; padding: 3px; }
   nav.apartados button {
     background: transparent; color: var(--tenue); padding: 6px 16px;
-    font-size: 13px; border-radius: 6px; display: flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    border-radius: 4px; display: flex; align-items: center; gap: 7px;
   }
-  nav.apartados button.activo { background: var(--panel2); color: var(--texto); }
+  nav.apartados button.activo { background: var(--panel2); color: var(--acento); }
   nav.apartados .globo {
-    background: var(--critico); color: #fff; font-size: 10px; font-weight: 700;
-    border-radius: 10px; padding: 0 6px; min-width: 17px; text-align: center;
+    background: var(--critico); color: #2a0506; font-size: 10px; font-weight: 700;
+    border-radius: 3px; padding: 0 6px; min-width: 17px; text-align: center;
   }
   nav.apartados .globo:empty, nav.apartados .globo[hidden] { display: none; }
 
@@ -89,22 +141,31 @@
 
   .metricas { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 20px 0; }
   .metrica {
-    background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
-    padding: 12px 18px; min-width: 130px;
+    position: relative; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+    padding: 12px 18px 12px 20px; min-width: 130px;
   }
-  .metrica .n { font-size: 24px; font-weight: 600; }
-  .metrica .e { font-size: 11px; color: var(--tenue); text-transform: uppercase; letter-spacing: .5px; }
+  .metrica::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--acento-fuerte); opacity: .8;
+  }
+  .metrica .n { font-size: 25px; font-weight: 700; font-family: var(--mono); }
+  .metrica .e { font-size: 10.5px; color: var(--tenue); text-transform: uppercase; letter-spacing: .8px; margin-top: 2px; }
+  .metrica.critica::before { background: var(--critico); }
   .metrica.critica .n { color: var(--critico); }
 
   main { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px 20px 40px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
-  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; }
   .panel > h2 {
-    font-size: 13px; font-weight: 600; padding: 12px 16px;
+    font-size: 11.5px; font-weight: 700; padding: 13px 16px;
+    text-transform: uppercase; letter-spacing: .7px;
     border-bottom: 1px solid var(--borde); display: flex; align-items: center; gap: 8px;
+    color: var(--tenue);
   }
-  .panel > h2 .crece { text-align: right; font-weight: 400; color: var(--tenue); font-size: 12px; }
+  .panel > h2 .crece { text-align: right; font-weight: 500; color: var(--tenue); font-size: 11px;
+                        text-transform: none; letter-spacing: 0; font-family: var(--mono); }
   .lista { max-height: 62vh; overflow-y: auto; }
   .vacio { padding: 32px 16px; text-align: center; color: var(--tenue); font-size: 13px; }
 
@@ -118,7 +179,7 @@
      los 640 px que manda el worker, que es peor que verla a su tamano. */
   #rejilla.una { grid-template-columns: minmax(330px, 760px); }
 
-  .camara { border: 1px solid var(--borde); border-radius: 8px; overflow: hidden;
+  .camara { border: 1px solid var(--borde); border-radius: 6px; overflow: hidden;
             background: var(--fondo); }
   /* Se llama 'destacada' y no 'alerta' porque .alerta ya existe abajo para las
      tarjetas del panel de alertas, con display:flex. Reutilizar ese nombre
@@ -126,15 +187,39 @@
   .camara.destacada { border-color: var(--critico); box-shadow: 0 0 0 1px var(--critico); }
   .camara-cab { display: flex; align-items: center; gap: 8px; padding: 8px 11px;
                 background: var(--panel2); font-size: 12px; }
-  .camara-cab .nom { font-weight: 600; }
-  .camara-cab .fps { color: var(--tenue); font-size: 11px; }
+  .camara-cab .nom { font-weight: 700; letter-spacing: .2px; }
+  .camara-cab .fps { color: var(--tenue); font-size: 10.5px; font-family: var(--mono); }
 
   .camara-video { position: relative; aspect-ratio: 16 / 9; background: #000;
-                  display: grid; place-items: center; }
+                  display: grid; place-items: center; overflow: hidden; }
   .camara-video img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .camara-video .sinsenal { color: var(--tenue); font-size: 12px; text-align: center;
                             padding: 0 16px; line-height: 1.7; }
   .camara-video .sinsenal .icono { font-size: 26px; display: block; opacity: .5; }
+  /* Esquinas de visor: motivo clasico de camara de seguridad. Es un pseudo-
+     elemento superpuesto (no un fondo, que la imagen taparia), asi que no hace
+     falta tocar el marcado que arma app.js. */
+  .camara-video::after {
+    content: ""; position: absolute; inset: 7px; pointer-events: none;
+    background-image:
+      linear-gradient(var(--acento) 2px, transparent 2px),
+      linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+      linear-gradient(var(--acento) 2px, transparent 2px),
+      linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+      linear-gradient(var(--acento) 2px, transparent 2px),
+      linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+      linear-gradient(var(--acento) 2px, transparent 2px),
+      linear-gradient(90deg, var(--acento) 2px, transparent 2px);
+    background-repeat: no-repeat;
+    background-size: 2px 13px, 13px 2px, 2px 13px, 13px 2px,
+                     2px 13px, 13px 2px, 2px 13px, 13px 2px;
+    background-position:
+      top left, top left,
+      top right, top right,
+      bottom left, bottom left,
+      bottom right, bottom right;
+    opacity: .55;
+  }
 
   /* Ultima deteccion sobreimpresa: el operador ve la camara y lo que acaba de
      encontrar sin mover los ojos a la otra columna. */
@@ -146,81 +231,95 @@
     opacity: 0; transition: opacity .35s;
   }
   .camara-video .ultima.visible { opacity: 1; }
-  .camara-video .ultima .v { font-weight: 700;
-                             font-family: ui-monospace, Consolas, monospace; }
-  .camara-video .ultima .c { color: #cbd5e1; }
+  .camara-video .ultima .v { font-weight: 700; font-family: var(--mono); }
+  .camara-video .ultima .c { color: #b9c4cf; }
 
   /* ---------- Detecciones en vivo ---------- */
   .deteccion { display: flex; gap: 11px; padding: 10px 14px;
-               border-bottom: 1px solid var(--borde); border-left: 3px solid transparent; }
-  .deteccion.critical { border-left-color: var(--critico); background: rgba(248,81,73,.06); }
-  .deteccion.warning  { border-left-color: var(--aviso);   background: rgba(210,153,34,.05); }
-  .deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 5px;
-                   background: var(--panel2); flex: none; }
-  .deteccion .sinfoto { width: 66px; height: 44px; border-radius: 5px; flex: none;
+               border-bottom: 1px solid var(--borde-sutil); border-left: 3px solid transparent; }
+  .deteccion.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
+  .deteccion.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
+  .deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 4px;
+                   background: var(--panel2); flex: none; border: 1px solid var(--borde); }
+  .deteccion .sinfoto { width: 66px; height: 44px; border-radius: 4px; flex: none;
                         background: var(--panel2); display: grid; place-items: center;
-                        font-size: 19px; opacity: .5; }
-  .deteccion .v { font-weight: 600; font-size: 13px;
-                  font-family: ui-monospace, Consolas, monospace; }
+                        font-size: 19px; opacity: .5; border: 1px solid var(--borde); }
+  .deteccion .v { font-weight: 700; font-size: 13px; font-family: var(--mono); }
   .deteccion .m { color: var(--tenue); font-size: 11px; margin-top: 3px; }
   .deteccion.nueva { animation: entra 1.2s ease-out; }
 
   /* ---------- Alertas ---------- */
   .alerta {
-    display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borde);
+    display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borde-sutil);
     border-left: 3px solid transparent;
   }
-  .alerta.critical { border-left-color: var(--critico); background: rgba(248,81,73,.06); }
-  .alerta.warning  { border-left-color: var(--aviso);   background: rgba(210,153,34,.05); }
-  .alerta.resuelta { opacity: .45; }
-  .alerta img { width: 78px; height: 52px; object-fit: cover; border-radius: 5px; background: var(--panel2); }
-  .alerta .t { font-weight: 600; font-size: 13px; }
+  .alerta.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
+  .alerta.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
+  .alerta.resuelta { opacity: .4; }
+  .alerta img { width: 78px; height: 52px; object-fit: cover; border-radius: 4px; background: var(--panel2);
+                border: 1px solid var(--borde); }
+  .alerta .t { font-weight: 700; font-size: 13px; }
   .alerta .d { color: var(--tenue); font-size: 12px; margin-top: 2px; }
-  .alerta .meta { color: var(--tenue); font-size: 11px; margin-top: 6px; }
+  .alerta .meta { color: var(--tenue); font-size: 11px; margin-top: 6px; font-family: var(--mono); }
   .alerta .acciones { display: flex; gap: 6px; margin-top: 8px; }
   .alerta .acciones button { padding: 4px 10px; font-size: 12px; }
 
   /* ---------- Eventos ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-size: 11px; color: var(--tenue); text-transform: uppercase;
-       letter-spacing: .5px; padding: 8px 16px; border-bottom: 1px solid var(--borde); }
-  td { padding: 9px 16px; border-bottom: 1px solid var(--borde); }
+  th { text-align: left; font-size: 10.5px; color: var(--tenue); text-transform: uppercase;
+       letter-spacing: .7px; font-weight: 700; padding: 9px 16px; border-bottom: 1px solid var(--borde); }
+  td { padding: 9px 16px; border-bottom: 1px solid var(--borde-sutil); }
   tr.nuevo { animation: entra 1.2s ease-out; }
-  @keyframes entra { from { background: rgba(47,129,247,.22); } to { background: transparent; } }
-  .etiqueta { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-  .etiqueta.critical { background: rgba(248,81,73,.18); color: var(--critico); }
-  .etiqueta.warning  { background: rgba(210,153,34,.18); color: var(--aviso); }
+  @keyframes entra { from { background: rgba(45,212,196,.18); } to { background: transparent; } }
+  .etiqueta { display: inline-block; padding: 2px 9px; border-radius: 3px; font-size: 10.5px;
+              font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .etiqueta.critical { background: rgba(255,71,87,.16); color: var(--critico); }
+  .etiqueta.warning  { background: rgba(240,168,58,.16); color: var(--aviso); }
   .etiqueta.info     { background: var(--panel2); color: var(--tenue); }
-  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .mono { font-family: var(--mono); }
 
   /* ---------- Banner critico ---------- */
   #banner {
     display: none;
-    background: var(--critico); color: #fff; padding: 14px 20px;
-    align-items: center; gap: 14px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    background: linear-gradient(90deg, #b91c2c, var(--critico));
+    color: #fff; padding: 14px 20px;
+    align-items: center; gap: 14px; box-shadow: 0 4px 24px rgba(255,71,87,.25);
     animation: pulso 1.1s ease-in-out infinite;
+    border-bottom: 1px solid rgba(255,255,255,.15);
   }
-  @keyframes pulso { 0%,100% { filter: brightness(1);} 50% { filter: brightness(1.22);} }
-  #banner .t { font-weight: 700; font-size: 15px; }
+  @keyframes pulso { 0%,100% { filter: brightness(1);} 50% { filter: brightness(1.2);} }
+  #banner .t { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: .5px; }
   #banner .d { font-size: 13px; opacity: .92; }
-  #banner button { background: rgba(0,0,0,.28); }
+  #banner button { background: rgba(0,0,0,.28); color: #fff; }
 
   /* ---------- Modal ---------- */
-  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.72);
+  #modal { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
+           backdrop-filter: blur(2px);
            z-index: 60; place-items: center; padding: 20px; }
   #modal .tarjeta { max-width: 460px; }
   .fila { display: flex; gap: 10px; align-items: center; padding: 9px 0;
-          border-bottom: 1px solid var(--borde); font-size: 13px; }
+          border-bottom: 1px solid var(--borde-sutil); font-size: 13px; }
   .pestanas { display: flex; gap: 6px; align-items: center; margin-bottom: 16px;
               border-bottom: 1px solid var(--borde); padding-bottom: 10px; }
-  .pest { background: transparent; color: var(--tenue); padding: 6px 12px; font-size: 13px; }
-  .pest.activa { background: var(--panel2); color: var(--texto); }
+  .pest { background: transparent; color: var(--tenue); padding: 6px 12px; font-size: 12px;
+          font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-radius: 4px; }
+  .pest.activa { background: var(--panel2); color: var(--acento); }
 </style>
 </head>
 <body>
 
 <!-- ============ LOGIN ============ -->
 <div id="login">
+  <div style="width:100%;max-width:380px">
+  <div class="marca">
+    <span class="ojo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#2dd4c4" stroke-width="1.8">
+        <path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+    </span>
+    <span class="nombre">Centro de Monitoreo</span>
+  </div>
   <form class="tarjeta" id="formLogin">
     <h1>Sistema de Videovigilancia</h1>
     <p class="sub">Detección de placas, rostros y armas</p>
@@ -235,6 +334,7 @@
     <button type="submit" style="width:100%;margin-top:8px">Entrar</button>
     <div class="error" id="errorLogin"></div>
   </form>
+  </div>
 </div>
 
 <!-- ============ APP ============ -->
