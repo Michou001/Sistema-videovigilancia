@@ -135,7 +135,12 @@ class WeaponDetector(Detector):
             self.personalizado = True
             log.info("Cargando modelo de armas afinado: %s", ruta.name)
         else:
-            ruta = BASE_DIR / "models" / "yolo11n.pt"
+            # "small" y no "nano": un cuchillo es un objeto pequeno y delgado,
+            # justo el caso donde el modelo mas chico de YOLO11 falla mas. Si
+            # no esta descargado, Ultralytics lo trae de su release oficial en
+            # GitHub la primera vez (mismo mecanismo que ya se usaba para el
+            # nano) -- no es un .pt de un tercero desconocido.
+            ruta = BASE_DIR / "models" / "yolo11s.pt"
             self.personalizado = False
             log.warning(
                 "No existe %s: usando YOLO11-COCO, que solo detecta ARMAS BLANCAS "
@@ -180,6 +185,7 @@ class WeaponDetector(Detector):
             persist=True,
             verbose=False,
             conf=self.cfg.weapon_conf,
+            imgsz=self.cfg.weapon_imgsz,
             classes=sorted(self.clases_arma) or None,
             device=self.device,
             tracker="bytetrack.yaml",

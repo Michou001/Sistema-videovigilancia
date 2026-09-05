@@ -61,6 +61,15 @@ class EdgeConfig:
 
     imgsz: int = field(default_factory=lambda: _env_int("IMGSZ", 640))
 
+    weapon_imgsz: int = field(default_factory=lambda: _env_int("WEAPON_IMGSZ", 960))
+    """Resolucion de inferencia SOLO para el detector de armas, aparte de IMGSZ.
+
+    Un cuchillo en una mano ocupa una fraccion minuscula del cuadro. Si se
+    reescala a 640 px como el resto de detectores, se encoge todavia mas y el
+    modelo pierde el poco detalle que tenia para distinguirlo. Subirlo a 960
+    cuesta mas computo, pero hay margen de sobra: los tres detectores juntos
+    usan ~50ms de un presupuesto de 125ms a 8 fps."""
+
     # --- Detectores activos ------------------------------------------------
     enable_plates: bool = field(default_factory=lambda: _env_bool("ENABLE_PLATES", True))
     enable_faces: bool = field(default_factory=lambda: _env_bool("ENABLE_FACES", False))
@@ -161,12 +170,33 @@ class EdgeConfig:
         try:
             import torch
 
-            return "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                return "cuda"
         except Exception:  # noqa: BLE001
             # No solo ImportError: una instalacion de torch a medias o sin los
             # DLL de CUDA truena con otras excepciones. Caer a CPU siempre es
             # preferible a que el worker no arranque.
-            return "cpu"
+            pass
+
+        # Sin esto, un worker corriendo por error con el Python global (sin
+        # CUDA) en vez del venv del proyecto simplemente se ve "lento" en la
+        # consola, sin ninguna pista de por que. Tres modelos (placas, rostros,
+        # armas) por CPU en cada frame es la causa mas comun de que la camara
+        # "no rinda": el cuello de botella no es la camara ni la red, es correr
+        # el interprete equivocado. Usa iniciar_worker.bat o activa el venv.
+        import sys
+
+        print("=" * 68, file=sys.stderr)
+        print("[!] SIN GPU: corriendo por CPU. Va a ir MUY lento (varios", file=sys.stderr)
+        print("    detectores por frame en CPU pueden tardar 10-20x mas que en GPU).",
+              file=sys.stderr)
+        print(f"    Interprete actual: {sys.executable}", file=sys.stderr)
+        print("    Si tienes GPU NVIDIA, seguramente estas corriendo con el", file=sys.stderr)
+        print("    Python del sistema en vez del venv del proyecto. Usa:", file=sys.stderr)
+        print("      iniciar_worker.bat   (o venv\\Scripts\\python.exe -m edge.worker)",
+              file=sys.stderr)
+        print("=" * 68, file=sys.stderr)
+        return "cpu"
 
 
 def load_config() -> EdgeConfig:
