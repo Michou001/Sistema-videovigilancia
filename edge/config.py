@@ -153,6 +153,16 @@ class EdgeConfig:
     snapshot_dir: Path = BASE_DIR / "data" / "snapshots"
     send_snapshot_b64: bool = field(default_factory=lambda: _env_bool("SEND_SNAPSHOT_B64", True))
 
+    snapshot_hd_enabled: bool = field(default_factory=lambda: _env_bool("SNAPSHOT_HD_ENABLED", True))
+    """Pide una foto del canal PRINCIPAL de la Hikvision (no el sub-stream de
+    deteccion) para guardar como evidencia de rostros, placas y movimiento.
+    Solo funciona si SOURCE es una URL rtsp:// con usuario y contrasena (o
+    sea, una Hikvision real). Con webcam o archivo de video no hace nada."""
+
+    snapshot_hd_channel: str = field(default_factory=lambda: os.getenv("SNAPSHOT_HD_CHANNEL", "101"))
+    """Canal ISAPI del stream principal. 101 es el de fabrica en Hikvision
+    para el primer canal; en un NVR con varias camaras seria 201, 301, etc."""
+
     # --- Vista en vivo en el dashboard -------------------------------------
     preview_enabled: bool = field(default_factory=lambda: _env_bool("PREVIEW_ENABLED", True))
     """Manda el frame anotado a la API para que el operador vea la camara en el

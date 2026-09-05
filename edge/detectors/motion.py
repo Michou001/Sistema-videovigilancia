@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
+from concurrent.futures import Future
 from typing import Any, Optional
 
 import cv2
@@ -36,6 +37,7 @@ import numpy as np
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector
 from edge.detectors.confirmacion import ConfirmacionTemporal
+from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
 from shared.events import BBox, DetectionEvent, EventType
 
@@ -69,6 +71,8 @@ class MotionAnomalyDetector(Detector):
         self.confirmador = ConfirmacionTemporal(
             cfg.motion_confirm_hits, cfg.motion_confirm_window
         )
+        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
+            if cfg.snapshot_hd_enabled else None
 
         # Cuantas posiciones recientes conservar por track para medir
         # velocidad. Comparar frames consecutivos amplifica el ruido normal
@@ -79,15 +83,19 @@ class MotionAnomalyDetector(Detector):
         self._ventana_posiciones = max(3, round(cfg.infer_fps) + 1)
         self._posiciones: dict[int, deque[tuple[float, float, float, float]]] = {}
         self._ultima_deteccion: dict[int, dict] = {}
+        self._hd_futures: dict[int, Future] = {}
 
         self._frame_idx = 0
         self._eventos_emitidos = 0
         self._ms_inferencia = 0.0
+        self._forma_frame: tuple[int, int] = (0, 0)
+        self._hd_usados = 0
 
     # ----------------------------------------------------------------------
 
     def procesar(self, frame: FrameInfo) -> list[DetectionEvent]:
         self._frame_idx += 1
+        self._forma_frame = frame.frame.shape[:2]
 
         t0 = time.perf_counter()
         resultados = self.model.track(
@@ -126,7 +134,16 @@ class MotionAnomalyDetector(Detector):
                     "velocidad": velocidad,
                     "ts": frame.ts,
                 }
-                self.confirmador.marcar(tid, velocidad >= self.cfg.motion_speed_threshold)
+                supera_umbral = velocidad >= self.cfg.motion_speed_threshold
+                self.confirmador.marcar(tid, supera_umbral)
+
+                # Se pide en cuanto empieza a acumular evidencia (no al
+                # confirmarse): la confirmacion tarda MOTION_CONFIRM_WINDOW
+                # frames (~0.6s a 8 fps), tiempo parecido a lo que tarda la
+                # foto HD en llegar -- para cuando el evento se emite, el
+                # future probablemente ya esta listo.
+                if supera_umbral and self.snapshot_hd is not None and tid not in self._hd_futures:
+                    self._hd_futures[tid] = self.snapshot_hd.pedir()
 
         # Igual que en weapons.py: un track que desaparece del frame cuenta
         # como fallo, y si la ventana entera queda vacia, se olvida.
@@ -137,6 +154,7 @@ class MotionAnomalyDetector(Detector):
                     self.confirmador.olvidar(tid)
                     self._posiciones.pop(tid, None)
                     self._ultima_deteccion.pop(tid, None)
+                    self._hd_futures.pop(tid, None)
 
         eventos = []
         for tid in vistos_ahora:
@@ -172,6 +190,27 @@ class MotionAnomalyDetector(Detector):
 
     # ----------------------------------------------------------------------
 
+    def _frame_evidencia(
+        self, tid: int, frame: FrameInfo, bbox: tuple[int, int, int, int]
+    ) -> tuple[np.ndarray, int, int, int, int]:
+        """Devuelve el frame donde dibujar la evidencia, y el bbox ya en las
+        coordenadas de ESE frame.
+
+        Si ya llego la foto HD pedida cuando este track empezo a acumular
+        evidencia, se usa esa (mas nitida para el operador) con el bbox
+        escalado. Si no -- todavia no llega, la fuente no es una Hikvision, o
+        el track nunca supero el umbral hasta este ultimo frame -- se usa el
+        frame normal tal cual, sin perder nada respecto al comportamiento
+        anterior.
+        """
+        frame_hd = SnapshotHD.resultado_listo(self._hd_futures.get(tid))
+        if frame_hd is None or frame_hd.size == 0:
+            return frame.frame.copy(), *bbox
+
+        x1, y1, x2, y2 = escalar_bbox(bbox, self._forma_frame, frame_hd.shape[:2], margen=0.0)
+        self._hd_usados += 1
+        return frame_hd.copy(), x1, y1, x2, y2
+
     def _construir_evento(self, tid: int, frame: FrameInfo) -> Optional[DetectionEvent]:
         datos = self._ultima_deteccion.get(tid)
         if datos is None:
@@ -202,9 +241,9 @@ class MotionAnomalyDetector(Detector):
             },
         )
 
-        vista = frame.frame.copy()
-        cv2.rectangle(vista, (x1, y1), (x2, y2), (0, 140, 255), 3)
-        cv2.putText(vista, f"MOVIMIENTO SUBITO {velocidad:.1f}x", (x1, max(20, y1 - 8)),
+        vista, ex1, ey1, ex2, ey2 = self._frame_evidencia(tid, frame, (x1, y1, x2, y2))
+        cv2.rectangle(vista, (ex1, ey1), (ex2, ey2), (0, 140, 255), 3)
+        cv2.putText(vista, f"MOVIMIENTO SUBITO {velocidad:.1f}x", (ex1, max(20, ey1 - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 140, 255), 2)
         ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
         cv2.imwrite(str(ruta), vista)
@@ -228,6 +267,8 @@ class MotionAnomalyDetector(Detector):
         return frame
 
     def cerrar(self) -> None:
+        if self.snapshot_hd is not None:
+            self.snapshot_hd.cerrar()
         try:
             import torch
 
@@ -243,6 +284,7 @@ class MotionAnomalyDetector(Detector):
         return {
             "frames": self._frame_idx,
             "tracks_activos": self.confirmador.activos,
+            "evidencia_hd_usada": self._hd_usados,
             "eventos_emitidos": self._eventos_emitidos,
             "descartados_sin_confirmar": self.confirmador.descartados_sin_confirmar,
             "ms_inferencia_promedio": round(self._ms_inferencia / n, 1),

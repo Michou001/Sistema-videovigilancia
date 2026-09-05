@@ -17,13 +17,14 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import col, select
 
 from api.config import get_config
 from api.deps import Admin, OperadorActual, SesionBD
 from api.models import BlacklistFace, FechasEnUtc
+from api.retroactive import reescanear_rostro
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ def listar(session: SesionBD, _: OperadorActual, incluir_inactivos: bool = False
 async def agregar(
     session: SesionBD,
     admin: Admin,
+    tareas: BackgroundTasks,
     label: str = Form(..., min_length=2, max_length=120),
     reason: str = Form(..., min_length=3, max_length=300),
     legal_basis: str = Form(..., min_length=3, max_length=300),
@@ -123,6 +125,11 @@ async def agregar(
 
     log.info("Rostro '%s' agregado a lista negra por %s (fundamento: %s)",
              label, admin.username, legal_basis)
+    # En segundo plano: revisa las fotos de rostros ya guardadas (7 dias) por
+    # si esta persona ya habia pasado antes de hoy. No recalcula nada si no
+    # hace falta -- ver api/retroactive.py sobre por que esto no se guarda
+    # como base de datos biometrica permanente.
+    tareas.add_task(reescanear_rostro, registro)
     return registro
 
 
