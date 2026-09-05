@@ -170,6 +170,10 @@ def construir_detectores(cfg: EdgeConfig) -> list:
         from edge.detectors.weapons import WeaponDetector
 
         detectores.append(WeaponDetector(cfg))
+    if cfg.enable_motion:
+        from edge.detectors.motion import MotionAnomalyDetector
+
+        detectores.append(MotionAnomalyDetector(cfg))
 
     if not detectores:
         raise RuntimeError("No hay ningun detector activo. Revisa ENABLE_* en el .env")

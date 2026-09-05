@@ -74,6 +74,11 @@ class EdgeConfig:
     enable_plates: bool = field(default_factory=lambda: _env_bool("ENABLE_PLATES", True))
     enable_faces: bool = field(default_factory=lambda: _env_bool("ENABLE_FACES", False))
     enable_weapons: bool = field(default_factory=lambda: _env_bool("ENABLE_WEAPONS", False))
+    """Apagado por defecto: COCO clasifica objetos limpios sobre fondo simple,
+    no un cuchillo en la mano de alguien en penumbra. Medido en pruebas reales:
+    no detecto. El codigo se deja listo para cuando exista un modelo entrenado
+    especificamente para armas (ver la Fase 5 del README)."""
+    enable_motion: bool = field(default_factory=lambda: _env_bool("ENABLE_MOTION", True))
 
     # --- Modelos -----------------------------------------------------------
     plate_model: Path = field(
@@ -93,6 +98,22 @@ class EdgeConfig:
     ocr_conf: float = field(default_factory=lambda: _env_float("OCR_CONF", 0.35))
     weapon_conf: float = field(default_factory=lambda: _env_float("WEAPON_CONF", 0.60))
     face_conf: float = field(default_factory=lambda: _env_float("FACE_CONF", 0.50))
+    motion_conf: float = field(default_factory=lambda: _env_float("MOTION_CONF", 0.45))
+    """Confianza para la deteccion de PERSONAS (clase 'person' de COCO), no del
+    movimiento en si. Es una de las clases mejor entrenadas de COCO -- a
+    diferencia de un cuchillo, aqui 0.45 es holgado, no arriesgado."""
+
+    motion_speed_threshold: float = field(
+        default_factory=lambda: _env_float("MOTION_SPEED_THRESHOLD", 2.5)
+    )
+    """Velocidad, en 'alturas de cuerpo por segundo', a partir de la cual un
+    desplazamiento se considera subito.
+
+    Se normaliza por la altura de la caja (no en pixeles crudos) para que una
+    persona lejos de la camara -- que se mueve pocos pixeles para el mismo
+    movimiento fisico -- no quede exenta, y una persona cerca no dispare por
+    simple cercania. Caminar normal ronda 0.8-1.2; correr o un movimiento
+    brusco (forcejeo, un golpe, un arranque subito) pasa de 2.5 con margen."""
 
     # --- Confirmacion temporal (anti falso positivo) ----------------------
     weapon_confirm_hits: int = field(default_factory=lambda: _env_int("WEAPON_CONFIRM_HITS", 4))
@@ -100,6 +121,13 @@ class EdgeConfig:
     """Un arma solo alerta si se sostiene en >=4 de los ultimos 6 frames del
     MISMO track. Sin esto, cualquier celular o desarmador dispara alarmas y el
     sistema se vuelve inservible por saturacion de falsos positivos."""
+
+    motion_confirm_hits: int = field(default_factory=lambda: _env_int("MOTION_CONFIRM_HITS", 3))
+    motion_confirm_window: int = field(default_factory=lambda: _env_int("MOTION_CONFIRM_WINDOW", 5))
+    """Un movimiento subito solo alerta si >=3 de las ultimas 5 lecturas de
+    velocidad del MISMO track superaron el umbral. La ventana es mas corta que
+    la de armas a proposito: un forcejeo o un golpe dura menos de un segundo,
+    y esperar una ventana larga significaria perderlo por completo."""
 
     # --- Agregacion de tracks ---------------------------------------------
     track_timeout_s: float = field(default_factory=lambda: _env_float("TRACK_TIMEOUT_S", 2.0))

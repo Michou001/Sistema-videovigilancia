@@ -379,8 +379,8 @@ function conectarWs() {
 /* Eventos                                                             */
 /* ------------------------------------------------------------------ */
 
-const ICONOS = { plate: '🚗', face: '👤', weapon: '🔪' };
-const NOMBRES = { plate: 'Placa', face: 'Rostro', weapon: 'Arma' };
+const ICONOS = { plate: '🚗', face: '👤', weapon: '🔪', anomaly: '🏃' };
+const NOMBRES = { plate: 'Placa', face: 'Rostro', weapon: 'Arma', anomaly: 'Movimiento' };
 
 function hora(iso) {
   return new Date(iso).toLocaleTimeString('es-MX', { hour12: false });
