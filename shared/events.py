@@ -26,9 +26,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class EventType(str, Enum):
     """Que tipo de deteccion produjo el evento."""
 
-    PLATE = "plate"    # placa vehicular + texto OCR
-    FACE = "face"      # rostro + embedding biometrico
-    WEAPON = "weapon"  # arma de fuego o arma blanca
+    PLATE = "plate"      # placa vehicular + texto OCR
+    FACE = "face"        # rostro + embedding biometrico
+    WEAPON = "weapon"    # arma de fuego o arma blanca
+    ANOMALY = "anomaly"  # movimiento subito/violento de una persona seguida
 
 
 class Severity(str, Enum):

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import deque
 from typing import Any, Optional
 
 import cv2
@@ -42,6 +41,7 @@ import numpy as np
 
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector
+from edge.detectors.confirmacion import ConfirmacionTemporal
 from edge.sources import FrameInfo
 from shared.events import BBox, DetectionEvent, EventType
 
@@ -63,62 +63,6 @@ NOMBRES_ES = {
     "rifle": "rifle",
     "weapon": "arma",
 }
-
-
-class ConfirmacionTemporal:
-    """Decide cuando una deteccion sostenida deja de ser ruido.
-
-    Lleva, por cada objeto seguido, una ventana deslizante de los ultimos M
-    frames marcando en cuales se le vio. El objeto se considera confirmado
-    cuando acumula N aciertos dentro de esa ventana.
-
-    Vive aparte del detector para poder probarse sin cargar ningun modelo:
-    es la pieza de la que depende que el sistema no genere alarmas falsas, y
-    esa merece pruebas propias.
-    """
-
-    def __init__(self, aciertos: int, ventana: int) -> None:
-        if aciertos > ventana:
-            raise ValueError("aciertos no puede ser mayor que la ventana")
-        self.aciertos = aciertos
-        self.ventana = ventana
-        self._historial: dict[int, deque[bool]] = {}
-        self._confirmados: set[int] = set()
-        self.descartados_sin_confirmar = 0
-
-    def marcar(self, tid: int, visto: bool) -> None:
-        self._historial.setdefault(tid, deque(maxlen=self.ventana)).append(visto)
-
-    def confirmado(self, tid: int) -> bool:
-        h = self._historial.get(tid)
-        return h is not None and sum(h) >= self.aciertos
-
-    def ya_alertado(self, tid: int) -> bool:
-        return tid in self._confirmados
-
-    def registrar_alerta(self, tid: int) -> None:
-        self._confirmados.add(tid)
-
-    def perdido(self, tid: int) -> bool:
-        """True si la ventana completa no tiene ni una aparicion."""
-        h = self._historial.get(tid)
-        return h is not None and len(h) == self.ventana and not any(h)
-
-    def olvidar(self, tid: int) -> None:
-        if self._historial.pop(tid, None) is not None and tid not in self._confirmados:
-            self.descartados_sin_confirmar += 1
-        self._confirmados.discard(tid)
-
-    def progreso(self, tid: int) -> tuple[int, int]:
-        h = self._historial.get(tid, ())
-        return sum(h), len(h)
-
-    @property
-    def activos(self) -> int:
-        return len(self._historial)
-
-    def tracks(self) -> list[int]:
-        return list(self._historial)
 
 
 class WeaponDetector(Detector):

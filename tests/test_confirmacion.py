@@ -1,11 +1,11 @@
-"""Pruebas de la confirmacion temporal de armas.
+"""Pruebas de la confirmacion temporal (armas y movimiento anomalo).
 
     python tests/test_confirmacion.py
 
 Esta es la pieza de la que depende que el sistema no genere alarmas falsas. Un
-detector de armas sin este filtro alerta con cualquier celular o botella, y
-tres alertas falsas bastan para que alguien apague el sistema. Por eso se
-prueba aparte, sin cargar ningun modelo.
+detector de armas o de movimiento sin este filtro alerta con cualquier
+celular, botella o tropezon, y tres alertas falsas bastan para que alguien
+apague el sistema. Por eso se prueba aparte, sin cargar ningun modelo.
 
 Convencion de las secuencias: cada caracter es un frame.
     'X' = el modelo vio el arma en ese frame
@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from edge.detectors.weapons import ConfirmacionTemporal  # noqa: E402
+from edge.detectors.confirmacion import ConfirmacionTemporal  # noqa: E402
 
 
 def _reproducir(secuencia: str, aciertos: int = 4, ventana: int = 6) -> tuple[bool, int]:

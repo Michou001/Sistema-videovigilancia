@@ -43,6 +43,7 @@ TITULOS = {
     EventType.PLATE: "Placa {valor} en lista negra",
     EventType.FACE: "Persona identificada: {valor}",
     EventType.WEAPON: "ARMA DETECTADA: {valor}",
+    EventType.ANOMALY: "Movimiento subito detectado",
 }
 
 

@@ -110,7 +110,7 @@ class Event(EnUtc, table=True):
     ts: datetime = Field(index=True)
     received_at: datetime = Field(default_factory=_utcnow)
 
-    type: str = Field(index=True, description="plate | face | weapon")
+    type: str = Field(index=True, description="plate | face | weapon | anomaly")
     track_id: Optional[int] = None
     value: str = Field(index=True)
     confidence: float
@@ -233,7 +233,7 @@ class Alert(EnUtc, table=True):
     event_id: str = Field(index=True, foreign_key="events.event_id")
     camera_id: str = Field(index=True)
 
-    type: str = Field(description="plate | face | weapon")
+    type: str = Field(description="plate | face | weapon | anomaly")
     severity: str = Field(index=True)
     title: str = Field(description="Resumen para el operador, ej. 'Placa ABC-123 en lista negra'")
     detail: Optional[str] = None

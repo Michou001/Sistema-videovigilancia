@@ -56,7 +56,7 @@ sistema-videovigilancia/
 │   ├── config.py        Configuración por variables de entorno
 │   ├── sources.py       webcam | archivo | RTSP con la misma interfaz
 │   ├── worker.py        Loop principal
-│   └── detectors/       placas (F2), rostros (F4), armas (F5)
+│   └── detectors/       placas (F2), rostros (F4), armas (F5, apagado), movimiento (F5b)
 ├── api/                 Plataforma web
 │   ├── main.py          App FastAPI + WebSocket de alertas
 │   ├── models.py        Esquema de base de datos
@@ -198,6 +198,13 @@ en `data/spool/` y se reenvían solos cuando la API vuelve (verificado).
 
 ### Detección de armas
 
+> ⚠️ **`ENABLE_WEAPONS=false` por defecto.** Probado contra la cámara real con
+> un cuchillo en mano, en pose y luz realistas (no la foto de producto con la
+> que se entrenó COCO): no lo detectó. El código se queda tal cual para cuando
+> exista un modelo afinado específicamente para armas — ver más abajo — pero
+> encenderlo hoy solo da falsa confianza. Mientras tanto, ver
+> [Detección de movimiento anómalo](#detección-de-movimiento-anómalo).
+
 El problema de esta fase **no es detectar, es no gritar en falso.** Un detector
 ingenuo alerta con cualquier celular, botella o desarmador que agarre alguien.
 Y una alerta falsa de arma manda a una persona a responder a una emergencia
@@ -233,6 +240,32 @@ COCO no tiene clase de pistola. Hace falta afinar un modelo:
 > pickle y **ejecutan código arbitrario al cargarse**. Entrena el tuyo o usa
 > fuentes oficiales.
 
+### Detección de movimiento anómalo
+
+En vez de clasificar el OBJETO (un cuchillo, en la pose exacta que aprendió el
+modelo), este detector mide el COMPORTAMIENTO: qué tan rápido se mueve una
+persona respecto a su propio tamaño en pantalla. Un forcejeo, un golpe, alguien
+corriendo hacia o desde algo, comparten una firma de velocidad muy por encima
+de caminar normal — sin importar qué traiga en la mano ni en qué ángulo.
+
+Usa YOLO11 estándar filtrado a la clase `person` de COCO (una de sus clases más
+confiables, a diferencia de un cuchillo) con tracking por ByteTrack. Por cada
+persona seguida, mide el desplazamiento de su centro entre el frame actual y
+~1 segundo atrás, normalizado por la altura de su propia caja — así una
+persona lejos de la cámara, que se mueve menos píxeles para el mismo
+movimiento físico, no queda exenta.
+
+| Variable | Qué hace |
+|---|---|
+| `MOTION_SPEED_THRESHOLD` | Velocidad, en alturas de cuerpo/segundo, que cuenta como súbita. Caminar normal ronda 0.8–1.2; el valor por defecto es 2.5 |
+| `MOTION_CONFIRM_HITS` / `MOTION_CONFIRM_WINDOW` | Misma confirmación temporal que armas (por defecto 3 de 5), pero con ventana más corta: un forcejeo dura menos de un segundo |
+
+Es una señal de **comportamiento, no de identidad**: no reemplaza a placas ni
+rostros, y como cualquier señal de comportamiento tiene falsos positivos
+razonables (alguien corriendo para alcanzar un camión). Por eso sale como
+`WARNING` y no `CRITICAL` — amerita que el operador mire, no una alarma
+automática.
+
 ### Pruebas
 
 ```bash
@@ -257,13 +290,16 @@ tracking se rompía en cada uno, sin emitir un solo evento.
 | 2 | Placas: módulo, tracking, agregación por track | ✅ Hecho |
 | 3 | Plataforma web + lista negra + alerta end-to-end | ✅ Hecho |
 | 4 | Rostros con InsightFace + lista negra biométrica | ✅ Hecho¹ |
-| 5 | Armas con YOLO11 + confirmación temporal | ✅ Hecho² |
+| 5 | Armas con YOLO11 + confirmación temporal | ⚠️ Desactivado² |
+| 5b | Movimiento anómalo (velocidad de persona seguida) | ✅ Hecho |
 | 6 | Retención, privacidad, despliegue 24/7 | ✅ Hecho |
 
-> ² **Solo armas blancas por ahora.** Funciona con `knife`, `scissors` y
-> `baseball bat` de COCO, sin entrenar nada. **COCO no tiene armas de fuego**:
-> para pistolas hace falta un modelo afinado (ver abajo). La lógica de
-> confirmación temporal está probada (10/10).
+> ² **Probado contra cámara real y no detectó.** COCO reconoce `knife`,
+> `scissors` y `baseball bat` en foto de producto, no un cuchillo en la mano de
+> alguien en penumbra. **COCO no tiene armas de fuego** tampoco: para eso hace
+> falta un modelo afinado (ver abajo). Queda apagado por defecto
+> (`ENABLE_WEAPONS=false`); la lógica de confirmación temporal en sí está
+> probada (10/10) y la reutiliza el detector de movimiento.
 >
 > ¹ **Pendiente de validar con rostros reales.** La lógica de coincidencia
 > biométrica está verificada con vectores sintéticos (vector idéntico → 100%,
@@ -280,7 +316,7 @@ hacer antes de confiar en el sistema:
 | Qué | Cómo |
 |---|---|
 | Umbral facial | Darse de alta con foto y verificar reconocimiento; ajustar `FACE_MATCH_THRESHOLD` |
-| Detección de armas | Mostrar un cuchillo a la cámara y medir falsos positivos con un celular en la mano |
+| Movimiento anómalo | Provocar un movimiento brusco real (no solo caminar) y ajustar `MOTION_SPEED_THRESHOLD` según los falsos positivos/negativos que salgan |
 | Lectura de placas | Apuntar la cámara a la calle o cochera — el encuadre actual es interior |
 
 ### Reconocimiento facial
