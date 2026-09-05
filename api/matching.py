@@ -8,10 +8,14 @@ redesplegar los workers cada vez.
 Cada tipo de deteccion tiene su propia estrategia, y son genuinamente
 distintas:
 
-  PLACAS   Texto con errores de OCR predecibles -> normalizacion + distancia
-           de edicion. Ver shared/plates.py.
-  ROSTROS  Vector de 512 dimensiones -> similitud coseno con umbral.
-  ARMAS    No hay lista negra: cualquier deteccion confirmada es alerta.
+  PLACAS    Texto con errores de OCR predecibles -> normalizacion + distancia
+            de edicion. Ver shared/plates.py.
+  ROSTROS   Vector de 512 dimensiones -> similitud coseno con umbral.
+  ARMAS     No hay lista negra: cualquier deteccion confirmada es alerta.
+  MOVIMIENTO No hay lista negra tampoco, pero a diferencia de un arma
+            confirmada, una velocidad anomala tiene explicaciones inocentes
+            (alguien corriendo para alcanzar algo). Se degrada a WARNING: el
+            operador debe mirarlo, no saltar una alarma automatica.
 """
 
 from __future__ import annotations
@@ -153,6 +157,27 @@ def _cruzar_arma(evento: DetectionEvent) -> MatchResult:
 
 
 # --------------------------------------------------------------------------
+# Movimiento anomalo
+# --------------------------------------------------------------------------
+
+def _cruzar_movimiento(evento: DetectionEvent) -> MatchResult:
+    """Sin lista negra: la lectura de velocidad ya viene confirmada del borde
+    (N de M frames). Pero a diferencia de un arma, correr o forcejear tiene
+    explicaciones inocentes -- se alerta como WARNING, no CRITICAL, para que
+    el operador decida en vez de que salte una alarma automatica."""
+    velocidad = evento.meta.get("velocidad_alturas_por_s")
+    detalle = f" ({velocidad:.1f}x el umbral normal)" if velocidad is not None else ""
+    return MatchResult(
+        event_id=evento.event_id,
+        severity=Severity.WARNING,
+        match_kind=MatchKind.RULE,
+        matched_value=evento.value,
+        score=evento.confidence,
+        reason=f"Movimiento subito detectado{detalle}, {evento.observations} frames",
+    )
+
+
+# --------------------------------------------------------------------------
 
 def evaluar(evento: DetectionEvent, session: Session) -> MatchResult:
     """Punto de entrada: decide severidad y coincidencia de un evento."""
@@ -162,4 +187,6 @@ def evaluar(evento: DetectionEvent, session: Session) -> MatchResult:
         return _cruzar_rostro(evento, session)
     if evento.type == EventType.WEAPON:
         return _cruzar_arma(evento)
+    if evento.type == EventType.ANOMALY:
+        return _cruzar_movimiento(evento)
     return MatchResult(event_id=evento.event_id, severity=Severity.INFO)
