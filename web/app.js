@@ -87,7 +87,10 @@ async function arrancar() {
   $('login').style.display = 'none';
   $('app').style.display = 'block';
   $('quien').textContent = usuario.display_name + ' · ' + usuario.role;
-  if (usuario.role !== 'admin') $('btnListaNegra').style.display = 'none';
+  if (usuario.role !== 'admin') {
+    $('btnListaNegra').style.display = 'none';
+    $('btnCamaras').style.display = 'none';
+  }
   // cargarPlacas() tambien alimenta la metrica "en lista negra" de la cabecera,
   // por eso se llama al arrancar y no solo al abrir el modal.
   await Promise.all([
@@ -585,6 +588,117 @@ document.querySelectorAll('.pest').forEach((b) => {
     $('tabRostros').style.display = b.dataset.tab === 'rostros' ? 'block' : 'none';
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Alta de camara                                                      */
+/* ------------------------------------------------------------------ */
+
+// El ultimo resultado probado, para que "Guardar" no tenga que volver a pedir
+// nada: si ya se confirmo que la ruta funciona, guardar es solo escribirla.
+let camaraProbada = null;
+
+$('btnCamaras').addEventListener('click', () => {
+  $('modalCamaras').style.display = 'grid';
+});
+function cerrarModalCamaras() { $('modalCamaras').style.display = 'none'; }
+
+$('btnBuscarCamaras').addEventListener('click', async () => {
+  const boton = $('btnBuscarCamaras');
+  boton.disabled = true;
+  $('estadoBusqueda').innerHTML =
+    '<div class="cargando"><i data-lucide="loader"></i>Escaneando tu red (~20s)…</div>';
+  lucide.createIcons();
+
+  try {
+    const dispositivos = await api('/api/camera-setup/descubrir', { method: 'POST' });
+    $('estadoBusqueda').textContent = dispositivos.length
+      ? `${dispositivos.length} dispositivo(s) con puertos de cámara abiertos:`
+      : '';
+    $('dispositivosLan').innerHTML = dispositivos.length
+      ? dispositivos.map((d) => `
+          <button type="button" class="dispositivo" onclick="elegirDispositivo('${d.host}')">
+            <i data-lucide="camera"></i>
+            <span class="host">${escapar(d.host)}</span>
+            <span class="crece"></span>
+            <span class="puertos">${d.puertos.map((p) => p.etiqueta).join(' · ')}</span>
+          </button>`).join('')
+      : '<div class="vacio">Nada encontrado. Verifica que la cámara este en la misma red que esta PC.</div>';
+    lucide.createIcons();
+  } catch (err) {
+    $('estadoBusqueda').textContent = '';
+    $('errorCamara').textContent = err.message;
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+function elegirDispositivo(host) {
+  $('camHost').value = host;
+  $('camHost').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+$('formCamara').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('errorCamara').textContent = '';
+  $('resultadoCamara').innerHTML = '';
+  camaraProbada = null;
+
+  const boton = $('btnProbarCamara');
+  const original = boton.innerHTML;
+  boton.disabled = true;
+  boton.innerHTML = '<i data-lucide="loader"></i>Probando… (unos segundos; hasta 2-3 min si la ruta recomendada no responde)';
+  lucide.createIcons();
+
+  const datos = {
+    host: $('camHost').value.trim(),
+    user: $('camUser').value.trim() || 'admin',
+    password: $('camPassword').value,
+  };
+
+  try {
+    const r = await api('/api/camera-setup/probar', { method: 'POST', body: JSON.stringify(datos) });
+    camaraProbada = { ...datos, ruta: r.ruta, camera_id: $('camId').value.trim() || 'cam-01' };
+    $('resultadoCamara').innerHTML = `
+      <div class="resultado-camara">
+        <img src="data:image/jpeg;base64,${r.preview_b64}" alt="Vista previa de la cámara">
+        <div class="datos">
+          <div class="ok"><i data-lucide="circle-check"></i>Conexión confirmada</div>
+          <dl>
+            <dt>Resolución</dt><dd>${r.ancho}×${r.alto}</dd>
+            <dt>FPS</dt><dd>${r.fps}</dd>
+            <dt>Ruta</dt><dd>${escapar(r.ruta)}</dd>
+          </dl>
+          <button type="button" style="margin-top:12px" onclick="guardarCamara()">
+            <i data-lucide="save"></i>Guardar esta cámara
+          </button>
+        </div>
+      </div>`;
+    lucide.createIcons();
+  } catch (err) {
+    $('errorCamara').textContent = err.message;
+  } finally {
+    boton.disabled = false;
+    boton.innerHTML = original;
+    lucide.createIcons();
+  }
+});
+
+async function guardarCamara() {
+  if (!camaraProbada) return;
+  try {
+    await api('/api/camera-setup/guardar', { method: 'POST', body: JSON.stringify(camaraProbada) });
+    $('resultadoCamara').innerHTML += `
+      <div class="aviso-reinicio">
+        <i data-lucide="triangle-alert"></i>
+        <span><strong>Guardado.</strong> El worker no relee la configuración solo:
+        detenlo y vuelve a correr <code class="mono">iniciar_worker.bat</code> para
+        que empiece a usar esta cámara.</span>
+      </div>`;
+    lucide.createIcons();
+  } catch (err) {
+    $('errorCamara').textContent = err.message;
+  }
+}
 
 /* --- Rostros --------------------------------------------------------- */
 
