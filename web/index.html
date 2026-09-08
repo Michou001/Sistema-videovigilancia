@@ -345,10 +345,11 @@
   @keyframes toast-sale { to { opacity: 0; transform: translateY(-6px); } }
 
   /* ---------- Modal ---------- */
-  #modal { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
            backdrop-filter: blur(2px);
-           z-index: 60; place-items: center; padding: 20px; }
+           z-index: 60; place-items: center; padding: 20px; overflow-y: auto; }
   #modal .tarjeta { max-width: 460px; }
+  #modalCamaras .tarjeta { max-width: 620px; }
   .fila { display: flex; gap: 10px; align-items: center; padding: 9px 0;
           border-bottom: 1px solid var(--borde-sutil); font-size: 13px; }
   .pestanas { display: flex; gap: 6px; align-items: center; margin-bottom: 16px;
@@ -356,6 +357,37 @@
   .pest { background: transparent; color: var(--tenue); padding: 6px 12px; font-size: 12px;
           font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-radius: 4px; }
   .pest.activa { background: var(--panel2); color: var(--acento); }
+
+  /* ---------- Alta de camara ---------- */
+  .dispositivos-lan { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 18px;
+                       max-height: 160px; overflow-y: auto; }
+  .dispositivo {
+    display: flex; align-items: center; gap: 10px; padding: 8px 11px;
+    background: var(--panel2); border: 1px solid var(--borde); border-radius: 6px;
+    cursor: pointer; text-align: left; width: 100%; font: inherit; color: var(--texto);
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  .dispositivo:hover { border-color: var(--acento-fuerte); background: var(--fondo-alto); }
+  .dispositivo .host { font-family: var(--mono); font-weight: 600; }
+  .dispositivo .puertos { color: var(--tenue); font-size: 11.5px; }
+  .fila-doble { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .resultado-camara {
+    margin-top: 16px; padding: 14px; background: var(--panel2); border: 1px solid var(--acento-fuerte);
+    border-radius: 8px; display: flex; gap: 14px; align-items: flex-start;
+  }
+  .resultado-camara img { width: 160px; border-radius: 6px; border: 1px solid var(--borde); flex: none; }
+  .resultado-camara .datos { font-size: 13px; }
+  .resultado-camara .datos .ok { color: var(--ok); font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .resultado-camara .datos dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; color: var(--tenue); }
+  .resultado-camara .datos dl dd { font-family: var(--mono); color: var(--texto); }
+  .aviso-reinicio {
+    margin-top: 14px; padding: 10px 13px; background: var(--panel2); border-left: 3px solid var(--aviso);
+    border-radius: 4px; font-size: 12.5px; color: var(--tenue); display: flex; gap: 8px; align-items: flex-start;
+  }
+  .aviso-reinicio strong { color: var(--aviso); }
+  .cargando { display: inline-flex; align-items: center; gap: 6px; color: var(--tenue); font-size: 12.5px; }
+  .cargando svg.lucide { animation: girar 1s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -421,6 +453,7 @@
     <div class="estado" id="estadoCamaras"></div>
     <div class="crece"></div>
     <span style="font-size:13px;color:var(--tenue)" id="quien"></span>
+    <button class="sec" id="btnCamaras"><i data-lucide="scan-search"></i>Cámaras</button>
     <button class="sec" id="btnListaNegra"><i data-lucide="ban"></i>Lista negra</button>
     <button class="sec" onclick="salir()"><i data-lucide="log-out"></i>Salir</button>
   </header>
@@ -478,7 +511,7 @@
 </div>
 
 <!-- ============ MODAL LISTA NEGRA ============ -->
-<div id="modal">
+<div id="modal" class="modal-overlay">
   <div class="tarjeta">
     <div class="pestanas">
       <button class="pest activa" data-tab="placas" type="button"><i data-lucide="car"></i>Placas</button>
@@ -531,6 +564,60 @@
       </form>
       <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaRostros"></div>
     </div>
+  </div>
+</div>
+
+<!-- ============ MODAL ALTA DE CAMARA ============ -->
+<div id="modalCamaras" class="modal-overlay">
+  <div class="tarjeta">
+    <div class="pestanas">
+      <span style="font-weight:700;display:flex;align-items:center;gap:8px">
+        <i data-lucide="scan-search"></i>Agregar cámara
+      </span>
+      <span class="crece"></span>
+      <button class="sec" type="button" onclick="cerrarModalCamaras()"><i data-lucide="x"></i>Cerrar</button>
+    </div>
+
+    <p class="sub">
+      Busca la cámara en tu red, confírmala con una prueba en vivo y guárdala.
+      Funciona con cámaras Hikvision (u otra marca compatible con RTSP/ISAPI).
+    </p>
+
+    <button class="sec" type="button" id="btnBuscarCamaras" style="width:100%;justify-content:center;margin-bottom:6px">
+      <i data-lucide="radar"></i>Buscar cámaras en mi red
+    </button>
+    <div id="estadoBusqueda"></div>
+    <div class="dispositivos-lan" id="dispositivosLan"></div>
+
+    <form id="formCamara">
+      <div class="fila-doble">
+        <div class="campo">
+          <label for="camHost">IP de la cámara</label>
+          <input id="camHost" placeholder="192.168.1.64" required>
+        </div>
+        <div class="campo">
+          <label for="camId">Identificador</label>
+          <input id="camId" placeholder="cam-01" value="cam-01" required>
+        </div>
+      </div>
+      <div class="fila-doble">
+        <div class="campo">
+          <label for="camUser">Usuario</label>
+          <input id="camUser" placeholder="admin" value="admin" required>
+        </div>
+        <div class="campo">
+          <label for="camPassword">Contraseña</label>
+          <input id="camPassword" type="password" required>
+        </div>
+      </div>
+
+      <button type="submit" id="btnProbarCamara" style="width:100%;justify-content:center">
+        <i data-lucide="video"></i>Probar conexión
+      </button>
+      <div class="error" id="errorCamara"></div>
+    </form>
+
+    <div id="resultadoCamara"></div>
   </div>
 </div>
 
