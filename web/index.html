@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sistema de Videovigilancia</title>
+<!-- Tailwind (Play CDN): preflight apagado a proposito. El reset de Tailwind
+     redefine button/input/etc. y pisaria todo el CSS ya afinado abajo. Se usa
+     solo para utilidades sueltas en marcado nuevo, no para reescribir lo que
+     ya funciona. -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { corePlugins: { preflight: false } };
+</script>
+<!-- Lucide: iconos como SVG en vez de emoji, para que se vean iguales en
+     cualquier sistema operativo y con el trazo tecnico del resto del panel. -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
 <style>
   /* Paleta propia de "centro de monitoreo": grafito frio en vez del gris casi
      negro generico, cian tecnico en vez del azul de SaaS/GitHub, verde y ambar
@@ -28,6 +39,9 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { color-scheme: dark; }
+  /* Lucide dibuja SVG de 24x24 por defecto; se escala al tamano de fuente del
+     contexto (como una fuente de iconos) en vez de fijar un tamano por sitio. */
+  svg.lucide { width: 1em; height: 1em; vertical-align: -0.15em; stroke-width: 2.25; flex: none; }
   body {
     background:
       radial-gradient(1100px 620px at 12% -8%, rgba(45,212,196,.05), transparent 60%),
@@ -41,10 +55,11 @@
   button {
     font: inherit; cursor: pointer; border: 1px solid transparent; border-radius: 4px;
     padding: 8px 14px; background: var(--acento); color: #04231f; font-weight: 600;
-    letter-spacing: .2px;
+    letter-spacing: .2px; display: inline-flex; align-items: center; gap: 7px;
+    transition: filter .15s ease, transform .15s ease, background-color .15s ease;
   }
-  button:hover { filter: brightness(1.1); }
-  button:active { filter: brightness(.95); }
+  button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  button:active { filter: brightness(.95); transform: translateY(0); }
   button.sec { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde); font-weight: 500; }
   button.peligro { background: var(--critico); color: #2a0506; }
   input, select, textarea {
@@ -128,11 +143,14 @@
     background: transparent; color: var(--tenue); padding: 6px 16px;
     font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
     border-radius: 4px; display: flex; align-items: center; gap: 7px;
+    transition: background-color .15s ease, color .15s ease; transform: none;
   }
+  nav.apartados button:hover { color: var(--texto); transform: none; }
   nav.apartados button.activo { background: var(--panel2); color: var(--acento); }
   nav.apartados .globo {
     background: var(--critico); color: #2a0506; font-size: 10px; font-weight: 700;
     border-radius: 3px; padding: 0 6px; min-width: 17px; text-align: center;
+    transition: transform .2s ease;
   }
   nav.apartados .globo:empty, nav.apartados .globo[hidden] { display: none; }
 
@@ -144,7 +162,10 @@
     position: relative; overflow: hidden;
     background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
     padding: 12px 18px 12px 20px; min-width: 130px;
+    transition: border-color .2s ease, transform .2s ease;
   }
+  .metrica:hover { border-color: var(--acento-fuerte); transform: translateY(-1px); }
+  .metrica.critica:hover { border-color: var(--critico); }
   .metrica::before {
     content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
     background: var(--acento-fuerte); opacity: .8;
@@ -180,7 +201,8 @@
   #rejilla.una { grid-template-columns: minmax(330px, 760px); }
 
   .camara { border: 1px solid var(--borde); border-radius: 6px; overflow: hidden;
-            background: var(--fondo); }
+            background: var(--fondo); transition: border-color .2s ease, box-shadow .2s ease; }
+  .camara:hover { border-color: var(--acento-fuerte); }
   /* Se llama 'destacada' y no 'alerta' porque .alerta ya existe abajo para las
      tarjetas del panel de alertas, con display:flex. Reutilizar ese nombre
      convertia el recuadro de la camara en una fila y descuadraba el video. */
@@ -236,7 +258,9 @@
 
   /* ---------- Detecciones en vivo ---------- */
   .deteccion { display: flex; gap: 11px; padding: 10px 14px;
-               border-bottom: 1px solid var(--borde-sutil); border-left: 3px solid transparent; }
+               border-bottom: 1px solid var(--borde-sutil); border-left: 3px solid transparent;
+               transition: background-color .15s ease; }
+  .deteccion:hover { background: var(--panel2); }
   .deteccion.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
   .deteccion.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
   .deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 4px;
@@ -251,8 +275,9 @@
   /* ---------- Alertas ---------- */
   .alerta {
     display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borde-sutil);
-    border-left: 3px solid transparent;
+    border-left: 3px solid transparent; transition: background-color .15s ease;
   }
+  .alerta:hover { background: var(--panel2); }
   .alerta.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
   .alerta.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
   .alerta.resuelta { opacity: .4; }
@@ -358,7 +383,9 @@
       <label for="password">Contraseña</label>
       <input id="password" type="password" autocomplete="current-password" required>
     </div>
-    <button type="submit" style="width:100%;margin-top:8px">Entrar</button>
+    <button type="submit" style="width:100%;margin-top:8px;justify-content:center">
+      <i data-lucide="log-in"></i>Entrar
+    </button>
     <div class="error" id="errorLogin"></div>
   </form>
   </div>
@@ -394,8 +421,8 @@
     <div class="estado" id="estadoCamaras"></div>
     <div class="crece"></div>
     <span style="font-size:13px;color:var(--tenue)" id="quien"></span>
-    <button class="sec" id="btnListaNegra">Lista negra</button>
-    <button class="sec" onclick="salir()">Salir</button>
+    <button class="sec" id="btnListaNegra"><i data-lucide="ban"></i>Lista negra</button>
+    <button class="sec" onclick="salir()"><i data-lucide="log-out"></i>Salir</button>
   </header>
   </div><!-- /#barra -->
 
@@ -454,10 +481,10 @@
 <div id="modal">
   <div class="tarjeta">
     <div class="pestanas">
-      <button class="pest activa" data-tab="placas" type="button">Placas</button>
-      <button class="pest" data-tab="rostros" type="button">Personas</button>
+      <button class="pest activa" data-tab="placas" type="button"><i data-lucide="car"></i>Placas</button>
+      <button class="pest" data-tab="rostros" type="button"><i data-lucide="user-round"></i>Personas</button>
       <span class="crece"></span>
-      <button class="sec" type="button" onclick="cerrarModal()">Cerrar</button>
+      <button class="sec" type="button" onclick="cerrarModal()"><i data-lucide="x"></i>Cerrar</button>
     </div>
 
     <div id="tabPlacas">
@@ -471,7 +498,7 @@
           <label for="motivo">Motivo</label>
           <input id="motivo" placeholder="Reporte de robo, orden judicial…" required>
         </div>
-        <button type="submit">Agregar placa</button>
+        <button type="submit"><i data-lucide="plus"></i>Agregar placa</button>
         <div class="error" id="errorPlaca"></div>
       </form>
       <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaPlacas"></div>
@@ -499,7 +526,7 @@
           <label for="fotoRostro">Foto (rostro frontal, buena luz)</label>
           <input id="fotoRostro" type="file" accept="image/*" required>
         </div>
-        <button type="submit">Agregar persona</button>
+        <button type="submit"><i data-lucide="plus"></i>Agregar persona</button>
         <div class="error" id="errorRostro"></div>
       </form>
       <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaRostros"></div>

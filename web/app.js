@@ -25,6 +25,11 @@ let intentos = 0;
 
 const $ = (id) => document.getElementById(id);
 
+// Convierte los <i data-lucide> ya presentes en el HTML (login, botones de
+// cabecera) apenas carga el script. El resto de la app llama a esto de nuevo
+// cada vez que inserta HTML nuevo con iconos -- ver iconoTag() mas abajo.
+lucide.createIcons();
+
 /* ------------------------------------------------------------------ */
 /* Llamadas a la API                                                    */
 /* ------------------------------------------------------------------ */
@@ -155,6 +160,7 @@ function detenerCamaras() {
   clearInterval(temporizadorCamaras);
   temporizadorCamaras = null;
   recuadros.forEach((r) => detenerFlujo(r));
+  lucide.createIcons();
 }
 
 function detenerFlujo(r) {
@@ -168,9 +174,9 @@ function detenerFlujo(r) {
 }
 
 const PLACEHOLDER_SIN_SENAL =
-  '<div class="sinsenal"><span class="icono">📷</span>Sin señal</div>';
+  '<div class="sinsenal"><span class="icono"><i data-lucide="camera-off"></i></span>Sin señal</div>';
 const PLACEHOLDER_PAUSA =
-  '<div class="sinsenal"><span class="icono">⏸</span>Video en pausa</div>';
+  '<div class="sinsenal"><span class="icono"><i data-lucide="pause"></i></span>Video en pausa</div>';
 
 async function refrescarCamaras() {
   let enVivo = [];
@@ -215,6 +221,7 @@ async function refrescarCamaras() {
   $('sinCamaras').style.display = ids.length ? 'none' : 'block';
   $('contadorCamaras').textContent = ids.length
     ? `${enVivo.length}/${ids.length} en vivo` : '';
+  lucide.createIcons();
 }
 
 function crearRecuadro(id) {
@@ -270,10 +277,11 @@ function marcarEnCamara(ev) {
   const r = recuadros.get(ev.camera_id);
   if (!r || !r.capa) return;
   r.capa.innerHTML =
-    `<span>${ICONOS[ev.type] || '•'}</span>` +
+    `<span>${iconoTag(ev.type)}</span>` +
     `<span class="v">${escapar(ev.value)}</span>` +
     `<span class="c">${hora(ev.ts)}</span>`;
   r.capa.classList.add('visible');
+  lucide.createIcons();
 
   clearTimeout(r.temporizadorCapa);
   r.temporizadorCapa = setTimeout(() => r.capa.classList.remove('visible'), 8000);
@@ -291,13 +299,12 @@ function marcarEnCamara(ev) {
 
 function agregarDeteccion(ev, nueva = false) {
   $('sinDetecciones').style.display = 'none';
-  const icono = ICONOS[ev.type] || '•';
   const div = document.createElement('div');
   div.className = 'deteccion ' + (ev.severity || 'info') + (nueva ? ' nueva' : '');
 
   div.innerHTML = `
     <div class="crece">
-      <div class="v">${icono} ${escapar(ev.value)}</div>
+      <div class="v">${iconoTag(ev.type)} ${escapar(ev.value)}</div>
       <div class="m">${hora(ev.ts)} · ${escapar(ev.camera_id)}
         ${ev.observations ? '· ' + ev.observations + ' frames' : ''}</div>
     </div>`;
@@ -307,7 +314,7 @@ function agregarDeteccion(ev, nueva = false) {
   // legiblemente dentro de un atributo.
   const hueco = document.createElement('div');
   hueco.className = 'sinfoto';
-  hueco.textContent = icono;
+  hueco.innerHTML = iconoTag(ev.type);
 
   if (ev.snapshot_path) {
     const img = document.createElement('img');
@@ -327,6 +334,7 @@ function agregarDeteccion(ev, nueva = false) {
   // de pasar". Para mirar hacia atras esta el apartado de Registro.
   while (lista.children.length > 40) lista.lastChild.remove();
   $('contadorDetecciones').textContent = lista.children.length + ' recientes';
+  lucide.createIcons();
 }
 
 async function cargarDetecciones() {
@@ -383,8 +391,13 @@ function conectarWs() {
 /* Eventos                                                             */
 /* ------------------------------------------------------------------ */
 
-const ICONOS = { plate: '🚗', face: '👤', weapon: '🔪', anomaly: '🏃' };
+// Nombres de icono de Lucide, no emoji: se ven iguales en cualquier SO y con
+// el mismo trazo tecnico que el resto del panel. `iconoTag` los envuelve en
+// el <i data-lucide> que lucide.createIcons() convierte a SVG -- hay que
+// llamarla despues de insertar cualquier HTML que use esto.
+const ICONOS = { plate: 'car', face: 'user-round', weapon: 'shield-alert', anomaly: 'footprints' };
 const NOMBRES = { plate: 'Placa', face: 'Rostro', weapon: 'Arma', anomaly: 'Movimiento' };
+const iconoTag = (tipo) => `<i data-lucide="${ICONOS[tipo] || 'circle-dot'}"></i>`;
 
 function hora(iso) {
   return new Date(iso).toLocaleTimeString('es-MX', { hour12: false });
@@ -396,7 +409,7 @@ function agregarEvento(ev, nuevo = false) {
   if (nuevo) tr.className = 'nuevo';
   tr.innerHTML = `
     <td class="mono" style="color:var(--tenue)">${hora(ev.ts)}</td>
-    <td>${ICONOS[ev.type] || '•'} ${NOMBRES[ev.type] || ev.type}</td>
+    <td>${iconoTag(ev.type)} ${NOMBRES[ev.type] || ev.type}</td>
     <td class="mono"><strong>${escapar(ev.value)}</strong></td>
     <td style="color:var(--tenue)">${escapar(ev.camera_id)}</td>
     <td><span class="etiqueta ${ev.severity}">${ev.severity}</span></td>`;
@@ -404,6 +417,7 @@ function agregarEvento(ev, nuevo = false) {
   tbody.prepend(tr);
   while (tbody.children.length > 200) tbody.lastChild.remove();
   $('contadorEventos').textContent = tbody.children.length + ' mostrados';
+  lucide.createIcons();
 }
 
 async function cargarEventos() {
@@ -428,8 +442,8 @@ function agregarAlerta(a, nuevo = false) {
     : '';
   const acciones = (!a.status || a.status === 'new') && a.id
     ? `<div class="acciones">
-         <button onclick="resolver(${a.id},'acknowledge')">Atendida</button>
-         <button class="sec" onclick="resolver(${a.id},'dismiss')">Falso positivo</button>
+         <button onclick="resolver(${a.id},'acknowledge')"><i data-lucide="check"></i>Atendida</button>
+         <button class="sec" onclick="resolver(${a.id},'dismiss')"><i data-lucide="x"></i>Falso positivo</button>
        </div>` : '';
   div.innerHTML = `
     ${img}
@@ -444,6 +458,7 @@ function agregarAlerta(a, nuevo = false) {
   const lista = $('listaAlertas');
   if (nuevo) lista.prepend(div); else lista.append(div);
   while (lista.children.length > 60) lista.lastChild.remove();
+  lucide.createIcons();
 }
 
 async function cargarAlertas() {
@@ -478,13 +493,14 @@ function mostrarToast(a) {
   const div = document.createElement('div');
   div.className = 'toast';
   div.innerHTML = `
-    <span class="ico">${ICONOS[a.type] || '⚠️'}</span>
+    <span class="ico">${a.type ? iconoTag(a.type) : '<i data-lucide="triangle-alert"></i>'}</span>
     <div class="crece">
       <div class="t">${escapar(a.title)}</div>
       <div class="d">${escapar(a.detail || '')}</div>
     </div>
     <button class="cerrar" aria-label="Cerrar" onclick="this.closest('.toast').remove()">×</button>`;
   $('toasts').appendChild(div);
+  lucide.createIcons();
   sonarAviso();
 
   const TIEMPO_VISIBLE_MS = 8000;
@@ -580,9 +596,10 @@ async function cargarRostros() {
           <strong>${escapar(r.label)}</strong>
           <span class="crece" style="color:var(--tenue)">${escapar(r.reason)}</span>
           <button class="peligro" style="padding:3px 9px;font-size:12px"
-                  onclick="quitarRostro(${r.id})">Quitar</button>
+                  onclick="quitarRostro(${r.id})"><i data-lucide="trash-2"></i>Quitar</button>
         </div>`).join('')
     : '<div class="vacio">Ninguna persona registrada.</div>';
+  lucide.createIcons();
 }
 
 $('formRostro').addEventListener('submit', async (e) => {
@@ -627,9 +644,10 @@ async function cargarPlacas() {
           <strong class="mono">${escapar(p.plate)}</strong>
           <span class="crece" style="color:var(--tenue)">${escapar(p.reason)}</span>
           <button class="peligro" style="padding:3px 9px;font-size:12px"
-                  onclick="quitarPlaca(${p.id})">Quitar</button>
+                  onclick="quitarPlaca(${p.id})"><i data-lucide="trash-2"></i>Quitar</button>
         </div>`).join('')
     : '<div class="vacio">La lista negra está vacía.</div>';
+  lucide.createIcons();
 }
 
 $('formPlaca').addEventListener('submit', async (e) => {
