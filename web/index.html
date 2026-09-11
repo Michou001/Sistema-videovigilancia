@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sistema de Videovigilancia</title>
+<title>GOSS IP</title>
+<link rel="icon" type="image/png" href="/static/img/logo-icon.png">
 <!-- Tailwind (Play CDN): preflight apagado a proposito. El reset de Tailwind
      redefine button/input/etc. y pisaria todo el CSS ya afinado abajo. Se usa
      solo para utilidades sueltas en marcado nuevo, no para reescribir lo que
@@ -29,8 +30,8 @@
     --borde-sutil: #1a222c;
     --texto: #e9eef3;
     --tenue: #7c8a99;
-    --acento: #2dd4c4;
-    --acento-fuerte: #14b8a6;
+    --acento: #2f6fed;
+    --acento-fuerte: #1747c9;
     --critico: #ff4757;
     --aviso: #f0a83a;
     --ok: #34d399;
@@ -44,7 +45,7 @@
   svg.lucide { width: 1em; height: 1em; vertical-align: -0.15em; stroke-width: 2.25; flex: none; }
   body {
     background:
-      radial-gradient(1100px 620px at 12% -8%, rgba(45,212,196,.05), transparent 60%),
+      radial-gradient(1100px 620px at 12% -8%, rgba(47,111,237,.05), transparent 60%),
       repeating-linear-gradient(180deg, rgba(255,255,255,.012) 0px, rgba(255,255,255,.012) 1px,
                                  transparent 1px, transparent 3px),
       var(--fondo);
@@ -54,7 +55,7 @@
   }
   button {
     font: inherit; cursor: pointer; border: 1px solid transparent; border-radius: 4px;
-    padding: 8px 14px; background: var(--acento); color: #04231f; font-weight: 600;
+    padding: 8px 14px; background: var(--acento); color: #f2f6ff; font-weight: 600;
     letter-spacing: .2px; display: inline-flex; align-items: center; gap: 7px;
     transition: filter .15s ease, transform .15s ease, background-color .15s ease;
   }
@@ -67,7 +68,7 @@
     border: 1px solid var(--borde); border-radius: 4px; padding: 9px 11px; width: 100%;
   }
   input:focus, textarea:focus { outline: 2px solid var(--acento-fuerte); outline-offset: -1px; }
-  ::selection { background: rgba(45,212,196,.3); }
+  ::selection { background: rgba(47,111,237,.3); }
   ::-webkit-scrollbar { width: 9px; height: 9px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 5px; }
@@ -76,14 +77,14 @@
   /* ---------- Login ---------- */
   #login {
     display: grid; place-items: center; min-height: 100vh; padding: 20px;
-    background: radial-gradient(900px 500px at 50% 20%, rgba(45,212,196,.07), transparent 65%);
+    background: radial-gradient(900px 500px at 50% 20%, rgba(47,111,237,.07), transparent 65%);
   }
   .marca { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; justify-content: center; }
   .marca .ojo {
-    width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
-    background: rgba(45,212,196,.1); border: 1px solid rgba(45,212,196,.35); flex: none;
+    width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center;
+    background: rgba(47,111,237,.12); border: 1px solid rgba(47,111,237,.35); flex: none;
   }
-  .marca .ojo svg { width: 18px; height: 18px; }
+  .marca .ojo img { width: 24px; height: auto; display: block; }
   .marca .nombre { font-size: 12px; letter-spacing: 1.5px; color: var(--tenue); text-transform: uppercase; }
   .tarjeta {
     background: linear-gradient(180deg, var(--panel2), var(--panel));
@@ -92,6 +93,7 @@
     box-shadow: 0 24px 60px -20px rgba(0,0,0,.6);
   }
   .tarjeta h1 { font-size: 19px; margin-bottom: 4px; letter-spacing: .2px; }
+  .logo-hero { display: block; width: 190px; max-width: 100%; height: auto; margin: 0 auto 10px; }
   .tarjeta p.sub { color: var(--tenue); margin-bottom: 24px; font-size: 13px; }
   .campo { margin-bottom: 14px; }
   .campo label {
@@ -124,10 +126,7 @@
     font-size: 14px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
     display: flex; align-items: center; gap: 9px;
   }
-  header h1::before {
-    content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--acento);
-    box-shadow: 0 0 10px rgba(45,212,196,.7); flex: none;
-  }
+  header h1 img { flex: none; filter: drop-shadow(0 0 6px rgba(47,111,237,.45)); }
   .estado { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--tenue);
             font-family: var(--mono); }
   .punto { width: 7px; height: 7px; border-radius: 50%; background: var(--tenue); flex: none; }
@@ -295,7 +294,7 @@
        letter-spacing: .7px; font-weight: 700; padding: 9px 16px; border-bottom: 1px solid var(--borde); }
   td { padding: 9px 16px; border-bottom: 1px solid var(--borde-sutil); }
   tr.nuevo { animation: entra 1.2s ease-out; }
-  @keyframes entra { from { background: rgba(45,212,196,.18); } to { background: transparent; } }
+  @keyframes entra { from { background: rgba(47,111,237,.18); } to { background: transparent; } }
   .etiqueta { display: inline-block; padding: 2px 9px; border-radius: 3px; font-size: 10.5px;
               font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
   .etiqueta.critical { background: rgba(255,71,87,.16); color: var(--critico); }
@@ -396,17 +395,12 @@
 <div id="login">
   <div style="width:100%;max-width:380px">
   <div class="marca">
-    <span class="ojo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#2dd4c4" stroke-width="1.8">
-        <path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/>
-        <circle cx="12" cy="12" r="3"/>
-      </svg>
-    </span>
-    <span class="nombre">Centro de Monitoreo</span>
+    <span class="ojo"><img src="/static/img/logo-icon.png" alt=""></span>
+    <span class="nombre">Goss IP</span>
   </div>
   <form class="tarjeta" id="formLogin">
-    <h1>Sistema de Videovigilancia</h1>
-    <p class="sub">Detección de placas, rostros y armas</p>
+    <img class="logo-hero" src="/static/img/logo-full.png" alt="GOSS IP">
+    <p class="sub" style="text-align:center">Sistema de videovigilancia — detección de placas, rostros y movimiento anómalo</p>
     <div class="campo">
       <label for="usuario">Usuario</label>
       <input id="usuario" autocomplete="username" required autofocus>
@@ -438,7 +432,10 @@
   </div>
 
   <header>
-    <h1>Videovigilancia</h1>
+    <h1>
+      <img src="/static/img/logo-icon.png" alt="" style="width:20px;height:auto">
+      GOSS IP
+    </h1>
 
     <nav class="apartados">
       <button id="navMonitoreo" class="activo" data-vista="monitoreo">

@@ -237,11 +237,21 @@ class EdgeConfig:
         return "cpu"
 
 
-def load_config() -> EdgeConfig:
-    """Carga .env si existe (sin dependencia dura de python-dotenv) y arma la config."""
-    env_file = BASE_DIR / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
+def load_config(env_file: "str | os.PathLike | None" = None) -> EdgeConfig:
+    """Carga un archivo de entorno (sin dependencia dura de python-dotenv) y arma la config.
+
+    Por que un parametro y no solo `.env` fijo: dos camaras necesitan dos
+    procesos de worker, y cada uno necesita su PROPIO CAMERA_ID/SOURCE. Con un
+    unico `.env` fijo, el segundo worker pisaria la config del primero. La
+    resolucion es, en orden: el argumento explicito (--env del CLI) > la
+    variable EDGE_ENV_FILE (por si se prefiere fijarla en el .bat de arranque
+    en vez de pasarla por linea de comandos) > `.env` de siempre.
+    """
+    ruta = Path(env_file) if env_file else Path(os.getenv("EDGE_ENV_FILE", "") or (BASE_DIR / ".env"))
+    if not ruta.is_absolute():
+        ruta = BASE_DIR / ruta
+    if ruta.exists():
+        for line in ruta.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
