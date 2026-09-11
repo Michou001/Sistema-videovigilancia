@@ -301,9 +301,11 @@ def main() -> int:
     p.add_argument("--ventana", action="store_true",
                    help="Mostrar ventana con las detecciones dibujadas")
     p.add_argument("--source", help="Sobrescribe SOURCE del .env")
+    p.add_argument("--env", help="Archivo de entorno a usar en vez de .env "
+                   "(para correr varias camaras: --env .env.cam2)")
     args = p.parse_args()
 
-    cfg = load_config()
+    cfg = load_config(args.env)
     if args.source:
         cfg.source = args.source
 
