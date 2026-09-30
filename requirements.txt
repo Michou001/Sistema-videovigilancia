@@ -31,6 +31,7 @@
 
 # --- Vision y modelos --------------------------------------------------------
 ultralytics>=8.4.0,<9       # YOLO11 (+pose) + trackers (ByteTrack/BoT-SORT) integrados
+                            # LICENCIA AGPL-3.0: ver docs/licencias.md antes de comercializar
 opencv-python>=4.10,<5
 opencv-python-headless>=4.10,<5   # lo arrastra fast-alpr: misma version mayor
                                   # que opencv-python o el modulo cv2 se mezcla
