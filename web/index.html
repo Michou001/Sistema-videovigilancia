@@ -475,6 +475,81 @@
   </form>
 </div>
 
+<!-- ============ MODAL ZONAS Y REGLAS ============ -->
+<div id="modalZonas" class="modal-overlay">
+  <div class="tarjeta ancha zonas">
+    <div class="pestanas">
+      <span class="titulo-modal"><i data-lucide="square-dashed"></i><span id="zonasTitulo">Zonas y reglas</span></span>
+      <span class="crece"></span>
+      <button class="sec" type="button" data-accion="cerrar-zonas"><i data-lucide="x"></i>Cerrar</button>
+    </div>
+    <div class="zonas-cuerpo">
+      <div class="zonas-izq">
+        <div id="zonasEscenario" class="zonas-escenario">
+          <img id="zonasVideo" alt="Video en vivo de la cámara">
+          <div id="zonasSinVideo" class="zonas-sin-video" hidden>
+            La cámara no está mandando video en este momento. Puedes dibujar igual; conviene revisar la
+            zona con el video en cuanto la cámara vuelva.
+          </div>
+          <canvas id="zonasLienzo"></canvas>
+        </div>
+        <div class="ayuda" id="zonasAyudaDibujo" hidden></div>
+      </div>
+      <div class="zonas-der">
+        <div id="zonasListaCaja">
+          <div class="lista-zonas" id="zonasLista"></div>
+          <button type="button" data-accion="nueva-zona" style="margin-top:12px"><i data-lucide="plus"></i>Nueva zona</button>
+          <p class="sub" style="margin-top:12px">
+            Las reglas se aplican sobre las personas y vehículos que sigue el detector de movimiento.
+            Una zona "armada" genera alertas; fuera de su horario solo queda el registro.
+          </p>
+        </div>
+        <form id="formZona" hidden>
+          <div class="campo"><label for="zNombre">Nombre</label>
+            <input id="zNombre" required minlength="2" maxlength="80" placeholder="Estacionamiento de noche" autocomplete="off"></div>
+          <div class="campo"><label for="zTipo">Tipo de regla</label>
+            <select id="zTipo">
+              <option value="intrusion">Intrusión en área</option>
+              <option value="linea">Cruce de línea</option>
+              <option value="merodeo">Merodeo (permanencia)</option>
+              <option value="conteo">Conteo en línea</option>
+            </select>
+            <div class="ayuda" id="zTipoAyuda"></div></div>
+          <div class="campo"><span class="rotulo">Aplica a</span>
+            <label class="casilla"><input type="checkbox" id="zPersona" checked> Personas</label>
+            <label class="casilla"><input type="checkbox" id="zVehiculo"> Vehículos</label></div>
+          <div class="campo" id="zCampoDireccion"><label for="zDireccion">Sentido</label>
+            <select id="zDireccion">
+              <option value="ambas">Ambos sentidos</option>
+              <option value="entrada">Solo entrada (sentido de la flecha)</option>
+              <option value="salida">Solo salida (contra la flecha)</option>
+            </select></div>
+          <div class="campo" id="zCampoSegundos"><label for="zSegundos">Segundos de permanencia</label>
+            <input id="zSegundos" type="number" min="5" max="3600" value="60"></div>
+          <div class="campo" id="zCampoSeveridad"><label for="zSeveridad">Severidad de la alerta</label>
+            <select id="zSeveridad">
+              <option value="warning">Advertencia</option>
+              <option value="critical">Crítica (banner, sonido y notificación)</option>
+            </select></div>
+          <div class="campo"><span class="rotulo">Horario</span>
+            <label class="casilla"><input type="checkbox" id="zSiempre" checked> Siempre activa</label>
+            <div id="zFranjasCaja" hidden>
+              <div id="zFranjas"></div>
+              <button type="button" class="sec chico" data-accion="agregar-franja"><i data-lucide="plus"></i>Franja</button>
+              <div class="ayuda">Una franja que cruza medianoche (22:00 a 06:00) pertenece al día en que empieza.</div>
+            </div></div>
+          <div class="acciones">
+            <button type="submit"><i data-lucide="save"></i>Guardar</button>
+            <button type="button" class="sec" data-accion="deshacer-punto"><i data-lucide="undo-2"></i>Deshacer punto</button>
+            <button type="button" class="sec" data-accion="cancelar-zona">Cancelar</button>
+          </div>
+        </form>
+        <div class="error" id="zonasError"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ============ VISOR DE EVIDENCIA ============ -->
 <div id="visor" data-accion="cerrar-visor">
   <figure>

@@ -36,6 +36,7 @@ from api.routers import (  # noqa: E402
     placas,
     preview,
     usuarios,
+    zonas,
 )
 from api.redis_compartido import url_redis  # noqa: E402
 from api.seguridad_http import CabecerasSeguridad  # noqa: E402
@@ -206,6 +207,7 @@ app.include_router(camera_setup.router)
 app.include_router(media.router)
 app.include_router(placas.router)
 app.include_router(notificaciones.router)
+app.include_router(zonas.router)
 
 
 @app.websocket("/ws/alerts")

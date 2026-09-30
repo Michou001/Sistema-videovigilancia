@@ -80,6 +80,14 @@ class EdgeConfig:
     no detecto. El codigo se deja listo para cuando exista un modelo entrenado
     especificamente para armas (ver la Fase 5 del README)."""
     enable_motion: bool = field(default_factory=lambda: _env_bool("ENABLE_MOTION", True))
+    enable_pose: bool = field(default_factory=lambda: _env_bool("ENABLE_POSE", True))
+    """Esqueleto de cada persona (YOLO11-pose): caida por el angulo del torso,
+    manos arriba y posible agresion. Con pose, la caida ya no se estima por la
+    forma de la caja (ver edge/detectors/pose.py)."""
+    enable_zonas: bool = field(default_factory=lambda: _env_bool("ENABLE_ZONAS", True))
+    """Reglas por zona definidas en el dashboard (intrusion, cruce de linea,
+    merodeo, conteo). Usan las personas y vehiculos que sigue el detector de
+    movimiento: requieren ENABLE_MOTION=true."""
 
     # --- Modelos -----------------------------------------------------------
     plate_detector_model: str = field(
@@ -241,6 +249,33 @@ class EdgeConfig:
     clip_codec: str = field(default_factory=lambda: os.getenv("CLIP_CODEC", "auto"))
     """auto | vp8 | h264. h264 requiere `pip install av`."""
 
+    # --- Zonas (ver edge/zonas.py) -------------------------------------------
+    zonas_refresco_s: float = field(default_factory=lambda: _env_float("ZONAS_REFRESCO_S", 15.0))
+    """Cada cuanto se pregunta a la API si cambiaron las zonas de la camara."""
+    zonas_frames_min: int = field(default_factory=lambda: _env_int("ZONAS_FRAMES_MIN", 3))
+    """Frames seguidos dentro de una zona para contar como intrusion: una caja
+    que parpadea sobre el borde no es alguien entrando."""
+
+    # --- Pose (ver edge/detectors/pose.py) -----------------------------------
+    pose_model: Path = field(
+        default_factory=lambda: Path(os.getenv("POSE_MODEL", "models/yolo11n-pose.pt")))
+    pose_conf: float = field(default_factory=lambda: _env_float("POSE_CONF", 0.45))
+    manos_arriba_s: float = field(default_factory=lambda: _env_float("MANOS_ARRIBA_S", 2.0))
+    """Segundos con las dos manos por encima de la cabeza para avisar."""
+    pose_agresion: bool = field(default_factory=lambda: _env_bool("POSE_AGRESION", True))
+
+    # --- Eventos de la propia camara Hikvision (ver edge/isapi.py) -----------
+    isapi: str = field(default_factory=lambda: os.getenv("ISAPI", "auto"))
+    """auto | true | false. auto: si SOURCE es rtsp:// con usuario y
+    contrasena, se escucha el alertStream de la camara (sabotaje, perdida de
+    video, cruce de linea e intrusion de su propia analitica)."""
+    isapi_puerto: int = field(default_factory=lambda: _env_int("ISAPI_PUERTO", 80))
+    isapi_https: bool = field(default_factory=lambda: _env_bool("ISAPI_HTTPS", False))
+    isapi_eventos: str = field(default_factory=lambda: os.getenv(
+        "ISAPI_EVENTOS", "sabotaje,perdida_video,deteccion_linea,intrusion_camara"))
+    """Cuales reenviar a la API. movimiento_camara (VMD) es muy ruidoso y va
+    apagado por defecto."""
+
     # --- Depuracion --------------------------------------------------------
     show_window: bool = field(default_factory=lambda: _env_bool("SHOW_WINDOW", False))
     """Ventana de OpenCV con las cajas dibujadas. Util en desarrollo, SIEMPRE
@@ -264,6 +299,8 @@ class EdgeConfig:
             self.weapon_model = BASE_DIR / self.weapon_model
         if not self.motion_model.is_absolute():
             self.motion_model = BASE_DIR / self.motion_model
+        if not self.pose_model.is_absolute():
+            self.pose_model = BASE_DIR / self.pose_model
         if self.send_snapshot_b64 in {"1", "yes", "si", "on"}:
             self.send_snapshot_b64 = "true"
         elif self.send_snapshot_b64 not in {"auto", "true"}:

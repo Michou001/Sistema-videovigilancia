@@ -93,6 +93,7 @@ onnxruntime-gpu==1.22.0
 # --- Utilidades --------------------------------------------------------------
 psutil>=5.9
 pyyaml>=6.0,<7
+tzdata>=2024.1              # horarios de las zonas (zoneinfo): Windows no trae la base
 
 # --- Opcionales (descomenta segun lo que uses) ------------------------------
 # psycopg[binary]>=3.1,<4      # DATABASE_URL=postgresql+psycopg://...

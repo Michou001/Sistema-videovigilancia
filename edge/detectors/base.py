@@ -8,9 +8,22 @@ armas en la Fase 5 sera anadir una linea a la lista de detectores.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from edge.sources import FrameInfo
 from shared.events import DetectionEvent
+
+
+@dataclass
+class Pista:
+    """Un objeto seguido en el frame actual, para quien quiera razonar sobre
+    el (reglas de zona). Evita que cada pieza corra su propio detector."""
+
+    tid: int
+    clase: str                               # "persona" | "vehiculo"
+    bbox: tuple[float, float, float, float]  # pixeles del frame procesado
+    conf: float = 1.0
+    etiqueta: str = ""                       # car, truck, bus, motorcycle...
 
 
 class Detector(ABC):
@@ -36,6 +49,11 @@ class Detector(ABC):
 
     def cerrar(self) -> None:
         """Libera modelos y memoria de GPU."""
+
+    def pistas(self) -> list[Pista]:
+        """Objetos seguidos en el ULTIMO frame procesado. Solo los publica el
+        detector que sigue personas y vehiculos (movimiento)."""
+        return []
 
     def anotar(self, frame):
         """Dibuja el estado actual sobre el frame, para la ventana de depuracion.

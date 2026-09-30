@@ -266,20 +266,36 @@ def _cruzar_arma(evento: DetectionEvent) -> MatchResult:
 # Movimiento anomalo
 # --------------------------------------------------------------------------
 
+_MOTIVOS_POSTURA = {
+    "persona_caida": "Posible persona caída: pasó de estar de pie a quedar tendida en "
+                     "menos de 2 s. Verificar en video.",
+    "manos_arriba": "Persona con las dos manos arriba de la cabeza, sostenido: postura "
+                    "típica de un asalto. Verificar en video",
+    "posible_agresion": "Movimiento muy rápido de brazos junto a otra persona (golpes o "
+                        "empujones). Es una estimación: verificar en video.",
+}
+
+
 def _cruzar_movimiento(evento: DetectionEvent) -> MatchResult:
     """Sin lista negra: la lectura de velocidad ya viene confirmada del borde
     (N de M frames). Pero a diferencia de un arma, correr o forcejear tiene
     explicaciones inocentes -- se alerta como WARNING, no CRITICAL, para que
     el operador decida en vez de que salte una alarma automatica."""
-    if evento.value == "persona_caida":
+    meta = evento.meta or {}
+    if evento.value in _MOTIVOS_POSTURA:
+        motivo = _MOTIVOS_POSTURA[evento.value]
+        if evento.value == "persona_caida" and meta.get("metodo") == "pose":
+            motivo = ("Posible persona caída: el torso pasó de vertical a horizontal y la cadera "
+                      "bajó hacia el piso en menos de 2 s. Verificar en video.")
+        elif evento.value == "manos_arriba" and isinstance(meta.get("segundos"), (int, float)):
+            motivo += f" ({meta['segundos']:.0f} s)"
         return MatchResult(
             event_id=evento.event_id,
             severity=Severity.WARNING,
             match_kind=MatchKind.RULE,
             matched_value=evento.value,
             score=evento.confidence,
-            reason="Posible persona caída: pasó de estar de pie a quedar tendida en "
-                   "menos de 2 s. Verificar en video.",
+            reason=motivo,
         )
 
     velocidad = evento.meta.get("velocidad_alturas_por_s")

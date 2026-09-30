@@ -162,6 +162,36 @@ maneja la codificación.
 
 ---
 
+## Eventos de la propia cámara (sabotaje, pérdida de video)
+
+La cámara avisa cosas que el video no dice: que le taparon el lente, que la
+movieron, que perdió la señal, o que su propia analítica vio a alguien cruzar
+una línea. El worker las escucha por ISAPI (`/ISAPI/Event/notification/alertStream`)
+con el mismo usuario de `SOURCE` y las manda a la API como eventos de cámara:
+
+| En la cámara (Configuración > Evento) | Llega como | Severidad |
+|---|---|---|
+| Video tampering / Scene change / Defocus | Sabotaje de cámara | crítica |
+| Video loss | Pérdida de video | crítica |
+| Line crossing detection | Cruce de línea (cámara) | advertencia |
+| Intrusion detection / Region entrance | Intrusión (cámara) | advertencia |
+| Motion detection | Movimiento (cámara) | apagado (`ISAPI_EVENTOS`) |
+
+1. En la interfaz web de la cámara activa el evento que quieras y, en
+   **Método de vinculación**, marca **Notificar al centro de vigilancia**
+   (*Notify Surveillance Center*). Sin eso la cámara no lo manda por ISAPI.
+2. El usuario del stream necesita el permiso **Notificar al centro de
+   vigilancia / Alarma remota**; con solo "Vista en vivo" la cámara responde 401
+   y el worker lo dice en su log.
+3. Nada más: con `ISAPI=auto` (el default) el worker se conecta solo si
+   `SOURCE` es `rtsp://usuario:contraseña@...`. Con un NVR, filtra por el canal
+   de la URL (`Channels/102` → canal 1).
+
+Independiente de esto, la API avisa si una cámara deja de entregar imagen
+(`NOTIFY_CAMARA_CAIDA_S`, 2 minutos por defecto), sea cual sea la marca.
+
+---
+
 ## Sin la cámara a la mano
 
 El sistema entero funciona igual con:

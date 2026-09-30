@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +102,27 @@ def usar_half(modo: str, device: str) -> bool:
     """FP16 solo tiene sentido en GPU: en CPU es mas lento o no esta soportado."""
     m = _modo(modo)
     return device == "cuda" and m != "false"
+
+
+_ARGUMENTO_PRECISION: Optional[str] = None
+
+
+def precision(half: bool) -> dict:
+    """Argumentos de media precision para predict/track segun la version de
+    Ultralytics: las recientes cambiaron `half=True` por `quantize=16` y avisan
+    en CADA frame si se usa el nombre viejo; las anteriores no conocen el
+    nuevo y lo rechazan."""
+    global _ARGUMENTO_PRECISION
+    if not half:
+        return {}
+    if _ARGUMENTO_PRECISION is None:
+        try:
+            from ultralytics.cfg import DEFAULT_CFG_DICT
+
+            _ARGUMENTO_PRECISION = "quantize" if "quantize" in DEFAULT_CFG_DICT else "half"
+        except Exception:  # noqa: BLE001
+            _ARGUMENTO_PRECISION = "half"
+    return {"quantize": 16} if _ARGUMENTO_PRECISION == "quantize" else {"half": True}
 
 
 def cargar_yolo(ruta: Path | str, device: str):

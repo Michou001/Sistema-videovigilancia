@@ -185,8 +185,9 @@ export const iconoTag = (tipo) => `<i data-lucide="${ICONOS[tipo] || 'circle-dot
  * en el resto el worker manda una etiqueta interna. */
 const VALORES = {
   movimiento_subito: 'Movimiento súbito', persona_caida: 'Persona caída', rostro: 'Rostro',
-  manos_arriba: 'Manos arriba', intrusion: 'Intrusión', cruce_linea: 'Cruce de línea',
-  merodeo: 'Merodeo', sabotaje: 'Sabotaje de cámara', perdida_video: 'Pérdida de video',
+  manos_arriba: 'Manos arriba', posible_agresion: 'Posible agresión', intrusion: 'Intrusión',
+  cruce_linea: 'Cruce de línea', merodeo: 'Merodeo', conteo: 'Conteo', sin_senal: 'Cámara sin señal',
+  senal_recuperada: 'Cámara recuperada', sabotaje: 'Sabotaje de cámara', perdida_video: 'Pérdida de video',
   deteccion_linea: 'Cruce de línea (cámara)', intrusion_camara: 'Intrusión (cámara)',
   movimiento_camara: 'Movimiento (cámara)',
 };
