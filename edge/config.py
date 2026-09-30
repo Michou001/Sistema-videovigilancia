@@ -264,6 +264,13 @@ class EdgeConfig:
     """Segundos con las dos manos por encima de la cabeza para avisar."""
     pose_agresion: bool = field(default_factory=lambda: _env_bool("POSE_AGRESION", True))
 
+    # --- Reentrenamiento (ver edge/dataset.py) --------------------------------
+    dataset_enabled: bool = field(default_factory=lambda: _env_bool("DATASET_ENABLED", False))
+    """Guardar el cuadro limpio de cada alerta para armar datasets con el
+    veredicto de los operadores (tools/dataset_alertas.py)."""
+    dataset_tipos: str = field(default_factory=lambda: os.getenv("DATASET_TIPOS", "weapon,anomaly,zone"))
+    dataset_dias: int = field(default_factory=lambda: _env_int("RETENCION_DATASET_DIAS", 30))
+
     # --- Eventos de la propia camara Hikvision (ver edge/isapi.py) -----------
     isapi: str = field(default_factory=lambda: os.getenv("ISAPI", "auto"))
     """auto | true | false. auto: si SOURCE es rtsp:// con usuario y

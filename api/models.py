@@ -197,6 +197,24 @@ class Event(EnUtc, table=True):
         return json.loads(self.meta_json) if self.meta_json else {}
 
 
+class SemanticEmbedding(EnUtc, table=True):
+    """Vector de la CAPTURA de un evento para la busqueda en lenguaje natural
+    ("camioneta blanca", "persona con mochila roja"), ver api/semantica.py.
+
+    Se deriva de la foto y vive lo que vive la foto: cuando la retencion borra
+    la captura, se borra tambien este vector.
+    """
+
+    __tablename__ = "semantic_embeddings"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: str = Field(index=True, unique=True, foreign_key="events.event_id")
+    vector: bytes = Field(description="float16[dim] normalizado, via numpy.tobytes()")
+    dim: int
+    modelo: str = Field(max_length=120)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class FaceEmbedding(EnUtc, table=True):
     """Embeddings de rostros DETECTADOS, separados de `events`.
 

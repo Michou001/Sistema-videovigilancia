@@ -28,6 +28,7 @@ from api.routers import (  # noqa: E402
     auditoria,
     auth,
     blacklist,
+    busqueda,
     camera_setup,
     events,
     faces,
@@ -138,11 +139,23 @@ async def lifespan(app: FastAPI):
         tareas.append(asyncio.create_task(_conectar_redis(url_redis())))
     if notificador.cfg.camara_caida_s > 0:
         tareas.append(asyncio.create_task(vigilar(notificador.cfg.camara_caida_s)))
+
+    from api import semantica
+    from api.database import engine
+
+    if semantica.activada():
+        semantica.indice = semantica.IndiceSemantico(engine)
+        # El modelo tarda en cargar (y la primera vez se descarga): la API
+        # atiende mientras tanto y la busqueda responde "cargando".
+        semantica.indice.cargar_en_segundo_plano()
+        tareas.append(asyncio.create_task(
+            semantica.indexar_periodicamente(semantica.indice, obtener_canal=lambda: _canal)))
     try:
         yield
     finally:
         for t in tareas:
             t.cancel()
+        semantica.indice = None
         hub.al_alertar = None
         await notificador.detener()
         notificaciones.notificador = None
@@ -208,6 +221,7 @@ app.include_router(media.router)
 app.include_router(placas.router)
 app.include_router(notificaciones.router)
 app.include_router(zonas.router)
+app.include_router(busqueda.router)
 
 
 @app.websocket("/ws/alerts")

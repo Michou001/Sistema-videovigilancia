@@ -269,9 +269,19 @@ class Camara:
                 pass
         return datos
 
-    def emitir(self, evento) -> None:
+    def emitir(self, evento, frame=None) -> None:
         self.sink.enviar(evento)
         self.total_eventos += 1
+        if frame is None:
+            return
+        # El cuadro en el que se detecto, para quien lo quiera (dataset de
+        # reentrenamiento). Solo en vivo: al cerrar ya no hay cuadro.
+        for c in self.complementos:
+            if hasattr(c, "al_evento"):
+                try:
+                    c.al_evento(evento, frame)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("[%s] %s.al_evento fallo: %s", self.id, type(c).__name__, e)
 
     def procesar(self, frame) -> None:
         """Un frame por todos los detectores y complementos."""
@@ -289,7 +299,7 @@ class Camara:
                     log.exception("[%s] El detector %s fallo (%d veces): %s", self.id, det.name, n, e)
                 continue
             for evento in eventos:
-                self.emitir(evento)
+                self.emitir(evento, frame)
 
         # Lo que siguen los detectores (personas, vehiculos), para las piezas
         # que razonan sobre objetos sin correr su propio modelo (zonas).
@@ -300,7 +310,7 @@ class Camara:
                 if hasattr(c, "al_pistas"):
                     c.al_pistas(frame, pistas)
                 for evento in c.eventos():
-                    self.emitir(evento)
+                    self.emitir(evento, frame)
             except Exception as e:  # noqa: BLE001
                 log.debug("[%s] complemento %s fallo: %s", self.id, type(c).__name__, e)
 
@@ -413,6 +423,14 @@ def _complementos(camara: Camara) -> None:
         grabador = crear_grabador(camara.cfg, camara.sink)
         if grabador is not None:
             camara.complementos.append(grabador)
+    except ImportError:
+        pass
+    try:
+        from edge.dataset import crear_recolector
+
+        recolector = crear_recolector(camara.cfg, camara.sink)
+        if recolector is not None:
+            camara.complementos.append(recolector)
     except ImportError:
         pass
     try:

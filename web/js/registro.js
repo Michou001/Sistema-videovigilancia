@@ -46,6 +46,14 @@ export function agregarEvento(ev, nuevo = false) {
     b.innerHTML = '<i data-lucide="pencil-line"></i>';
     celda.append(b);
   }
+  if (ev.similitud != null) {
+    // Busqueda por descripcion: que tanto se parece la captura a la frase.
+    const s = document.createElement('span');
+    s.className = 'similitud';
+    s.title = 'Parecido con la descripción buscada';
+    s.textContent = Math.round(ev.similitud * 100) / 100;
+    celda.prepend(s);
+  }
   const tbody = $('tablaEventos');
   if (nuevo) tbody.prepend(tr); else tbody.append(tr);
   while (tbody.children.length > 300) tbody.lastChild.remove();
@@ -68,10 +76,39 @@ function filtros() {
 }
 
 export function filtroActivo() {
-  return [...filtros().keys()].length > 0;
+  return [...filtros().keys()].length > 0 || !!$('fDescripcion').value.trim();
+}
+
+/* La busqueda por descripcion solo aparece si la API la tiene activada. */
+export async function prepararBusquedaSemantica() {
+  try {
+    const e = await api('/api/busqueda/estado');
+    $('campoDescripcion').hidden = e.estado === 'desactivado';
+    $('estadoSemantica').textContent = e.estado === 'cargando' ? '(cargando modelo…)'
+      : e.estado === 'error' ? '(no disponible)' : '';
+  } catch {
+    $('campoDescripcion').hidden = true;
+  }
+}
+
+async function buscarPorDescripcion(frase) {
+  const p = filtros();
+  p.delete('q');
+  p.delete('severidad');
+  p.set('q', frase);
+  p.set('limite', '60');
+  const r = await api('/api/busqueda?' + p.toString());
+  $('tablaEventos').innerHTML = '';
+  r.resultados.forEach((e) => agregarEvento(e));
+  $('sinEventos').textContent = 'Ninguna captura se parece a esa descripción.';
+  $('sinEventos').style.display = r.resultados.length ? 'none' : 'block';
+  $('contadorEventos').textContent = r.resultados.length + ' parecidos a "' + r.consulta + '"';
+  $('filtroActivo').textContent = '· búsqueda por descripción';
 }
 
 export async function cargarEventos() {
+  const frase = $('fDescripcion').value.trim();
+  if (frase.length >= 2) return buscarPorDescripcion(frase);
   const p = filtros();
   const activo = [...p.keys()].length > 0;
   p.set('limite', activo ? '500' : '100');

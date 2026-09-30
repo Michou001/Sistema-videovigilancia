@@ -48,6 +48,7 @@ ACCIONES = {
     "zonas.baja": "Baja de zona",
     "auditoria.exportacion": "Exportación de la bitácora",
     "notificaciones.prueba": "Prueba de notificaciones",
+    "busqueda.semantica": "Búsqueda por descripción",
 }
 
 

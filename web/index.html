@@ -10,6 +10,9 @@
      red de camaras sin internet los botones que solo tienen icono (corregir,
      contrasena, editar camara) quedaban invisibles. -->
 <script src="/static/vendor/lucide.min.js"></script>
+<!-- Leaflet 1.9.4 (licencia BSD-2): mapa de camaras, tambien dentro del proyecto. -->
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/static/css/estilos.css">
 <!-- Sin JavaScript en linea (ni <script> ni onclick=""): la politica de
      seguridad del servidor lo prohibe. Toda la logica vive en /static/js. -->
@@ -70,17 +73,20 @@
       <button id="navRegistro" data-accion="vista" data-vista="registro">
         Registro <span class="globo" id="globoAlertas" hidden></span>
       </button>
+      <button id="navMapa" data-accion="vista" data-vista="mapa">
+        Mapa
+      </button>
     </nav>
 
     <div class="estado"><span class="punto" id="puntoWs"></span><span id="textoWs">conectando…</span></div>
     <div class="estado" id="estadoCamaras"></div>
     <div class="crece"></div>
     <span style="font-size:13px;color:var(--tenue)" id="quien"></span>
-    <button class="sec" data-accion="abrir-camaras" data-rol="admin"><i data-lucide="scan-search"></i>Cámaras</button>
-    <button class="sec" data-accion="abrir-lista-negra" data-rol="admin"><i data-lucide="ban"></i>Lista negra</button>
-    <button class="sec" data-accion="abrir-admin" data-rol="admin"><i data-lucide="users"></i>Administración</button>
+    <button class="sec" data-accion="abrir-camaras" data-rol="admin" title="Cámaras"><i data-lucide="scan-search"></i>Cámaras</button>
+    <button class="sec" data-accion="abrir-lista-negra" data-rol="admin" title="Lista negra"><i data-lucide="ban"></i>Lista negra</button>
+    <button class="sec" data-accion="abrir-admin" data-rol="admin" title="Administración"><i data-lucide="users"></i>Administración</button>
     <button class="sec" data-accion="abrir-password" title="Cambiar mi contraseña"><i data-lucide="key-round"></i></button>
-    <button class="sec" data-accion="salir"><i data-lucide="log-out"></i>Salir</button>
+    <button class="sec" data-accion="salir" title="Salir"><i data-lucide="log-out"></i>Salir</button>
   </header>
   </div><!-- /#barra -->
 
@@ -122,6 +128,11 @@
           <div class="campo ancho">
             <label for="fTexto">Placa o valor</label>
             <input id="fTexto" placeholder="ABC-123-A" maxlength="20" autocomplete="off">
+          </div>
+          <div class="campo muy-ancho" id="campoDescripcion" hidden>
+            <label for="fDescripcion">Descripción <span class="tenue" id="estadoSemantica"></span></label>
+            <input id="fDescripcion" placeholder="camioneta blanca, persona con mochila roja…" maxlength="200"
+                   autocomplete="off">
           </div>
           <div class="campo">
             <label for="fTipo">Tipo</label>
@@ -174,6 +185,25 @@
         <h2>Alertas</h2>
         <div class="lista" id="listaAlertas"></div>
         <div class="vacio" id="sinAlertas">Ninguna alerta activa.</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ---------- APARTADO 3: MAPA ---------- -->
+  <div class="vista" id="vistaMapa">
+    <main class="mapa-principal">
+      <div class="panel">
+        <h2>Mapa de cámaras <span class="crece"></span>
+          <span class="leyenda"><span class="punto verde"></span>en línea <span class="punto gris"></span>sin señal
+            <span class="punto rojo"></span>alerta crítica</span></h2>
+        <div id="mapa"></div>
+        <div class="ayuda" id="mapaAyuda"></div>
+      </div>
+      <div class="panel">
+        <h2>Sin ubicación</h2>
+        <div id="mapaSinUbicacion"></div>
+        <p class="sub" style="margin-top:12px">Pulsa "Ubicar" y luego haz clic en el mapa donde está la cámara, o
+          escribe sus coordenadas al editarla (lápiz en su recuadro de Monitoreo).</p>
       </div>
     </main>
   </div>
