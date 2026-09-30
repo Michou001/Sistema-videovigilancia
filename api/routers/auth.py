@@ -125,9 +125,9 @@ def cambiar_password(datos: CambioPassword, operador: OperadorActual, session: S
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña actual no es correcta")
     motivo = validar_password_nueva(datos.nueva)
     if motivo:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, motivo)
+        raise HTTPException(422, motivo)
     if datos.nueva == datos.actual:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "La contraseña nueva debe ser distinta de la actual")
 
     operador.password_hash = hash_password(datos.nueva)

@@ -28,5 +28,8 @@ psycopg[binary]>=3.1,<4
 redis>=5,<9
 fakeredis>=2.20
 
+# Clips en H.264 (tests/test_clips.py prueba los dos codecs)
+av>=14,<19
+
 # Herramientas de desarrollo
 ruff>=0.6

@@ -28,7 +28,7 @@ from typing import Optional
 import numpy as np
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, col, select
@@ -160,6 +160,41 @@ def _meta_para_dashboard(meta: Optional[dict]) -> dict:
     return {k: meta[k] for k in _META_VISIBLE if meta and meta.get(k) is not None}
 
 
+def _datos_evento(evento: DetectionEvent, resultado: MatchResult, fila: Event) -> dict:
+    """Lo que se difunde por WebSocket de un evento recien guardado."""
+    return {
+        "event_id": evento.event_id,
+        "camera_id": evento.camera_id,
+        "ts": evento.ts,
+        "type": evento.type.value,
+        "value": evento.value,
+        "confidence": evento.confidence,
+        "severity": resultado.severity.value,
+        "snapshot_path": fila.snapshot_path,
+        "observations": evento.observations,
+        "meta": _meta_para_dashboard(evento.meta),
+    }
+
+
+def registrar_evento_sistema(evento: DetectionEvent) -> tuple[dict, Optional[dict]]:
+    """Guarda un evento que genera la propia API (p.ej. "camara sin senal").
+
+    Pasa por el mismo cruce y el mismo guardado que la ingesta, pero SIN
+    contar como latido: un aviso de camara caida no puede revivir la camara.
+    Devuelve (mensaje del evento, mensaje de la alerta o None) para difundir.
+    """
+    with Session(engine) as session:
+        resultado = evaluar(evento, session)
+        fila, alerta = _guardar(evento, resultado, session)
+        datos = _datos_evento(evento, resultado, fila)
+        session.commit()
+        datos_alerta = None
+        if alerta is not None:
+            session.refresh(alerta)
+            datos_alerta = mensaje_alerta(alerta, evento.ts)
+    return datos, datos_alerta
+
+
 def _latido(session: Session, camera_id: str, estado: Optional[dict] = None) -> None:
     camara = session.exec(select(Camera).where(Camera.camera_id == camera_id)).first()
     if camara is None:
@@ -231,21 +266,7 @@ def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
             fila, alerta = _guardar(evento, resultado, session)
             resultados.append(resultado)
             aceptados += 1
-            guardados.append((
-                {
-                    "event_id": evento.event_id,
-                    "camera_id": evento.camera_id,
-                    "ts": evento.ts,
-                    "type": evento.type.value,
-                    "value": evento.value,
-                    "confidence": evento.confidence,
-                    "severity": resultado.severity.value,
-                    "snapshot_path": fila.snapshot_path,
-                    "observations": evento.observations,
-                    "meta": _meta_para_dashboard(evento.meta),
-                },
-                alerta,
-            ))
+            guardados.append((_datos_evento(evento, resultado, fila), alerta))
 
         session.commit()
 
@@ -295,3 +316,71 @@ async def heartbeat(camera_id: str = Query(pattern=PATRON_CAMARA),
     await run_in_threadpool(_registrar)
     await hub.difundir("camera_status", {"camera_id": camera_id, "status": status})
     return {"ok": True}
+
+
+# Un clip de 20 s a 960 px ronda 1-5 MB. 80 MB deja margen para camaras de
+# alta resolucion sin permitir que un cliente mal configurado llene el disco.
+MAX_BYTES_CLIP = 80 * 1024 * 1024
+
+
+def _tipo_de_video(datos: bytes) -> Optional[str]:
+    """Extension segun el contenido real, no segun lo que diga la cabecera."""
+    if len(datos) > 12 and datos[4:8] == b"ftyp":
+        return "mp4"
+    if datos[:4] == b"\x1a\x45\xdf\xa3":      # EBML: Matroska / WebM
+        return "webm"
+    return None
+
+
+@router.post("/{event_id}/clip")
+async def subir_clip(event_id: str, request: Request) -> dict:
+    """El worker sube el clip de video de un evento que fue alerta.
+
+    Se liga a TODAS las alertas de ese evento y se avisa a los dashboards,
+    que muestran el boton "Ver clip" sin recargar.
+    """
+    if not _ID_SEGURO.fullmatch(event_id):
+        raise HTTPException(422, "event_id invalido")
+    try:
+        declarado = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        declarado = 0
+    if declarado > MAX_BYTES_CLIP:
+        raise HTTPException(413, "Clip demasiado grande")
+    # Se lee por partes y se corta al pasar el limite: sin Content-Length
+    # (envio por trozos) no se sabe el tamano hasta leerlo.
+    partes, total = [], 0
+    async for parte in request.stream():
+        total += len(parte)
+        if total > MAX_BYTES_CLIP:
+            raise HTTPException(413, "Clip demasiado grande")
+        partes.append(parte)
+    datos = b"".join(partes)
+    extension = _tipo_de_video(datos)
+    if extension is None:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "El clip debe ser MP4 o WebM")
+
+    def _guardar_clip() -> list[dict]:
+        cfg = get_config()
+        with Session(engine) as session:
+            evento = session.exec(select(Event).where(Event.event_id == event_id)).first()
+            if evento is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese evento")
+            destino = cfg.clips_dir / f"{event_id}.{extension}"
+            destino.write_bytes(datos)
+            ruta = destino.relative_to(BASE_DIR).as_posix()
+            alertas = session.exec(select(Alert).where(Alert.event_id == event_id)).all()
+            for alerta in alertas:
+                alerta.clip_path = ruta
+            session.commit()
+            ts = evento.ts.isoformat() if evento.ts else None
+            mensajes = []
+            for alerta in alertas:
+                session.refresh(alerta)
+                mensajes.append(mensaje_alerta(alerta, ts))
+            return mensajes
+
+    mensajes = await run_in_threadpool(_guardar_clip)
+    for m in mensajes:
+        await hub.difundir("alert_updated", m)
+    return {"ok": True, "alertas": len(mensajes)}

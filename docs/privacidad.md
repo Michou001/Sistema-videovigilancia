@@ -20,6 +20,8 @@ conserva y qué obligaciones legales aplican.
 | Detección de arma | Personal (vinculado a quien la porta) | 1 año |
 | Registros de operadores | Personal | Mientras dure la cuenta |
 | **Video en vivo del dashboard** | Personal (imagen de quien pase) | **No. Solo en memoria** |
+| Clip de video de una alerta (~20 s) | Personal (imagen de quien pase) | Solo de alertas, 90 días |
+| Aviso por Telegram/correo/WhatsApp | Personal (texto de la alerta) | Lo guarda el servicio externo |
 
 ---
 
@@ -50,7 +52,10 @@ Configurable por variables de entorno; los valores por defecto son:
 | Fotos de eventos sin coincidencia | 7 días | `RETENCION_FOTOS_DIAS` |
 | Eventos sin coincidencia (solo texto) | 30 días | `RETENCION_EVENTOS_DIAS` |
 | Alertas y su evidencia | 365 días | `RETENCION_ALERTAS_DIAS` |
+| Clips de video de las alertas | 90 días | `RETENCION_CLIPS_DIAS` |
 | Embeddings que sí coincidieron | 7 días | `RETENCION_EMBEDDINGS_DIAS` |
+| Lecturas de placa corregidas por un operador | 180 días | `RETENCION_CORREGIDOS_DIAS` |
+| Bitácora de auditoría | 730 días | `RETENCION_AUDITORIA_DIAS` |
 
 La distinción entre las dos primeras filas es deliberada: para responder *"¿pasó
 el coche ABC-123 por aquí el martes?"* basta una línea de texto de 50 bytes. La
@@ -117,24 +122,63 @@ personas, así que se trata con las mismas reglas que el resto:
   que purgar porque no hay archivo. Lo que se conserva como evidencia son las
   capturas de los eventos, que sí pasan por `data/snapshots` con su política de
   retención.
-- **No hay grabación.** No se puede retroceder ni revisar "qué pasó hace diez
-  minutos" en el video. Para eso está el histórico de eventos, que es
-  justamente lo que sí tiene fundamento conservar.
+- **No hay grabación continua.** No se puede retroceder ni revisar "qué pasó
+  hace diez minutos" en el video. Lo único que se graba es un clip de unos
+  segundos alrededor de una **alerta** (ver abajo); de lo demás queda el
+  histórico de eventos, que es lo que sí tiene fundamento conservar.
 - **Solo circula mientras alguien mira.** Al cerrar el apartado, o con la
   pestaña en segundo plano, el flujo se corta y el worker deja de enviar. Con
   el dashboard cerrado no sale un solo frame de la red de las cámaras.
 - **Pasado el plazo, la API suelta el último frame** de una cámara que dejó de
   enviar. No es higiene de memoria: es no quedarse con la última imagen de una
   persona indefinidamente porque el worker murió en mal momento.
-- **Ver requiere sesión de operador.** El flujo valida el JWT antes de entregar
-  el primer byte. Va por query string porque un `<img>` no puede mandar
-  cabeceras — el mismo compromiso que el WebSocket de alertas — así que queda
-  en el DOM y en el historial del navegador: es un token de sesión con
-  caducidad (`JWT_HOURS`), nunca el token de ingesta del worker.
+- **Ver requiere sesión.** El flujo valida la sesión antes de entregar el
+  primer byte. Como un `<img>` no puede mandar cabeceras, la sesión viaja en
+  una cookie `HttpOnly` y `SameSite=Strict` que pone el login: no queda en el
+  DOM, ni en el historial, ni la puede leer un script. Caduca con `JWT_HOURS`
+  y nunca es el token de ingesta del worker.
 
 Si por política el video no debe salir de la red de las cámaras,
 `PREVIEW_ENABLED=false` en el `.env` del worker lo desactiva. Los eventos y sus
 capturas siguen llegando igual.
+
+---
+
+## Clips de video de las alertas
+
+Cuando la API decide que un evento es alerta (advertencia o crítica), el worker
+arma un clip con los segundos anteriores y posteriores (`CLIP_PRE_S`,
+`CLIP_POST_S`, 10 + 10 por defecto) y lo sube a la API. Para un parte o una
+denuncia, el clip es lo que muestra qué pasó.
+
+- **Solo de alertas.** El worker guarda en memoria los últimos segundos de
+  video, comprimidos, y los va sobrescribiendo. Si no hay alerta, nada llega a
+  disco.
+- **Plazo propio, más corto que la alerta** (`RETENCION_CLIPS_DIAS`, 90 días):
+  el clip muestra a todos los que pasaban, no solo al involucrado. La alerta y
+  su foto siguen su propio plazo. Un clip sin alerta que lo referencie se borra
+  en la purga.
+- **Mismo acceso que las fotos:** solo con sesión, desde `/media`.
+- `CLIP_ENABLED=false` en el `.env` del worker lo desactiva.
+
+---
+
+## Notificaciones fuera del dashboard
+
+Telegram, correo, WhatsApp y webhook (variables `NOTIFY_*`) llevan la alerta al
+celular del responsable. Eso es una **transferencia de datos personales a un
+tercero** (Telegram, el proveedor de correo, Twilio/Meta), así que:
+
+- **Por defecto no se manda la foto** (`NOTIFY_INCLUDE_PHOTO=false`): el aviso
+  lleva título, cámara, hora y folio; la evidencia se consulta en el dashboard.
+  Actívala solo si el aviso de privacidad contempla esa transferencia. WhatsApp
+  y el webhook nunca llevan foto.
+- **Solo alertas críticas** por defecto (`NOTIFY_MIN_SEVERITY`), más la caída y
+  recuperación de cámaras. Los avisos de coincidencias históricas (al dar de
+  alta una placa) no se notifican.
+- Los tokens y contraseñas viven en el `.env` del servidor: no se ven ni se
+  cambian desde el navegador, y se ocultan de los mensajes de error y del log.
+- Las pruebas de envío quedan en la bitácora.
 
 ---
 

@@ -92,7 +92,7 @@ def listar(session: SesionBD, _: Admin):
 def crear(datos: AltaUsuario, session: SesionBD, admin: Admin, request: Request):
     motivo = validar_password_nueva(datos.password)
     if motivo:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, motivo)
+        raise HTTPException(422, motivo)
     if session.exec(select(Operator).where(Operator.username == datos.username)).first():
         raise HTTPException(status.HTTP_409_CONFLICT, f"El usuario '{datos.username}' ya existe")
 
@@ -138,7 +138,7 @@ def editar(usuario_id: int, datos: EdicionUsuario, session: SesionBD, admin: Adm
     if datos.password:
         motivo = validar_password_nueva(datos.password)
         if motivo:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, motivo)
+            raise HTTPException(422, motivo)
         usuario.password_hash = hash_password(datos.password)
         cambios["contraseña"] = "restablecida"
         invalida_sesiones = True

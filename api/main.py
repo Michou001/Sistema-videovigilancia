@@ -32,6 +32,7 @@ from api.routers import (  # noqa: E402
     events,
     faces,
     media,
+    notificaciones,
     placas,
     preview,
     usuarios,
@@ -122,14 +123,28 @@ async def lifespan(app: FastAPI):
              cfg.ingest_token[:6], cfg.ingest_token[-4:])
     log.info("Dashboard en http://localhost:8000")
 
+    from api import notificaciones
+    from api.camaras_caidas import vigilar
+
+    notificador = notificaciones.Notificador(datos_camara=notificaciones.datos_camara_desde_bd,
+                                             foto_de=notificaciones.foto_desde_disco)
+    notificaciones.notificador = notificador
+    await notificador.iniciar()
+    hub.al_alertar = notificador.alerta
+
     tareas = [asyncio.create_task(_purga_periodica())]
     if url_redis():
         tareas.append(asyncio.create_task(_conectar_redis(url_redis())))
+    if notificador.cfg.camara_caida_s > 0:
+        tareas.append(asyncio.create_task(vigilar(notificador.cfg.camara_caida_s)))
     try:
         yield
     finally:
         for t in tareas:
             t.cancel()
+        hub.al_alertar = None
+        await notificador.detener()
+        notificaciones.notificador = None
         if _canal is not None:
             await _canal.cerrar()
 
@@ -190,6 +205,7 @@ app.include_router(preview.router)
 app.include_router(camera_setup.router)
 app.include_router(media.router)
 app.include_router(placas.router)
+app.include_router(notificaciones.router)
 
 
 @app.websocket("/ws/alerts")

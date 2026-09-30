@@ -345,6 +345,7 @@
       <button class="pest activa" data-accion="pestana-admin" data-tab="usuarios" type="button"><i data-lucide="users"></i>Usuarios</button>
       <button class="pest" data-accion="pestana-admin" data-tab="bitacora" type="button"><i data-lucide="scroll-text"></i>Bitácora</button>
       <button class="pest" data-accion="pestana-admin" data-tab="datos" type="button"><i data-lucide="database"></i>Reentrenamiento</button>
+      <button class="pest" data-accion="pestana-admin" data-tab="notificaciones" type="button"><i data-lucide="bell-ring"></i>Notificaciones</button>
       <span class="crece"></span>
       <button class="sec" type="button" data-accion="cerrar-admin"><i data-lucide="x"></i>Cerrar</button>
     </div>
@@ -413,6 +414,18 @@
         para afinar el modelo. Son placas reales: la descarga queda en la bitácora; guárdalo cifrado.
       </p>
     </div>
+
+    <div id="tabNotificaciones" style="display:none">
+      <p class="sub">
+        Las alertas llegan al celular del responsable aunque nadie esté mirando el dashboard. Los canales
+        (Telegram, correo, WhatsApp, webhook) se configuran en el <span class="mono">.env</span> del servidor con las
+        variables <span class="mono">NOTIFY_*</span>: los tokens y contraseñas no se pueden ver ni cambiar desde aquí.
+      </p>
+      <div id="estadoNotificaciones" class="lista-canales"></div>
+      <button type="button" data-accion="probar-notificaciones" style="margin-top:12px">
+        <i data-lucide="send"></i>Enviar prueba por todos los canales</button>
+      <div id="resultadoPrueba" class="lista-canales" style="margin-top:8px"></div>
+    </div>
   </div>
 </div>
 
@@ -467,6 +480,10 @@
   <figure>
     <img id="visorImg" alt="Evidencia">
     <video id="visorVideo" controls playsinline style="display:none"></video>
+    <div id="visorSinFormato" class="visor-aviso" hidden>
+      Este navegador no reproduce el formato del clip.
+      <a id="visorDescarga" download>Descargar el clip</a> y ábrelo con VLC o el reproductor del equipo.
+    </div>
     <figcaption id="visorTexto"></figcaption>
   </figure>
 </div>

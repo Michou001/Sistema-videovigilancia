@@ -24,11 +24,14 @@ export function miniatura(ruta, descripcion, clase = '') {
 export function abrirVisor(src, texto, { clip = null } = {}) {
   const img = $('visorImg');
   const video = $('visorVideo');
+  $('visorSinFormato').hidden = true;
   if (clip) {
     img.style.display = 'none';
     img.removeAttribute('src');
     video.style.display = 'block';
     video.src = urlEvidencia(clip);
+    $('visorDescarga').href = video.src;
+    $('visorDescarga').download = String(clip).split('/').pop();
     video.play().catch(() => {});
   } else {
     video.pause();
@@ -50,9 +53,20 @@ export function cerrarVisor() {
   video.load();
 }
 
+/* Un clip H.264 en un Chromium sin codecs propietarios (o un WebM en un
+ * Safari viejo) no se reproduce: en vez de un cuadro negro, se ofrece
+ * descargarlo. */
+$('visorVideo').addEventListener('error', () => {
+  const video = $('visorVideo');
+  if (!video.getAttribute('src')) return;
+  video.style.display = 'none';
+  $('visorSinFormato').hidden = false;
+});
+
 accion('cerrar-visor', (el, e) => {
-  // Un clic en los controles del video no debe cerrar el visor.
-  if (e.target.closest('video')) return;
+  // Un clic en los controles del video (o en el enlace de descarga) no
+  // debe cerrar el visor.
+  if (e.target.closest('video, .visor-aviso')) return;
   cerrarVisor();
 });
 accion('ver-clip', (el) => abrirVisor(null, el.dataset.descripcion || '', { clip: el.dataset.clip }));

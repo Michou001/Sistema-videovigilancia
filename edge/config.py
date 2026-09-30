@@ -230,6 +230,17 @@ class EdgeConfig:
     """Calidad JPEG (20-95). 70 es el punto donde el artefacto todavia no se
     nota y el tamano ya bajo bastante."""
 
+    # --- Clips de video de las alertas (ver edge/clips.py) -----------------
+    clip_enabled: bool = field(default_factory=lambda: _env_bool("CLIP_ENABLED", True))
+    clip_pre_s: float = field(default_factory=lambda: _env_float("CLIP_PRE_S", 10.0))
+    """Segundos ANTES del evento. En placas el evento sale cuando el vehiculo
+    deja la escena, asi que esto cubre su paso completo."""
+    clip_post_s: float = field(default_factory=lambda: _env_float("CLIP_POST_S", 10.0))
+    clip_ancho: int = field(default_factory=lambda: _env_int("CLIP_ANCHO", 960))
+    clip_calidad: int = field(default_factory=lambda: _env_int("CLIP_CALIDAD", 80))
+    clip_codec: str = field(default_factory=lambda: os.getenv("CLIP_CODEC", "auto"))
+    """auto | vp8 | h264. h264 requiere `pip install av`."""
+
     # --- Depuracion --------------------------------------------------------
     show_window: bool = field(default_factory=lambda: _env_bool("SHOW_WINDOW", False))
     """Ventana de OpenCV con las cajas dibujadas. Util en desarrollo, SIEMPRE

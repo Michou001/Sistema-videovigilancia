@@ -167,10 +167,7 @@ export function agregarAlerta(a, nuevo = false) {
   }
   if (a.status && a.status !== 'new') partes.push(escapar(ESTADOS_ALERTA[a.status] || a.status));
 
-  const clip = a.clip_path
-    ? `<button class="sec chip-clip" data-accion="ver-clip" data-clip="${escapar(a.clip_path)}"
-               data-descripcion="${escapar(a.title)} · ${escapar(fechaHora(a.ts || a.created_at))}">
-         <i data-lucide="film"></i>Ver clip</button>` : '';
+  const clip = botonClip(a);
 
   div.innerHTML = `
     <div class="crece">
@@ -192,6 +189,28 @@ export function agregarAlerta(a, nuevo = false) {
   else if (nuevo) lista.prepend(div);
   else lista.append(div);
   while (lista.children.length > 60) lista.lastChild.remove();
+  iconos();
+}
+
+function botonClip(a) {
+  return a.clip_path
+    ? `<button class="sec chip-clip" data-accion="ver-clip" data-clip="${escapar(a.clip_path)}"
+               data-descripcion="${escapar(a.title)} · ${escapar(fechaHora(a.ts || a.created_at))}">
+         <i data-lucide="film"></i>Ver clip</button>` : '';
+}
+
+/* El clip llega unos segundos despues que la alerta. Solo se agrega el boton:
+ * rehacer la tarjeta borraria la nota que el operador quiza ya esta
+ * escribiendo en ella. */
+export function actualizarClip(a) {
+  const tarjeta = $('listaAlertas').querySelector(`[data-alerta="${Number(a.id)}"]`);
+  if (!tarjeta || !a.clip_path) return;
+  tarjeta.querySelector('.chip-clip')?.remove();
+  const plantilla = document.createElement('template');
+  plantilla.innerHTML = botonClip(a).trim();
+  const contenedor = tarjeta.querySelector('.crece');
+  const antes = contenedor.querySelector(':scope > .acciones, :scope > .atencion');
+  contenedor.insertBefore(plantilla.content.firstChild, antes);
   iconos();
 }
 

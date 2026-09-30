@@ -98,3 +98,6 @@ pyyaml>=6.0,<7
 # psycopg[binary]>=3.1,<4      # DATABASE_URL=postgresql+psycopg://...
 # redis>=5,<9                  # REDIS_URL + API_WORKERS: varios procesos de API
 # open-clip-torch>=2.24,<4     # busqueda en lenguaje natural (SEMANTIC_SEARCH=true)
+# av>=14,<19                   # clips en H.264/MP4 (Safari, celulares). Sin el, los
+#                              # clips salen en VP8/WebM con OpenCV. Trae FFmpeg con
+#                              # x264 (GPL): ver docs/licencias.md

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import WebSocket
 
@@ -43,6 +43,10 @@ class Hub:
         self._lock = asyncio.Lock()
         self._canal = None
         self._total_global = 0
+        # Enganche de las notificaciones externas (api/notificaciones.py).
+        # Se llama en el proceso que CREA la alerta, no en los que solo la
+        # reciben por Redis: con cuatro procesos el aviso sale una vez.
+        self.al_alertar: Optional[Callable[[dict], None]] = None
 
     # -- Redis (opcional) ------------------------------------------------
 
@@ -82,7 +86,12 @@ class Hub:
         except Exception:  # noqa: BLE001
             return False
 
-    async def difundir(self, tipo: str, datos: dict) -> None:
+    async def difundir(self, tipo: str, datos: dict, notificar: bool = True) -> None:
+        if tipo == "alert" and notificar and self.al_alertar is not None:
+            try:
+                self.al_alertar(datos)
+            except Exception as e:  # noqa: BLE001 - notificar nunca frena la difusion
+                log.error("No se pudo encolar la notificacion: %s", e)
         mensaje = json.dumps({"type": tipo, "data": datos}, default=_serializar,
                              ensure_ascii=False)
         if self._canal is not None:

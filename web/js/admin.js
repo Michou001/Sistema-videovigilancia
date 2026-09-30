@@ -16,10 +16,14 @@ accion('cerrar-admin', () => modal('modalAdmin', false));
 
 accion('pestana-admin', (el) => {
   document.querySelectorAll('#modalAdmin .pest').forEach((x) => x.classList.toggle('activa', x === el));
-  for (const tab of ['Usuarios', 'Bitacora', 'Datos']) {
+  for (const tab of ['Usuarios', 'Bitacora', 'Datos', 'Notificaciones']) {
     $('tab' + tab).style.display = el.dataset.tab === tab.toLowerCase() ? 'block' : 'none';
   }
   if (el.dataset.tab === 'bitacora') cargarBitacora();
+  if (el.dataset.tab === 'notificaciones') {
+    $('resultadoPrueba').innerHTML = '';
+    cargarNotificaciones().catch((err) => alert(err.message));
+  }
 });
 
 /* ------------------------------------------------------------------ */
@@ -153,6 +157,48 @@ $('formBitacora').addEventListener('submit', (e) => {
 accion('exportar-bitacora', () =>
   descargar('/api/audit/export.csv?' + filtrosBitacora().toString(), 'bitacora.csv')
     .catch((err) => alert(err.message)));
+
+/* ------------------------------------------------------------------ */
+/* Notificaciones externas                                             */
+/* ------------------------------------------------------------------ */
+
+const NOMBRES_SEVERIDAD = { critical: 'solo críticas', warning: 'advertencias y críticas', info: 'todas' };
+
+async function cargarNotificaciones() {
+  const r = await api('/api/notificaciones');
+  const canales = r.canales.length
+    ? r.canales.map((c) => `<div class="canal"><i data-lucide="check-circle-2"></i>${escapar(c.descripcion)}</div>`).join('')
+    : '<div class="canal tenue"><i data-lucide="bell-off"></i>Ningún canal configurado.</div>';
+  const caida = r.camara_caida_s > 0
+    ? `Cámara sin imagen más de ${Number(r.camara_caida_s)} s: se avisa (y al recuperarse).`
+    : 'Aviso de cámara caída desactivado (NOTIFY_CAMARA_CAIDA_S=0).';
+  $('estadoNotificaciones').innerHTML = `${canales}
+    <div class="ayuda">Se notifican: ${escapar(NOMBRES_SEVERIDAD[r.min_severidad] || r.min_severidad)}.
+      ${escapar(caida)} Foto en el aviso: ${r.incluir_foto ? 'sí' : 'no'}.
+      Enviados desde el arranque: ${Number(r.enviados)}; fallidos: ${Number(r.fallidos)}.</div>`;
+  iconos();
+}
+
+function pintarPrueba(resultados) {
+  $('resultadoPrueba').innerHTML = Object.entries(resultados).map(([canal, res]) => res === 'ok'
+    ? `<div class="canal"><i data-lucide="check"></i>${escapar(canal)}: enviado</div>`
+    : `<div class="canal error"><i data-lucide="x"></i>${escapar(canal)}: ${escapar(res)}</div>`).join('');
+  iconos();
+}
+
+accion('probar-notificaciones', async (el) => {
+  el.disabled = true;
+  $('resultadoPrueba').innerHTML = '<div class="ayuda">Enviando…</div>';
+  try {
+    const r = await api('/api/notificaciones/prueba', { method: 'POST' });
+    pintarPrueba(r.resultados);
+    await cargarNotificaciones();
+  } catch (err) {
+    $('resultadoPrueba').innerHTML = `<div class="canal error">${escapar(err.message)}</div>`;
+  } finally {
+    el.disabled = false;
+  }
+});
 
 /* ------------------------------------------------------------------ */
 /* Cambio de contrasena propio                                         */
