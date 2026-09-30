@@ -98,7 +98,9 @@ tzdata>=2024.1              # horarios de las zonas (zoneinfo): Windows no trae 
 # --- Opcionales (descomenta segun lo que uses) ------------------------------
 # psycopg[binary]>=3.1,<4      # DATABASE_URL=postgresql+psycopg://...
 # redis>=5,<9                  # REDIS_URL + API_WORKERS: varios procesos de API
-# open-clip-torch>=2.24,<4     # busqueda en lenguaje natural (SEMANTIC_SEARCH=true)
+# open-clip-torch>=2.24,<4     # busqueda en lenguaje natural (SEMANTIC_SEARCH=true, en la API)
+# transformers>=4.40,<6        #   + tokenizador multilingue del modelo (espanol)
+# sentencepiece>=0.2,<1
 # av>=14,<19                   # clips en H.264/MP4 (Safari, celulares). Sin el, los
 #                              # clips salen en VP8/WebM con OpenCV. Trae FFmpeg con
 #                              # x264 (GPL): ver docs/licencias.md

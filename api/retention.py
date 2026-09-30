@@ -141,6 +141,9 @@ def purgar(session: Session, politica: Politica | None = None,
             cuenta["fotos"] += 1
         if not simular:
             ev.snapshot_path = None
+    if not simular and con_foto:
+        # El vector de busqueda se calculo de la foto: se va con ella.
+        _borrar_vectores(session, [ev.event_id for ev in con_foto])
 
     # 3. Eventos sin coincidencia, ya caducados ----------------------------
     antiguos = session.exec(
@@ -160,6 +163,7 @@ def purgar(session: Session, politica: Politica | None = None,
     ).all()
     cuenta["eventos"] = len(antiguos)
     if not simular:
+        _borrar_vectores(session, [ev.event_id for ev in antiguos])
         for ev in antiguos:
             _borrar_archivo(ev.snapshot_path, base)
             session.exec(delete(FaceEmbedding).where(FaceEmbedding.event_id == ev.event_id))
@@ -183,6 +187,7 @@ def purgar(session: Session, politica: Politica | None = None,
             otra = session.exec(select(Alert.id).where(Alert.event_id == evento_id)).first()
             if ev is not None and otra is None:
                 session.exec(delete(FaceEmbedding).where(FaceEmbedding.event_id == ev.event_id))
+                _borrar_vectores(session, [ev.event_id])
                 session.delete(ev)
 
     # 5. Clips de video caducados (la alerta se queda) ---------------------
@@ -217,6 +222,15 @@ def purgar(session: Session, politica: Politica | None = None,
     cuenta["huerfanas"] = _limpiar_huerfanas(session, cfg.snapshot_dir, base, simular)
     cuenta["huerfanas"] += _limpiar_clips_huerfanos(session, cfg.clips_dir, simular)
     return cuenta
+
+
+def _borrar_vectores(session: Session, event_ids: list[str]) -> None:
+    from api.semantica import borrar_de_eventos
+
+    if event_ids:
+        borrar_de_eventos(session, event_ids)
+        # Antes que el evento: el vector lo referencia por llave foranea.
+        session.flush()
 
 
 def _limpiar_clips_huerfanos(session: Session, carpeta: Path, simular: bool) -> int:

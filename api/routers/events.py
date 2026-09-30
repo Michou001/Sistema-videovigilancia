@@ -318,6 +318,30 @@ async def heartbeat(camera_id: str = Query(pattern=PATRON_CAMARA),
     return {"ok": True}
 
 
+class PeticionVeredictos(BaseModel):
+    event_ids: list[str] = Field(max_length=1000)
+
+
+@router.post("/veredictos")
+def veredictos(peticion: PeticionVeredictos) -> dict:
+    """Que dijeron los operadores de las alertas de estos eventos, para armar
+    el dataset de reentrenamiento en la maquina del worker
+    (tools/dataset_alertas.py). Solo el veredicto: nada de fotos ni notas."""
+    ids = [i for i in peticion.event_ids if _ID_SEGURO.fullmatch(i)]
+    if not ids:
+        return {"veredictos": {}}
+    with Session(engine) as session:
+        filas = session.exec(select(Alert.event_id, Alert.status, Alert.dismissed_reason, Alert.type)
+                             .where(col(Alert.event_id).in_(ids))).all()
+    resultado: dict[str, dict] = {}
+    for event_id, estado, motivo, tipo in filas:
+        previo = resultado.get(event_id)
+        # Con varias alertas del mismo evento, manda la que ya se reviso.
+        if previo is None or previo["estado"] == "new":
+            resultado[event_id] = {"estado": estado, "motivo": motivo, "tipo": tipo}
+    return {"veredictos": resultado}
+
+
 # Un clip de 20 s a 960 px ronda 1-5 MB. 80 MB deja margen para camaras de
 # alta resolucion sin permitir que un cliente mal configurado llene el disco.
 MAX_BYTES_CLIP = 80 * 1024 * 1024

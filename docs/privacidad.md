@@ -22,6 +22,8 @@ conserva y qué obligaciones legales aplican.
 | **Video en vivo del dashboard** | Personal (imagen de quien pase) | **No. Solo en memoria** |
 | Clip de video de una alerta (~20 s) | Personal (imagen de quien pase) | Solo de alertas, 90 días |
 | Aviso por Telegram/correo/WhatsApp | Personal (texto de la alerta) | Lo guarda el servicio externo |
+| Vector de búsqueda por descripción (opcional) | Personal (apariencia, derivado de la foto) | Lo que viva su foto |
+| Cuadro de entrenamiento (opcional) | Personal (imagen de quien pase) | Solo alertas, 30 días, en el worker |
 
 ---
 
@@ -179,6 +181,31 @@ tercero** (Telegram, el proveedor de correo, Twilio/Meta), así que:
 - Los tokens y contraseñas viven en el `.env` del servidor: no se ven ni se
   cambian desde el navegador, y se ocultan de los mensajes de error y del log.
 - Las pruebas de envío quedan en la bitácora.
+
+---
+
+## Búsqueda por descripción (opcional)
+
+Con `SEMANTIC_SEARCH=true`, la API calcula de cada captura un vector que
+permite buscar "camioneta blanca" o "persona con mochila roja". Buscar a
+alguien por cómo se ve es sensible, así que:
+
+- **No es reconocimiento facial.** El vector describe la escena (colores,
+  ropa, tipo de vehículo); no identifica a una persona ni se compara contra
+  la lista negra.
+- **Vive lo que vive la foto.** Cuando la retención borra una captura (7 días
+  en eventos normales), se borra también su vector.
+- **Cada búsqueda queda en la bitácora** con quién la hizo y qué escribió.
+- Viene apagada. Actívala solo si el aviso de privacidad contempla la
+  búsqueda en el histórico de imágenes.
+
+## Cuadros para reentrenar los modelos (opcional)
+
+Con `DATASET_ENABLED=true` en el worker se guardan los cuadros de las alertas
+para que, con el veredicto de los operadores, se afinen los modelos
+([reentrenamiento.md](reentrenamiento.md)). Se quedan en la máquina del worker,
+solo de alertas, y se borran a los `RETENCION_DATASET_DIAS` (30). El ZIP que
+se arma para entrenar se guarda cifrado y se borra al terminar. Viene apagado.
 
 ---
 

@@ -22,6 +22,7 @@ import {
 } from './monitoreo.js';
 import {
   actualizarClip, actualizarFiltroCamaras, agregarAlerta, agregarEvento, cargarAlertas, cargarEventos, filtroActivo,
+  prepararBusquedaSemantica,
 } from './registro.js';
 import { cargarPlacas } from './listanegra.js';
 import { conectarWs, desconectarWs } from './tiempo_real.js';
@@ -30,6 +31,7 @@ import './admin.js';
 import './evidencia.js';
 import './placas.js';
 import './zonas.js';
+import './mapa.js';
 
 iconos();
 
@@ -101,6 +103,7 @@ async function arrancar() {
   await Promise.all([
     cargarEventos(), cargarAlertas(), cargarDetecciones(),
     puede('admin') ? cargarPlacas().catch(() => {}) : Promise.resolve(),
+    prepararBusquedaSemantica(),
   ]);
   conectarWs();
   clearInterval(temporizadorStats);
@@ -114,7 +117,7 @@ async function arrancar() {
 /* Apartados                                                           */
 /* ------------------------------------------------------------------ */
 
-const VISTAS = ['monitoreo', 'registro'];
+const VISTAS = ['monitoreo', 'registro', 'mapa'];
 let vistaActual = null;
 
 function mostrarVista(nombre) {
@@ -139,6 +142,15 @@ function mostrarVista(nombre) {
 }
 
 accion('vista', (el) => mostrarVista(el.dataset.vista));
+
+/* Desde el mapa: "Ver en vivo" lleva al recuadro de esa camara. */
+escuchar('ir-a-camara', (id) => {
+  mostrarVista('monitoreo');
+  setTimeout(() => {
+    const el = document.querySelector(`#rejilla [data-camara="${CSS.escape(id)}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300);
+});
 
 /* Con la pestana del navegador en segundo plano tampoco hace falta el video.
  * Es el caso mas comun de todos: el dashboard abierto en una pestana olvidada. */
@@ -214,6 +226,7 @@ escuchar('ws:alert_resolved', () => { cargarAlertas(); pedirStats(); });
 escuchar('lectura-corregida', () => { cargarEventos().catch(() => {}); pedirStats(); });
 escuchar('ws:alert_updated', actualizarClip);
 escuchar('ws:camera_status', pedirStats);
+escuchar('pedir-stats', pedirStats);
 
 /* ------------------------------------------------------------------ */
 
