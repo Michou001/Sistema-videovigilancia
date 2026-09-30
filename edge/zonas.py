@@ -189,6 +189,18 @@ class MotorZonas:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         return vista
 
+    def cajas(self) -> list[dict]:
+        """Las zonas como datos, para dibujarlas sobre el video WebRTC."""
+        alto, ancho = self._forma
+        if not ancho:
+            return []
+        salida = []
+        for z in list(self.zonas):
+            r, g, b = COLORES.get(z.tipo, (200, 200, 200))[::-1]
+            salida.append({"k": "zona", "z": z.tipo, "t": z.nombre, "c": f"#{r:02x}{g:02x}{b:02x}",
+                           "p": [[int(x * ancho), int(y * alto)] for x, y in z.puntos]})
+        return salida
+
     def cerrar(self) -> None:
         if self.cliente is not None:
             self.cliente.cerrar()

@@ -1,0 +1,22 @@
+# Nada de datos, modelos, credenciales ni entornos virtuales dentro de la imagen.
+.git
+.github
+**/__pycache__
+**/*.pyc
+.ruff_cache
+venv
+.venv
+data
+models
+camaras
+videos
+runs
+.env
+.env.*
+!.env.example
+docker/compose.env
+docker/api.env
+docker/go2rtc.yaml
+*.db
+*.log
+docs/*.pdf

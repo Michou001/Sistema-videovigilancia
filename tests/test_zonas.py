@@ -237,6 +237,16 @@ def test_conteo_sin_foto():
     assert {e.meta["direccion"] for e in eventos} == {"entrada"}
 
 
+def test_zonas_como_datos_para_el_navegador():
+    m = MotorZonas(_cfg())
+    m.actualizar([_zona(1, "intrusion", CUADRADO), _zona(2, "linea", [[0.5, 0.2], [0.5, 0.8]])], "v1")
+    assert m.cajas() == [], "sin un cuadro todavia no se sabe la resolucion"
+    m.al_pistas(_Frame(T0, ancho=1000, alto=500), [])
+    cajas = m.cajas()
+    assert cajas[0]["k"] == "zona" and cajas[0]["p"] == [[250, 125], [750, 125], [750, 375], [250, 375]]
+    assert cajas[1]["z"] == "linea" and cajas[1]["c"].startswith("#") and len(cajas[1]["c"]) == 7
+
+
 def test_zona_cambiada_empieza_de_cero():
     m = MotorZonas(_cfg())
     m.actualizar([_zona(1, "intrusion", CUADRADO)], "v1")

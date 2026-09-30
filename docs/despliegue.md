@@ -153,26 +153,105 @@ Programador de tareas con disparador "al iniciar el sistema".
 
 ## Varias cámaras
 
-Un worker por cámara, cada uno con su archivo de entorno (su `CAMERA_ID` y su
-`SOURCE`). Todos apuntan a la misma API con el mismo `API_TOKEN`.
+Cada cámara tiene su archivo de entorno (su `CAMERA_ID` y su `SOURCE`). Lo
+recomendado es correrlas **todas en un solo proceso**: los modelos se cargan
+una vez y los comparten, y hay un solo contexto de CUDA.
 
 ```bash
-python -m edge.worker --env .env.cam-entrada
-python -m edge.worker --env .env.cam-salida
+python -m edge.worker --env .env --env .env.cam-salida --env .env.cam-patio
+python -m edge.worker --carpeta camaras          # todos los camaras/*.env
 ```
 
 El botón **Cámaras** del dashboard crea esos archivos: la primera cámara va a
 `.env` y las siguientes a `.env.<camera_id>`, copiando el token y los
-detectores activos.
+detectores activos. Cada cámara corre en su propio hilo: si una se cae, las
+demás siguen.
 
 Si un worker corre en **otra máquina** que la API (una PC junto a las
 cámaras y el servidor en otro lado), no comparten disco: con
 `SEND_SNAPSHOT_B64=auto` (el valor por defecto) el worker detecta que la API
 no es `localhost` y adjunta cada captura al evento para que la API la guarde.
 
-**Cuántas caben en una GPU:** cada worker con los tres detectores usa ~1.6 GB
-de VRAM y ~44 ms de cómputo por frame. En una tarjeta de 6 GB caben unos **3
-workers**; el límite de VRAM llega antes que el de cómputo.
+**Cuántas caben en una GPU:** con un proceso por cámara, en una tarjeta de 6 GB
+cabían unas 3 (se acababa la VRAM). En un solo proceso los modelos se
+comparten y el límite pasa a ser el cómputo: mídelo con el reporte periódico
+del worker (ms por detector) y `tools/optimizar_modelos.py` (FP16/TensorRT).
+
+---
+
+## Con Docker
+
+Para un equipo dedicado con GPU NVIDIA, `docker-compose.yml` levanta todo:
+
+| Servicio | Qué hace |
+|---|---|
+| `caddy` | HTTPS en el 443: dashboard, API y el video WebRTC (solo con sesión) |
+| `api` | Plataforma web, varios procesos compartiendo estado por Redis |
+| `worker` | Detección en la GPU, todas las cámaras de `camaras/` en un proceso |
+| `go2rtc` | Video de las cámaras al navegador por WebRTC, sin recodificar |
+| `postgres` | Base de datos |
+| `redis` | Alertas, video en vivo y límites de login compartidos entre procesos |
+
+Requisitos: Docker con Compose, driver NVIDIA y
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
+Verifica la GPU con `docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi`.
+
+```bash
+# 1. Secretos y dominio (o IP de la red local)
+cp docker/compose.env.example docker/compose.env        # llena POSTGRES_PASSWORD, API_TOKEN, JWT_SECRET, SITIO
+
+# 2. Una cámara por archivo (CAMERA_ID y SOURCE; API_URL y API_TOKEN los pone Docker)
+mkdir camaras
+cp .env.example camaras/entrada.env                      # edita CAMERA_ID=cam-entrada, SOURCE=rtsp://...
+
+# 3. Video por WebRTC: go2rtc con las mismas cámaras (lleva contraseñas: fuera de git)
+python tools/go2rtc_config.py --carpeta camaras --ip 192.168.1.10
+
+# 4. Levantar y crear el usuario administrador
+docker compose --env-file docker/compose.env up -d --build
+docker compose --env-file docker/compose.env exec api python tools/init_plataforma.py
+```
+
+Configuración extra de la API (notificaciones, retención, búsqueda por
+descripción): variables `NOTIFY_*`, `RETENCION_*`, `SEMANTIC_SEARCH` en
+`docker/api.env` (opcional, fuera de git).
+
+**HTTPS.** Con un dominio público en `SITIO`, Caddy saca el certificado de
+Let's Encrypt solo. Con una IP de la red local, usa su propia CA: el
+navegador avisa hasta que se instala la raíz en cada PC del centro de
+monitoreo (`docker compose exec caddy cat /data/caddy/pki/authorities/local/root.crt`
+y se importa como autoridad de confianza).
+
+**Datos.** Base de datos, capturas, clips y modelos viven en volúmenes de
+Docker (`docker volume ls`). Respalda al menos `goss-ip_postgres` y
+`goss-ip_datos`.
+
+---
+
+## Video por WebRTC (go2rtc)
+
+Sin configurar nada, la vista en vivo es MJPEG: el worker dibuja las cajas,
+codifica JPEG y lo sube a la API. Funciona en cualquier red, pero va a baja
+resolución y cuesta CPU del worker.
+
+Con [go2rtc](https://github.com/AlexxIT/go2rtc) el navegador recibe el video
+**directo de la cámara, sin recodificar**, por WebRTC: resolución completa y
+menos de medio segundo de retraso. Las cajas de los detectores llegan aparte
+como datos y el navegador las dibuja encima.
+
+- `GO2RTC_URL` en la API dice dónde encuentra el navegador a go2rtc. Con
+  Docker ya está (`/go2rtc`, detrás de Caddy).
+- El nombre de cada stream de go2rtc es el `CAMERA_ID`:
+  `tools/go2rtc_config.py` lo arma desde los `.env`.
+- go2rtc no tiene contraseña propia. Caddy solo deja pasar la negociación de
+  WebRTC (`POST /go2rtc/api/webrtc`) y solo con la sesión del dashboard; el
+  resto de su API, que muestra las URLs RTSP **con contraseña**, no se publica.
+- El video usa el puerto 8555 (TCP y UDP): ábrelo en el firewall de la PC
+  para la red local, y pasa `--ip` con la IP de esa PC.
+- La cámara debe entregar **H.264** (Chrome no reproduce H.265 por WebRTC):
+  en Hikvision, *Configuración > Video > Codificación de video*.
+- Si go2rtc no responde o el navegador no puede con el codec, esa cámara
+  vuelve sola a MJPEG.
 
 ---
 
@@ -180,7 +259,8 @@ workers**; el límite de VRAM llega antes que el de cómputo.
 
 - [ ] Cambiar la contraseña de `admin` (la de demo no sirve)
 - [ ] Crear un usuario de cámara con rol **Operador**, no usar `admin` en el `.env`
-- [ ] Poner la API detrás de HTTPS si se accede fuera de la LAN
+- [ ] Poner la API detrás de HTTPS (Caddy en Docker, o `tools/generar_certificado.py`)
+- [ ] Si se usa go2rtc: que su API (1984) NO sea alcanzable directo, solo por el proxy
 - [ ] Migrar de SQLite a PostgreSQL si hay más de 2-3 cámaras escribiendo
 - [ ] Verificar que `data/` está en un disco con espacio y respaldo
 - [ ] Programar `tools/purgar_datos.py` como red de seguridad del purgado interno

@@ -55,6 +55,22 @@ class Detector(ABC):
         detector que sigue personas y vehiculos (movimiento)."""
         return []
 
+    def cajas(self) -> list[dict]:
+        """Lo que hay que dibujar ahora, como DATOS (para que el navegador lo
+        pinte sobre el video de go2rtc). Mismo contenido que `anotar()`."""
+        return [caja(p.bbox, f"{NOMBRES_OBJETO.get(p.etiqueta, p.clase)} #{p.tid}",
+                     "#9aa4b1" if p.clase == "persona" else "#38bdf8", p.clase)
+                for p in self.pistas()]
+
+
+NOMBRES_OBJETO = {"person": "persona", "car": "auto", "truck": "camión", "bus": "autobús",
+                  "motorcycle": "moto"}
+
+
+def caja(bbox, texto: str, color: str, tipo: str, **extra) -> dict:
+    """Una caja para el navegador: coordenadas del frame procesado."""
+    return {"b": [int(round(v)) for v in bbox], "t": texto, "c": color, "k": tipo, **extra}
+
     def anotar(self, frame):
         """Dibuja el estado actual sobre el frame, para la ventana de depuracion.
 

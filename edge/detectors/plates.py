@@ -31,7 +31,7 @@ import cv2
 import numpy as np
 
 from edge.config import BASE_DIR, EdgeConfig
-from edge.detectors.base import Detector
+from edge.detectors.base import Detector, caja
 from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
 from edge.tracking import Deteccion, IoUTracker, Track
@@ -461,6 +461,15 @@ class PlateDetector(Detector):
             cv2.putText(frame, etiqueta, (x1 + 3, max(12, y1 - 5)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
         return frame
+
+    def cajas(self) -> list[dict]:
+        salida = []
+        for track in self.tracker.tracks_confirmados():
+            lecturas = track.state.get("lecturas", [])
+            mejor = elegir_mejor_lectura(lecturas) if lecturas else None
+            texto = f"{formatear(mejor[0])} ({mejor[1]:.2f})" if mejor else f"placa #{track.track_id}"
+            salida.append(caja(track.bbox, texto, "#22c55e" if mejor else "#f59e0b", "placa"))
+        return salida
 
     def cerrar(self) -> None:
         if self.snapshot_hd is not None:

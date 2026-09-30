@@ -165,7 +165,7 @@ class BufferPreview:
                 "antiguedad": round(c.antiguedad, 1),
             }
             for c in self._canales.values()
-            if c.viva
+            if c.viva and SEPARADOR not in c.camera_id
         ]
 
     def _olvidar_muertas(self) -> None:
@@ -183,6 +183,24 @@ class BufferPreview:
 
     async def flujo_mjpeg(self, camera_id: str) -> AsyncIterator[bytes]:
         """Genera el cuerpo multipart que el navegador pinta en un <img>."""
+        interno = self.flujo_crudo(camera_id)
+        try:
+            async for frame in interno:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                    + frame + b"\r\n"
+                )
+        finally:
+            # Cerrarlo YA: un generador anidado no se cierra solo al cerrar
+            # el de afuera, y el espectador seguiria contando hasta que pase
+            # el recolector de basura (el worker seguiria mandando video).
+            await interno.aclose()
+
+    async def flujo_crudo(self, camera_id: str) -> AsyncIterator[bytes]:
+        """Cada contenido nuevo de la clave, tal cual. Cuenta al que mira
+        como espectador mientras dure el flujo."""
         canal = self._canal(camera_id)
         canal.espectadores += 1
         log.debug("Preview '%s': +1 espectador (%d)", camera_id, canal.espectadores)
@@ -202,16 +220,20 @@ class BufferPreview:
                 if frame is None:
                     return
                 seq = nuevo
-
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n"
-                    b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
-                    + frame + b"\r\n"
-                )
+                yield frame
         finally:
             canal.espectadores = max(0, canal.espectadores - 1)
             log.debug("Preview '%s': -1 espectador (%d)", camera_id, canal.espectadores)
+
+
+# Las cajas de lo detectado (para dibujarlas en el navegador sobre el video de
+# go2rtc) viajan por el mismo mecanismo que los frames, con otra clave. El
+# separador no puede aparecer en un camera_id (ver PATRON_CAMARA).
+SEPARADOR = "~"
+
+
+def clave_pistas(camera_id: str) -> str:
+    return f"{camera_id}{SEPARADOR}pistas"
 
 
 buffer_preview = BufferPreview()

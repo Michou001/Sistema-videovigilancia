@@ -1,0 +1,131 @@
+# Despliegue completo en un equipo con GPU NVIDIA.
+#
+#   cp docker/compose.env.example docker/compose.env      # y llenalo
+#   mkdir camaras && cp .env.example camaras/entrada.env  # una por camara
+#   python tools/go2rtc_config.py --carpeta camaras --ip 192.168.1.10
+#   docker compose --env-file docker/compose.env up -d --build
+#   docker compose --env-file docker/compose.env exec api python tools/init_plataforma.py
+#
+# Guia completa: docs/despliegue.md (seccion Docker).
+#
+#   caddy     HTTPS en 443: dashboard, API y /go2rtc (solo con sesion)
+#   api       plataforma web (varios procesos, con Redis)
+#   worker    deteccion en la GPU, todas las camaras de ./camaras
+#   go2rtc    video de las camaras por WebRTC, sin recodificar
+#   postgres  base de datos
+#   redis     alertas, video en vivo y sesiones compartidas entre procesos
+
+name: goss-ip
+
+x-comun: &comun
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    <<: *comun
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vigilancia
+      POSTGRES_USER: vigilancia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en docker/compose.env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vigilancia -d vigilancia"]
+      interval: 10s
+      retries: 10
+
+  redis:
+    <<: *comun
+    image: redis:7-alpine
+    # Solo estado efimero (alertas en transito, ultimo frame, conteos): sin disco.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+
+  api:
+    <<: *comun
+    build: { context: ., dockerfile: docker/Dockerfile.api }
+    env_file:
+      - path: docker/api.env        # NOTIFY_*, RETENCION_*, SEMANTIC_SEARCH... (opcional)
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://vigilancia:${POSTGRES_PASSWORD}@postgres:5432/vigilancia
+      REDIS_URL: redis://redis:6379/0
+      API_WORKERS: ${API_WORKERS:-2}
+      API_TOKEN: ${API_TOKEN:?Define API_TOKEN en docker/compose.env}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en docker/compose.env}
+      # Solo Caddy llega a la API (no se publica ningun puerto): se confia en
+      # sus cabeceras X-Forwarded-* para la IP real y el HTTPS.
+      FORWARDED_ALLOW_IPS: "*"
+      GO2RTC_URL: /go2rtc
+      ZONA_HORARIA: ${ZONA_HORARIA:-America/Mexico_City}
+    volumes:
+      - datos:/app/data
+      - cache-api:/app/.cache
+      - insightface:/app/.insightface
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    <<: *comun
+    build: { context: ., dockerfile: docker/Dockerfile.worker }
+    environment:
+      # Pisan lo que diga cada camaras/*.env: dentro de Docker la API es "api".
+      API_URL: http://api:8000
+      API_TOKEN: ${API_TOKEN}
+      ZONA_HORARIA: ${ZONA_HORARIA:-America/Mexico_City}
+    volumes:
+      - ./camaras:/app/camaras:ro
+      - datos:/app/data
+      - modelos:/app/models
+      - insightface:/app/.insightface
+    depends_on:
+      api: { condition: service_healthy }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  go2rtc:
+    <<: *comun
+    image: alexxit/go2rtc:1.9.9
+    volumes:
+      - ./docker/go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      # Solo el puerto del VIDEO WebRTC. La API de go2rtc (1984) no se publica:
+      # se llega por Caddy en /go2rtc, con sesion.
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+
+  caddy:
+    <<: *comun
+    image: caddy:2-alpine
+    environment:
+      SITIO: ${SITIO:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-datos:/data
+      - caddy-config:/config
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  postgres:
+  datos:
+  modelos:
+  insightface:
+  cache-api:
+  caddy-datos:
+  caddy-config:

@@ -204,7 +204,11 @@ main { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px
 
 .camara-video { position: relative; aspect-ratio: 16 / 9; background: #000;
                 display: grid; place-items: center; overflow: hidden; }
-.camara-video img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camara-video img, .camara-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camara-video canvas.superposicion { position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; }
+.camara-video .modo-video { position: absolute; top: 8px; right: 8px; font-size: 10px; font-family: var(--mono);
+  color: #d1d9e0; background: rgba(0,0,0,.55); padding: 1px 6px; border-radius: 3px; z-index: 2; }
 .camara-video .sinsenal { color: var(--tenue); font-size: 12px; text-align: center;
                           padding: 0 16px; line-height: 1.7; }
 .camara-video .sinsenal .icono { font-size: 26px; display: block; opacity: .5; }

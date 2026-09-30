@@ -188,6 +188,8 @@ class PreviewRedis:
         async for clave in self.r.scan_iter(match=self._k("meta", "*")):
             clave = clave.decode() if isinstance(clave, bytes) else clave
             camera_id = clave.rsplit(":", 1)[-1]
+            if "~" in camera_id:          # canal de cajas, no de video (api/preview.py)
+                continue
             meta = await self.r.hgetall(clave)
             recibido = float(meta.get(b"recibido", 0) or 0)
             if ahora - recibido > FRAME_TTL:
@@ -201,6 +203,14 @@ class PreviewRedis:
         return sorted(salida, key=lambda c: c["camera_id"])
 
     async def flujo_mjpeg(self, camera_id: str, sin_frames: float = 15.0) -> AsyncIterator[bytes]:
+        interno = self.flujo_crudo(camera_id, sin_frames)
+        try:
+            async for frame in interno:
+                yield _parte(frame)
+        finally:
+            await interno.aclose()      # ver api/preview.py: cerrar ya, no al recolectar
+
+    async def flujo_crudo(self, camera_id: str, sin_frames: float = 15.0) -> AsyncIterator[bytes]:
         self._locales[camera_id] = self._locales.get(camera_id, 0) + 1
         await self._anunciar(camera_id)
         pubsub = self.r.pubsub()
@@ -209,7 +219,7 @@ class PreviewRedis:
         try:
             frame = await self.r.get(self._k("frame", camera_id))
             if frame:
-                yield _parte(frame)
+                yield frame
             espera_hasta = time.monotonic() + sin_frames
             while True:
                 if time.monotonic() - ultimo_anuncio > VIGENCIA_CONTEO / 3:
@@ -224,7 +234,7 @@ class PreviewRedis:
                 if not frame:
                     return
                 espera_hasta = time.monotonic() + sin_frames
-                yield _parte(frame)
+                yield frame
         finally:
             self._locales[camera_id] = max(0, self._locales.get(camera_id, 1) - 1)
             try:

@@ -314,6 +314,18 @@ class Camara:
             except Exception as e:  # noqa: BLE001
                 log.debug("[%s] complemento %s fallo: %s", self.id, type(c).__name__, e)
 
+    def cajas_actuales(self, frame) -> dict:
+        alto, ancho = frame.frame.shape[:2]
+        objetos = []
+        for pieza in [*self.detectores, *getattr(self, "complementos", [])]:
+            if not hasattr(pieza, "cajas"):
+                continue
+            try:
+                objetos += pieza.cajas()
+            except Exception as e:  # noqa: BLE001
+                log.debug("[%s] cajas de %s: %s", self.id, type(pieza).__name__, e)
+        return {"ancho": ancho, "alto": alto, "ts": frame.ts, "objetos": objetos}
+
     def vista_anotada(self, frame):
         vista = frame.frame.copy()
         for det in self.detectores:
@@ -364,6 +376,12 @@ class Camara:
                         if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
                             DETENER.set()
                             break
+
+                # Las cajas como datos, para el navegador que ve el video por
+                # WebRTC (go2rtc). Unos cientos de bytes: se mandan solo si
+                # alguien mira asi.
+                if self.preview is not None and self.preview.quiere_pistas():
+                    self.preview.publicar_pistas(self.cajas_actuales(frame))
 
                 ahora = time.monotonic()
                 if ahora - ultimo_reporte >= 10.0:
@@ -536,9 +554,18 @@ def main() -> int:
     p.add_argument("--env", action="append", default=[],
                    help="Archivo de entorno de una camara. Repetible para correr varias "
                         "camaras en un solo proceso: --env .env --env .env.cam2")
+    p.add_argument("--carpeta", help="Todos los *.env de una carpeta, una camara por archivo "
+                                     "(Docker: --carpeta camaras)")
     args = p.parse_args()
 
-    configs = cargar_configuraciones(args.env)
+    archivos = list(args.env)
+    if args.carpeta:
+        carpeta = Path(args.carpeta)
+        encontrados = sorted(str(x) for x in carpeta.glob("*.env") if x.is_file())
+        if not encontrados:
+            p.error(f"No hay archivos *.env en {carpeta}")
+        archivos += encontrados
+    configs = cargar_configuraciones(archivos)
     if args.source:
         if len(configs) > 1:
             p.error("--source solo aplica con una camara")

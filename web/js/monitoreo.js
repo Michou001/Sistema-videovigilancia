@@ -11,10 +11,23 @@ import {
   NOMBRES, nombreCamara, puede, valorLegible,
 } from './nucleo.js';
 import { miniatura } from './evidencia.js';
+import { abrirWebRTC, Superposicion } from './webrtc.js';
 
-/* camera_id -> { el, img, cuerpo, transmitiendo, capa } */
+/* camera_id -> { el, img, cuerpo, transmitiendo, capa, pc, sup, sinWebrtc } */
 const recuadros = new Map();
 let temporizador = null;
+let configVideo = null;   // { modo: 'mjpeg' | 'webrtc', go2rtc }
+
+async function obtenerConfigVideo() {
+  if (!configVideo) {
+    try {
+      configVideo = await api('/api/preview/config');
+    } catch {
+      return { modo: 'mjpeg' };
+    }
+  }
+  return configVideo;
+}
 
 const PLACEHOLDER_SIN_SENAL =
   '<div class="sinsenal"><span class="icono"><i data-lucide="camera-off"></i></span>Sin señal</div>';
@@ -47,12 +60,16 @@ function detenerFlujo(r) {
   // removeAttribute y no src='': una cadena vacia hace que el navegador pida
   // la propia pagina como imagen. Quitar el atributo aborta la conexion.
   r.img.removeAttribute('src');
+  if (r.pc) { r.pc.close(); r.pc = null; }
+  if (r.sup) { r.sup.cerrar(); r.sup = null; }
+  if (r.video) { r.video.srcObject = null; r.video = null; }
   r.transmitiendo = false;
   emitir('flujo-detenido', r.id);
 }
 
 export async function refrescarCamaras() {
   let enVivo = [];
+  const cfg = await obtenerConfigVideo();
   try {
     enVivo = await api('/api/preview/camaras');
   } catch {
@@ -87,7 +104,7 @@ export async function refrescarCamaras() {
     if (meta && meta.reconexiones) salud.push(`${meta.reconexiones} reconex.`);
     r.el.querySelector('.salud').textContent = salud.join(' · ');
 
-    if (vivo) arrancarFlujo(r);
+    if (vivo) arrancarFlujo(r, cfg);
     else if (r.transmitiendo) { detenerFlujo(r); r.cuerpo.innerHTML = PLACEHOLDER_SIN_SENAL; }
   }
 
@@ -140,21 +157,67 @@ function crearRecuadro(id) {
   return r;
 }
 
-function arrancarFlujo(r) {
-  if (r.transmitiendo) return;
-  // Sin token en la URL: la sesion viaja en la cookie HttpOnly que puso el
-  // login. Antes iba como ?token= y quedaba en el historial del navegador.
-  const url = `/api/preview/${encodeURIComponent(r.id)}/live.mjpg?_=${Date.now()}`;
-  r.cuerpo.innerHTML = '';
-  r.cuerpo.append(r.img);
+function capaUltima(r) {
   // Capa de la ultima deteccion; se llena en cuanto entra un evento.
   const capa = document.createElement('div');
   capa.className = 'ultima';
   r.cuerpo.append(capa);
   r.capa = capa;
+}
+
+function arrancarFlujo(r, cfg = { modo: 'mjpeg' }) {
+  if (r.transmitiendo) return;
+  if (cfg.modo === 'webrtc' && cfg.go2rtc && !r.sinWebrtc && window.RTCPeerConnection) {
+    arrancarWebRTC(r, cfg.go2rtc);
+    return;
+  }
+  // Sin token en la URL: la sesion viaja en la cookie HttpOnly que puso el
+  // login. Antes iba como ?token= y quedaba en el historial del navegador.
+  const url = `/api/preview/${encodeURIComponent(r.id)}/live.mjpg?_=${Date.now()}`;
+  r.cuerpo.innerHTML = '';
+  r.cuerpo.append(r.img);
+  capaUltima(r);
   r.img.src = url;
   r.transmitiendo = true;
   emitir('flujo-iniciado', { id: r.id, cuerpo: r.cuerpo, img: r.img });
+}
+
+/* Video directo de go2rtc + cajas del worker encima. Si falla (go2rtc no
+ * esta, la camara no esta en su configuracion, el navegador no tiene el
+ * codec) esta camara se queda en MJPEG hasta recargar la pagina. */
+function arrancarWebRTC(r, base) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  r.cuerpo.innerHTML = '';
+  r.cuerpo.append(video);
+  capaUltima(r);
+  r.video = video;
+  r.transmitiendo = true;
+  abrirWebRTC(base, r.id, video).then((pc) => {
+    if (r.video !== video) { pc.close(); return; }     // se detuvo mientras conectaba
+    r.pc = pc;
+    r.sup = new Superposicion(r.cuerpo, video, r.id);
+    const etiqueta = document.createElement('span');
+    etiqueta.className = 'modo-video';
+    etiqueta.textContent = 'WebRTC';
+    r.cuerpo.append(etiqueta);
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'failed' && r.pc === pc) {
+        detenerFlujo(r);            // el refresco siguiente la vuelve a conectar
+        r.cuerpo.innerHTML = PLACEHOLDER_SIN_SENAL;
+        iconos();
+      }
+    });
+    emitir('flujo-iniciado', { id: r.id, cuerpo: r.cuerpo, video });
+  }).catch((err) => {
+    if (r.video !== video) return;
+    console.warn(`WebRTC no disponible para ${r.id}: ${err.message}. Se usa MJPEG.`);
+    r.sinWebrtc = true;
+    detenerFlujo(r);
+    arrancarFlujo(r);
+  });
 }
 
 export function recuadroDe(id) {

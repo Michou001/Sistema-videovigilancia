@@ -34,7 +34,7 @@ import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
 from edge.config import BASE_DIR, EdgeConfig  # noqa: E402
-from edge.detectors.base import Detector  # noqa: E402
+from edge.detectors.base import Detector, caja  # noqa: E402
 from edge.snapshot_hd import SnapshotHD, escalar_bbox  # noqa: E402
 from edge.sources import FrameInfo  # noqa: E402
 from edge.tracking import Deteccion, IoUTracker, Track  # noqa: E402
@@ -454,6 +454,10 @@ class FaceDetector(Detector):
             cv2.putText(frame, etiqueta, (x1, max(12, y1 - 6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 140, 0), 2)
         return frame
+
+    def cajas(self) -> list[dict]:
+        return [caja(t.bbox, f"rostro #{t.track_id}", "#3b82f6", "rostro")
+                for t in self.tracker.tracks_confirmados()]
 
     def cerrar(self) -> None:
         if self.snapshot_hd is not None:

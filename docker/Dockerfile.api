@@ -1,0 +1,42 @@
+# Plataforma web: API + dashboard. Sin torch ni GPU.
+#
+#   docker compose build api
+#
+# Se construye en dos etapas: insightface trae una extension en C que hay que
+# compilar, y el compilador no tiene por que quedarse en la imagen final.
+
+FROM python:3.12-slim AS construccion
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential \
+ && rm -rf /var/lib/apt/lists/*
+COPY requirements-api.txt constraints.txt /tmp/
+# insightface arrastra opencv-python (con interfaz grafica, pide libGL/libxcb):
+# en un servidor va el headless. Comparten el modulo cv2, asi que se quita
+# uno y se reinstala el otro.
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install -r /tmp/requirements-api.txt -c /tmp/constraints.txt \
+ && /opt/venv/bin/pip uninstall -y opencv-python \
+ && /opt/venv/bin/pip install --force-reinstall --no-deps -c /tmp/constraints.txt opencv-python-headless
+
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH" \
+    API_HOST=0.0.0.0 API_PORT=8000
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --home-dir /app goss
+COPY --from=construccion /opt/venv /opt/venv
+WORKDIR /app
+COPY --chown=goss api/ api/
+COPY --chown=goss shared/ shared/
+COPY --chown=goss edge/ edge/
+COPY --chown=goss tools/ tools/
+COPY --chown=goss web/ web/
+COPY --chown=goss alembic.ini ./
+RUN mkdir -p /app/data /app/models && chown goss /app/data /app/models
+USER goss
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+CMD ["python", "-m", "api"]

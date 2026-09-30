@@ -10,6 +10,10 @@ env/
 
 # Credenciales - NUNCA subir. La URL RTSP lleva la contrasena de la camara.
 .env
+camaras/
+docker/compose.env
+docker/api.env
+docker/go2rtc.yaml
 *.pem
 *.key
 

@@ -7,7 +7,7 @@
 # Es lo que instala la integracion continua (.github/workflows/pruebas.yml).
 
 numpy>=1.26,<3
-opencv-python-headless>=4.10,<6
+opencv-python-headless>=4.10,<5
 pydantic>=2.9,<3
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1

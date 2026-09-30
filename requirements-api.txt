@@ -1,0 +1,37 @@
+# Lo que necesita SOLO la plataforma web (API + dashboard), sin torch ni GPU:
+# la imagen de Docker de la API, o un servidor aparte de la PC del worker.
+#
+#     pip install -r requirements-api.txt -c constraints.txt
+#
+# El worker de borde usa requirements.txt (con torch/CUDA).
+
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
+pydantic>=2.9,<3
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+sqlmodel>=0.0.22,<0.1
+sqlalchemy>=2.0,<2.1
+alembic>=1.13,<2
+python-multipart>=0.0.9,<1
+bcrypt>=4.0,<6
+pyjwt>=2.9,<3
+httpx>=0.27,<1
+cryptography>=42
+psutil>=5.9
+pyyaml>=6.0,<7
+tzdata>=2024.1
+
+# PostgreSQL y Redis (varios procesos de API)
+psycopg[binary]>=3.1,<4
+redis>=5,<9
+
+# Alta de personas en la lista negra: la API calcula el embedding de la foto
+# que sube el administrador. En CPU basta (es una foto, no video).
+insightface>=1.0.1,<3
+onnxruntime>=1.20,<1.23
+
+# Opcional: busqueda por descripcion (SEMANTIC_SEARCH=true). Pesado (torch).
+# open-clip-torch>=2.24,<4
+# transformers>=4.40,<6
+# sentencepiece>=0.2,<1

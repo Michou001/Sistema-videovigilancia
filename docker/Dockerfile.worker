@@ -1,0 +1,49 @@
+# Worker de borde con GPU NVIDIA (CUDA 12.6, igual que torch cu126 y
+# onnxruntime-gpu 1.22 de requirements.txt).
+#
+#   docker compose build worker
+#
+# Requiere en el equipo: driver NVIDIA y NVIDIA Container Toolkit
+# (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
+# Verifica con:  docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi
+
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+
+ARG TORCH_VERSION=2.13.0
+ARG TORCHVISION_VERSION=0.28.0
+ARG CUDA_TAG=cu126
+
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
+
+# build-essential y python3-dev: insightface compila una extension en C.
+# libgl1/libglib2.0-0: los pide opencv-python.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-dev build-essential libgl1 libglib2.0-0 libgomp1 \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/venv
+
+# torch con CUDA ANTES que el resto: `pip install torch` a secas baja la
+# build de CPU y todo corre 5-10 veces mas lento sin avisar (requirements.txt).
+RUN pip install torch==${TORCH_VERSION}+${CUDA_TAG} torchvision==${TORCHVISION_VERSION}+${CUDA_TAG} \
+      --index-url https://download.pytorch.org/whl/${CUDA_TAG}
+
+COPY requirements.txt constraints.txt /tmp/
+# insightface arrastra `onnxruntime` (CPU), que eclipsa a onnxruntime-gpu: se
+# quita y se reinstala la de GPU (ver la nota en requirements.txt).
+RUN pip install -r /tmp/requirements.txt -c /tmp/constraints.txt \
+ && pip install "av>=14,<19" -c /tmp/constraints.txt \
+ && pip uninstall -y onnxruntime \
+ && pip install --force-reinstall --no-deps onnxruntime-gpu==1.22.0
+
+RUN useradd --system --uid 10001 --home-dir /app goss
+WORKDIR /app
+COPY --chown=goss edge/ edge/
+COPY --chown=goss shared/ shared/
+COPY --chown=goss tools/ tools/
+RUN mkdir -p /app/data /app/models /app/camaras && chown goss /app/data /app/models
+USER goss
+
+# Una camara por archivo en /app/camaras/*.env (se monta desde ./camaras).
+CMD ["python", "-m", "edge.worker", "--carpeta", "camaras"]

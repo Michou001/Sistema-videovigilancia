@@ -206,7 +206,18 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-app.add_middleware(CabecerasSeguridad)
+def _conexiones_extra() -> list[str]:
+    """Si go2rtc se publica en otro origen (GO2RTC_URL=http://host:1984), el
+    navegador tiene que poder negociar el WebRTC con el: se agrega a la CSP."""
+    from urllib.parse import urlparse
+
+    from api.routers.preview import url_go2rtc
+
+    u = urlparse(url_go2rtc())
+    return [f"{u.scheme}://{u.netloc}"] if u.scheme in ("http", "https") and u.netloc else []
+
+
+app.add_middleware(CabecerasSeguridad, extra_connect=_conexiones_extra())
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)

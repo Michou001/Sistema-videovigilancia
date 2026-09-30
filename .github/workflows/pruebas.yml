@@ -84,3 +84,23 @@ jobs:
           PRUEBAS_POSTGRES: postgresql+psycopg://postgres:pruebas@localhost:5432/postgres
           PRUEBAS_REDIS: redis://localhost:6379/15
         run: python tests/correr_todas.py
+
+  docker:
+    name: Imagen de la API y docker-compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar docker-compose.yml
+        run: |
+          cp docker/compose.env.example /tmp/compose.env
+          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci/; s/^API_TOKEN=$/API_TOKEN=ci/; s/^JWT_SECRET=$/JWT_SECRET=ci/' /tmp/compose.env
+          docker compose --env-file /tmp/compose.env config -q
+      - name: Construir la imagen de la API
+        run: docker build -f docker/Dockerfile.api -t goss-api:ci .
+      - name: La API arranca en la imagen
+        run: |
+          docker run -d --name api -e API_TOKEN=ci -p 8000:8000 goss-api:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:8000/api/health && exit 0; sleep 2; done
+          docker logs api
+          exit 1

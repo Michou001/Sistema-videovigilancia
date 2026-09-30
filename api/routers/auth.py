@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from api.auditoria import registrar
-from api.deps import OperadorActual, SesionBD, _extraer_bearer
+from api.deps import OperadorActual, OperadorLectura, SesionBD, _extraer_bearer
 from api.models import Operator
 from api.security import (
     borrar_cookie_sesion,
@@ -99,6 +99,14 @@ def logout(session: SesionBD, request: Request, response: Response,
         registrar(session, "sesion.logout", usuario=operador.username,
                   request=request, confirmar=True)
     borrar_cookie_sesion(response)
+
+
+@router.get("/verificar", status_code=204)
+def verificar(_: OperadorLectura) -> Response:
+    """Para el proxy (Caddy forward_auth): 204 si la peticion trae una sesion
+    valida (cookie o cabecera), 401 si no. Asi go2rtc, que no tiene
+    contrasena propia, solo sirve video a quien entro al dashboard."""
+    return Response(status_code=204)
 
 
 @router.get("/me", response_model=Sesion)
