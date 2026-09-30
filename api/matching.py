@@ -301,6 +301,40 @@ def _cruzar_movimiento(evento: DetectionEvent) -> MatchResult:
 
 
 # --------------------------------------------------------------------------
+# La camara misma
+# --------------------------------------------------------------------------
+
+# (severidad, titulo, explicacion). Sabotaje y perdida de video son criticos:
+# alguien puede estar tapando o desconectando la camara justo antes de actuar.
+EVENTOS_CAMARA: dict[str, tuple[Severity, str, str]] = {
+    "sin_senal": (Severity.WARNING, "Cámara sin señal",
+                  "El worker dejó de reportar o la cámara no entrega imagen."),
+    "senal_recuperada": (Severity.INFO, "Cámara recuperada", "La cámara volvió a entregar imagen."),
+    "sabotaje": (Severity.CRITICAL, "SABOTAJE DE CÁMARA",
+                 "La cámara detectó que la taparon, la movieron o la deslumbraron."),
+    "perdida_video": (Severity.CRITICAL, "Pérdida de video",
+                      "La cámara reporta pérdida de la señal de video."),
+    "deteccion_linea": (Severity.WARNING, "Cruce de línea (analítica de la cámara)",
+                        "La analítica propia de la cámara detectó un cruce de línea."),
+    "intrusion_camara": (Severity.WARNING, "Intrusión (analítica de la cámara)",
+                         "La analítica propia de la cámara detectó una intrusión en zona."),
+    "movimiento_camara": (Severity.INFO, "Movimiento (analítica de la cámara)", ""),
+}
+
+
+def _cruzar_camara(evento: DetectionEvent) -> MatchResult:
+    severidad, titulo, motivo = EVENTOS_CAMARA.get(
+        evento.value, (Severity.INFO, f"Evento de cámara: {evento.value}", ""))
+    # El detalle concreto (cuanto tiempo lleva sin imagen, que reporto la
+    # camara) lo pone quien genera el evento.
+    extra = (evento.meta or {}).get("detalle")
+    motivo = " · ".join(str(x) for x in (motivo, extra) if x)
+    return MatchResult(event_id=evento.event_id, severity=severidad, match_kind=MatchKind.RULE,
+                       matched_value=evento.value, score=evento.confidence,
+                       titulo=titulo, reason=motivo or None)
+
+
+# --------------------------------------------------------------------------
 
 def evaluar(evento: DetectionEvent, session: Session) -> MatchResult:
     """Punto de entrada: decide severidad y coincidencia de un evento."""
@@ -312,4 +346,12 @@ def evaluar(evento: DetectionEvent, session: Session) -> MatchResult:
         return _cruzar_arma(evento)
     if evento.type == EventType.ANOMALY:
         return _cruzar_movimiento(evento)
+    if evento.type == EventType.CAMERA:
+        return _cruzar_camara(evento)
+    if evento.type == EventType.ZONE:
+        try:
+            from api.zonas import evaluar_zona
+        except ImportError:
+            return MatchResult(event_id=evento.event_id, severity=Severity.INFO)
+        return evaluar_zona(evento, session)
     return MatchResult(event_id=evento.event_id, severity=Severity.INFO)

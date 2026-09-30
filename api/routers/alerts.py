@@ -52,6 +52,7 @@ class AlertaLeida(FechasEnUtc, BaseModel):
     match_kind: str
     match_score: Optional[float]
     snapshot_path: Optional[str]
+    clip_path: Optional[str] = None
     status: str
     acknowledged_by: Optional[str]
     acknowledged_at: Optional[datetime] = None
@@ -107,7 +108,7 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
     if alerta is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa alerta")
     if datos.accion not in {"acknowledge", "dismiss"}:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "acción debe ser 'acknowledge' o 'dismiss'")
 
     if alerta.status != "new":
@@ -237,7 +238,7 @@ def editar_camara(camera_id: Annotated[str, PathParam(pattern=PATRON_CAMARA)], d
     camara.name = datos.name.strip()
     camara.location = (datos.location or "").strip() or None
     if (datos.lat is None) != (datos.lon is None):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "Latitud y longitud van juntas (o ninguna de las dos)")
     camara.lat, camara.lon = datos.lat, datos.lon
     registrar(session, "camaras.edicion", usuario=admin.username, objetivo=camera_id,

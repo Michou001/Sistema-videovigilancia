@@ -47,6 +47,7 @@ ACCIONES = {
     "zonas.edicion": "Edición de zona",
     "zonas.baja": "Baja de zona",
     "auditoria.exportacion": "Exportación de la bitácora",
+    "notificaciones.prueba": "Prueba de notificaciones",
 }
 
 

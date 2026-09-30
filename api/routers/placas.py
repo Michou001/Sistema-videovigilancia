@@ -92,15 +92,15 @@ async def corregir(event_id: str, datos: Correccion, operador: Operador, request
     if evento is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese evento")
     if evento.type != EventType.PLATE.value:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Solo se corrigen lecturas de placa")
+        raise HTTPException(422, "Solo se corrigen lecturas de placa")
 
     info = _analizar(datos.valor, datos.extranjera)
     if not info.valida:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, mensaje_invalida(datos.valor, info))
+        raise HTTPException(422, mensaje_invalida(datos.valor, info))
 
     anterior = evento.value
     if limpiar(anterior) == limpiar(info.legible):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La lectura ya es esa")
+        raise HTTPException(422, "La lectura ya es esa")
 
     meta = evento.meta
     meta.setdefault("lectura_original", anterior)

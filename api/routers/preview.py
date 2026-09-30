@@ -45,7 +45,7 @@ async def publicar_frame(request: Request,
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Frame vacio")
     if len(cuerpo) > MAX_BYTES_FRAME:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            413,
             f"Frame de {len(cuerpo)} bytes; el maximo es {MAX_BYTES_FRAME}. "
             "Baja PREVIEW_WIDTH o PREVIEW_QUALITY en el .env del worker.",
         )

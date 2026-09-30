@@ -108,7 +108,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         prohibidas = (" Las placas vigentes no usan las letras I, Ñ, O ni Q."
                       if any(c in limpio for c in "IOQ") else "")
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            422,
             f"'{datos.plate}' no tiene formato de placa mexicana.{sugerencia}{prohibidas} "
             "Si es de otro país, marca «placa extranjera».",
         )

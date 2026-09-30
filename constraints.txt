@@ -40,6 +40,9 @@ redis==8.1.0
 fakeredis==2.38.0
 sortedcontainers==2.4.0
 
+# --- Clips en H.264 (opcional) -----------------------------------------------
+av==18.1.0
+
 # --- Lectura de placas -------------------------------------------------------
 fast-alpr==0.4.0
 fast-plate-ocr==1.1.0

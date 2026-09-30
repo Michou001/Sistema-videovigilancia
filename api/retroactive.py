@@ -87,8 +87,11 @@ def _mensaje_alerta(alerta: Alert, evento: Event) -> dict:
 
 
 async def _difundir(mensajes: list[dict]) -> None:
+    # Sin notificacion externa: son pasos del PASADO que encontro el operador
+    # que acaba de dar de alta el registro, y lo esta viendo en su pantalla.
+    # Mandar decenas de avisos al celular de todos por eso seria ruido.
     for m in mensajes:
-        await hub.difundir("alert", m)
+        await hub.difundir("alert", m, notificar=False)
 
 
 # --------------------------------------------------------------------------

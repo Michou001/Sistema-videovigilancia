@@ -17,6 +17,9 @@ para que sirve:
   Fotos de eventos normales  7 dias   Sirven para verificar un caso reciente.
   Eventos normales (texto)   30 dias  Permiten responder "paso este coche?"
                                       cuando un robo se reporta despues.
+  Clips de video de alertas  90 dias  El video del incidente pesa y muestra a
+                                      todos los que pasaban; la alerta y su
+                                      foto siguen el plazo de alertas.
   Embeddings faciales        NUNCA    Dato biometrico sensible. Si no coincide
                              (si no   con la lista negra, no hay ninguna razon
                              coincide) para conservarlo.
@@ -63,13 +66,16 @@ class Politica:
         """Lecturas de placa que un operador corrigio: son la verdad de campo
         para reentrenar el OCR con placas mexicanas (tools/exportar_dataset.py)
         y viven mas que un evento normal. Solo placas, nunca rostros."""
+        self.clips = dias("RETENCION_CLIPS_DIAS", 90)
+        """Video de las alertas. Nunca vive mas que su alerta; 0 = lo mismo
+        que la alerta."""
         self.auditoria = dias("RETENCION_AUDITORIA_DIAS", 730)
         """La bitacora vive mas que las alertas: sirve para responder, tiempo
         despues, quien vio o cambio que. 0 = no se purga nunca."""
 
     def resumen(self) -> str:
         return (f"fotos {self.fotos_eventos}d | eventos {self.eventos_info}d | "
-                f"alertas {self.alertas}d | embeddings {self.embeddings}d | "
+                f"alertas {self.alertas}d | clips {self.clips or self.alertas}d | embeddings {self.embeddings}d | "
                 f"corregidos {self.corregidos}d | "
                 f"bitacora {self.auditoria or 'sin limite'}d")
 
@@ -108,7 +114,7 @@ def purgar(session: Session, politica: Politica | None = None,
     cfg = get_config()
     base = cfg.snapshot_dir.parent.parent  # raiz del proyecto
     cuenta = {"fotos": 0, "eventos": 0, "alertas": 0, "embeddings": 0, "huerfanas": 0,
-              "auditoria": 0}
+              "auditoria": 0, "clips": 0}
 
     # 1. Embeddings faciales caducados -------------------------------------
     viejos = session.exec(
@@ -179,7 +185,21 @@ def purgar(session: Session, politica: Politica | None = None,
                 session.exec(delete(FaceEmbedding).where(FaceEmbedding.event_id == ev.event_id))
                 session.delete(ev)
 
-    # 5. Bitacora de auditoria ----------------------------------------------
+    # 5. Clips de video caducados (la alerta se queda) ---------------------
+    # 0 = sin plazo propio: el clip vive lo que viva su alerta.
+    con_clip = session.exec(
+        select(Alert).where(col(Alert.clip_path).is_not(None),
+                            col(Alert.created_at) < _antes_de(politica.clips))
+    ).all() if politica.clips else []
+    borrados: set[str] = set()
+    for a in con_clip:
+        if a.clip_path not in borrados and (simular or _borrar_archivo(a.clip_path, base)):
+            borrados.add(a.clip_path)
+        if not simular:
+            a.clip_path = None
+    cuenta["clips"] = len(borrados)
+
+    # 6. Bitacora de auditoria ----------------------------------------------
     if politica.auditoria:
         limite = _antes_de(politica.auditoria)
         cuenta["auditoria"] = len(session.exec(
@@ -190,12 +210,43 @@ def purgar(session: Session, politica: Politica | None = None,
     if not simular:
         session.commit()
 
-    # 6. Archivos huerfanos -------------------------------------------------
+    # 7. Archivos huerfanos -------------------------------------------------
     # Si un borrado fallo a medias en algun momento, quedan fotos en disco sin
     # fila que las referencie. Nadie las va a mirar nunca y siguen siendo datos
     # personales, asi que se limpian.
     cuenta["huerfanas"] = _limpiar_huerfanas(session, cfg.snapshot_dir, base, simular)
+    cuenta["huerfanas"] += _limpiar_clips_huerfanos(session, cfg.clips_dir, simular)
     return cuenta
+
+
+def _limpiar_clips_huerfanos(session: Session, carpeta: Path, simular: bool) -> int:
+    """Clips sin alerta que los referencie: la alerta se purgo o el worker
+    subio el clip de un evento que la API ya no tiene. Es video de personas:
+    no se queda en disco sin motivo."""
+    if not carpeta.is_dir():
+        return 0
+    referenciados = {
+        Path(p).name for p in session.exec(
+            select(Alert.clip_path).where(col(Alert.clip_path).is_not(None))
+        ).all() if p
+    }
+    n = 0
+    for archivo in list(carpeta.glob("*.mp4")) + list(carpeta.glob("*.webm")):
+        if archivo.name in referenciados:
+            continue
+        # Un clip recien subido puede estar a medio ligar a su alerta.
+        try:
+            if datetime.now().timestamp() - archivo.stat().st_mtime < 600:
+                continue
+        except OSError:
+            continue
+        n += 1
+        if not simular:
+            try:
+                archivo.unlink()
+            except OSError:
+                n -= 1
+    return n
 
 
 def _limpiar_huerfanas(session: Session, carpeta: Path, base: Path, simular: bool) -> int:
@@ -236,5 +287,6 @@ def formatear(cuenta: dict[str, int], simular: bool) -> str:
     verbo = "se eliminarian" if simular else "eliminados"
     return (f"{verbo}: {cuenta['embeddings']} embeddings, {cuenta['fotos']} fotos, "
             f"{cuenta['eventos']} eventos, {cuenta['alertas']} alertas, "
+            f"{cuenta.get('clips', 0)} clips, "
             f"{cuenta['huerfanas']} archivos huerfanos, "
             f"{cuenta.get('auditoria', 0)} entradas de bitacora")

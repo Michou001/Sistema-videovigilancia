@@ -37,7 +37,9 @@ class EventType(str, Enum):
     PLATE = "plate"      # placa vehicular + texto OCR
     FACE = "face"        # rostro + embedding biometrico
     WEAPON = "weapon"    # arma de fuego o arma blanca
-    ANOMALY = "anomaly"  # movimiento subito/violento de una persona seguida
+    ANOMALY = "anomaly"  # movimiento subito/violento, caida, manos arriba
+    ZONE = "zone"        # regla de zona: intrusion, cruce de linea, merodeo, conteo
+    CAMERA = "camera"    # la camara misma: sin senal, sabotaje, perdida de video
 
 
 class Severity(str, Enum):

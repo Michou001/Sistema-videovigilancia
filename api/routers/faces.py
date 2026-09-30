@@ -90,17 +90,17 @@ async def agregar(
     foto: UploadFile = File(...),
 ):
     if severity not in {"critical", "warning"}:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "severity debe ser 'critical' o 'warning'")
 
     datos = await foto.read()
     if len(datos) > MAX_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        raise HTTPException(413,
                             "La foto supera los 8 MB")
 
     imagen = cv2.imdecode(np.frombuffer(datos, np.uint8), cv2.IMREAD_COLOR)
     if imagen is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "No se pudo leer la imagen (formato no soportado)")
 
     # Cargar el modelo (la primera vez) y correrlo tarda segundos: en el pool
@@ -110,7 +110,7 @@ async def agregar(
     if vector is None:
         # Se rechaza aqui a proposito: una referencia sin rostro valido nunca
         # coincidiria con nada y daria una falsa sensacion de cobertura.
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, motivo)
+        raise HTTPException(422, motivo)
 
     cfg = get_config()
     registro = BlacklistFace(

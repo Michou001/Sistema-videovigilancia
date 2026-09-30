@@ -147,7 +147,7 @@ def probar(datos: ProbarCamaraIn, admin: Admin, request: Request) -> dict:
     resultado = _primera_ruta_funcional(datos.host, datos.user, datos.password, datos.puerto)
     if resultado is None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            422,
             "Las credenciales son correctas pero ninguna ruta de video respondió. "
             "Revisa que RTSP esté activado en la cámara (Configuración > Red > "
             "Avanzada > Protocolos) y que esta PC esté en la misma red.",

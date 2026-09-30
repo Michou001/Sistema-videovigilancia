@@ -81,6 +81,12 @@ class Camera(EnUtc, table=True):
     # rojo en el dashboard sin tener que mirar el video.
     last_heartbeat: Optional[datetime] = Field(default=None, index=True)
     status_json: Optional[str] = Field(default=None, description="SourceStatus serializado")
+    caida_desde: Optional[datetime] = Field(
+        default=None,
+        description="Desde cuando la camara esta sin senal (None = en linea). Vive en la "
+                    "base de datos y no en memoria para que el aviso salga una sola vez "
+                    "aunque la API corra en varios procesos o se reinicie.",
+    )
 
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -254,6 +260,8 @@ class Alert(EnUtc, table=True):
     match_kind: str = Field(default="none")
     match_score: Optional[float] = None
     snapshot_path: Optional[str] = None
+    clip_path: Optional[str] = Field(
+        default=None, description="Clip de video (antes y despues del hecho), ver edge/clips.py")
 
     # Ciclo de vida: toda alerta debe terminar reconocida o descartada. Sin
     # esto no puedes medir cuantos falsos positivos genera el sistema, que es
