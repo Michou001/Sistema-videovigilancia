@@ -119,6 +119,11 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult,
         meta_json=json.dumps(evento.meta, ensure_ascii=False, default=str) if evento.meta else None,
     )
     session.add(fila)
+    # El evento se escribe ANTES que su alerta y su embedding, que lo
+    # referencian por llave foranea. Sin relaciones declaradas, SQLAlchemy no
+    # garantiza ese orden dentro de un mismo flush: SQLite no revisa las llaves
+    # foraneas y no se notaba, PostgreSQL si y rechazaba la ingesta.
+    session.flush()
 
     # MINIMIZACION DE DATOS BIOMETRICOS
     #
@@ -203,6 +208,12 @@ def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
     guardados: list[tuple[dict, Alert | None]] = []
 
     with Session(engine) as session:
+        # La camara tiene que existir ANTES que sus eventos (llave foranea).
+        # Un lote tambien cuenta como senal de vida de la camara.
+        for cid in sorted({camera_id, *(e.camera_id for e in eventos)}):
+            _latido(session, cid)
+        session.flush()
+
         # Idempotencia en UNA consulta para todo el lote, no una por evento.
         ids = [e.event_id for e in eventos]
         existentes = set(session.exec(
@@ -236,8 +247,6 @@ def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
                 alerta,
             ))
 
-        # Un lote tambien cuenta como senal de vida de la camara.
-        _latido(session, camera_id)
         session.commit()
 
         # El `id` de la alerta lo asigna la base de datos en el commit, y es lo

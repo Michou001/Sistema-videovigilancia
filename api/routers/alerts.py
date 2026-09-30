@@ -298,5 +298,5 @@ def estadisticas(session: SesionBD, _: OperadorActual):
         "alertas_criticas": criticas,
         "eventos_por_tipo": por_tipo,
         "camaras": camaras,
-        "dashboards_conectados": hub.conectados,
+        "dashboards_conectados": hub.conectados_total,
     }

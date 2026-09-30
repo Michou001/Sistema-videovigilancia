@@ -72,8 +72,6 @@ class WeaponDetector(Detector):
         self.cfg = cfg
         self.device = cfg.resolve_device()
 
-        from ultralytics import YOLO
-
         if cfg.weapon_model.exists():
             ruta = cfg.weapon_model
             self.personalizado = True
@@ -92,11 +90,13 @@ class WeaponDetector(Detector):
                 "modelo afinado; ver la Fase 5 del README.", cfg.weapon_model.name
             )
 
+        from edge.aceleracion import cargar_yolo, usar_half
+
         t0 = time.perf_counter()
-        self.model = YOLO(str(ruta))
-        self.model.to(self.device)
-        log.info("Modelo de armas listo en %.1fs (device=%s)",
-                 time.perf_counter() - t0, self.device)
+        self.model = cargar_yolo(ruta, self.device)
+        self.half = usar_half(cfg.yolo_half, self.device)
+        log.info("Modelo de armas listo en %.1fs (device=%s, fp16=%s)",
+                 time.perf_counter() - t0, self.device, self.half)
 
         # Que ids de clase cuentan como arma en ESTE modelo.
         if self.personalizado:
@@ -132,6 +132,7 @@ class WeaponDetector(Detector):
             imgsz=self.cfg.weapon_imgsz,
             classes=sorted(self.clases_arma) or None,
             device=self.device,
+            half=self.half,
             tracker="bytetrack.yaml",
         )
         self._ms_inferencia += (time.perf_counter() - t0) * 1000

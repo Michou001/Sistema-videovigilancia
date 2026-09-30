@@ -232,12 +232,20 @@ class LiveSource(FrameSource):
         reconnect: bool = True,
         max_backoff: float = 30.0,
         open_timeout: float = 15.0,
+        hw_decode: str = "off",
+        gstreamer: bool = False,
     ) -> None:
         self.target = target
         self.name = name
         self.reconnect = reconnect
         self.max_backoff = max_backoff
         self.open_timeout = open_timeout
+        self.gstreamer = gstreamer
+        # Decodificacion por GPU (ver edge/aceleracion.py). Si la camara no
+        # abre con aceleracion, se desactiva para esta fuente y se sigue por
+        # CPU: nunca a cambio de quedarse sin video.
+        self._hw = hw_decode
+        self._hw_fallo = False
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._latest: Optional[FrameInfo] = None
@@ -253,18 +261,35 @@ class LiveSource(FrameSource):
 
     # -- ciclo del hilo lector ---------------------------------------------
 
+    def _abrir_ffmpeg(self, acelerar: bool):
+        from edge.aceleracion import parametros_captura
+
+        # Limites de espera explicitos: sin ellos, una camara que dejo de
+        # responder a media lectura podia tener al hilo colgado mucho mas
+        # que los 5 s de `stimeout`, sin reconectar.
+        parametros = [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(self.open_timeout * 1000),
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000,
+        ]
+        if acelerar:
+            parametros += parametros_captura(self._hw)
+        try:
+            return cv2.VideoCapture(self.target, cv2.CAP_FFMPEG, parametros)
+        except (AttributeError, cv2.error, TypeError):
+            return cv2.VideoCapture(self.target, cv2.CAP_FFMPEG)
+
     def _open(self) -> bool:
-        if isinstance(self.target, str):
-            # Limites de espera explicitos: sin ellos, una camara que dejo de
-            # responder a media lectura podia tener al hilo colgado mucho mas
-            # que los 5 s de `stimeout`, sin reconectar.
-            try:
-                cap = cv2.VideoCapture(self.target, cv2.CAP_FFMPEG, [
-                    cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(self.open_timeout * 1000),
-                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000,
-                ])
-            except (AttributeError, cv2.error, TypeError):
-                cap = cv2.VideoCapture(self.target, cv2.CAP_FFMPEG)
+        if self.gstreamer:
+            cap = cv2.VideoCapture(self.target, cv2.CAP_GSTREAMER)
+        elif isinstance(self.target, str):
+            acelerar = self._hw not in {"", "off", None} and not self._hw_fallo
+            cap = self._abrir_ffmpeg(acelerar)
+            if acelerar and not cap.isOpened():
+                cap.release()
+                self._hw_fallo = True
+                log.warning("[%s] no abrio con HW_DECODE=%s; se sigue decodificando por CPU",
+                            self.name, self._hw)
+                cap = self._abrir_ffmpeg(False)
         else:
             cap = cv2.VideoCapture(self.target, cv2.CAP_ANY)
         if not cap.isOpened():
@@ -500,18 +525,28 @@ class FileSource(FrameSource):
 # Fabrica
 # --------------------------------------------------------------------------
 
-def open_source(spec: str, **kwargs) -> FrameSource:
+def open_source(spec: str, *, hw_decode: str = "off", **kwargs) -> FrameSource:
     """Construye la fuente adecuada a partir de la cadena SOURCE.
 
         webcam:0 | 0                -> LiveSource(indice)
         rtsp://... | http://...     -> LiveSource(url, con reconexion)
+        gst:<pipeline>              -> LiveSource(GStreamer, con reconexion)
         file:ruta.mp4 | ruta.mp4    -> FileSource
     """
     spec = spec.strip()
 
     if spec.startswith(("rtsp://", "rtsps://", "http://", "https://")):
         host = urlparse(spec).hostname or "red"
-        return LiveSource(spec, name=host, reconnect=True, **kwargs)
+        return LiveSource(spec, name=host, reconnect=True, hw_decode=hw_decode, **kwargs)
+
+    if spec.startswith("gst:"):
+        # Pipeline de GStreamer completo, p.ej. con NVDEC en Jetson/DeepStream:
+        #   gst:rtspsrc location=rtsp://... latency=200 ! rtph264depay ! h264parse
+        #       ! nvv4l2decoder ! nvvidconv ! video/x-raw,format=BGRx
+        #       ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1 max-buffers=1
+        # Requiere OpenCV compilado con GStreamer (las ruedas de pip no lo traen).
+        return LiveSource(spec[4:].strip(), name="gstreamer", reconnect=True,
+                          gstreamer=True, **kwargs)
 
     if spec.startswith("webcam:") or spec.isdigit():
         index = int(spec.split(":", 1)[1]) if ":" in spec else int(spec)

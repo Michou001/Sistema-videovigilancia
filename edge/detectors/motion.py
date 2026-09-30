@@ -75,18 +75,17 @@ class MotionAnomalyDetector(Detector):
         self.cfg = cfg
         self.device = cfg.resolve_device()
 
-        from ultralytics import YOLO
+        from edge.aceleracion import cargar_yolo, usar_half
 
-        # Mismo archivo que weapons.py: es el modelo YOLO11-small estandar de
-        # Ultralytics, no algo especifico de este detector. Cargarlo dos veces
-        # (si algun dia se reactivan ambos detectores) duplica VRAM; no es un
-        # problema hoy porque ENABLE_WEAPONS esta apagado por defecto.
-        ruta = BASE_DIR / "models" / "yolo11s.pt"
+        # Por defecto el YOLO11-small estandar de Ultralytics (MOTION_MODEL).
+        # Puede ser un .engine de TensorRT exportado con
+        # tools/optimizar_modelos.py: misma deteccion, bastante mas rapida.
+        ruta = cfg.motion_model
         t0 = time.perf_counter()
-        self.model = YOLO(str(ruta))
-        self.model.to(self.device)
-        log.info("Modelo de movimiento listo en %.1fs (device=%s)",
-                 time.perf_counter() - t0, self.device)
+        self.model = cargar_yolo(ruta, self.device)
+        self.half = usar_half(cfg.yolo_half, self.device)
+        log.info("Modelo de movimiento %s listo en %.1fs (device=%s, fp16=%s)",
+                 ruta.name, time.perf_counter() - t0, self.device, self.half)
 
         self.confirmador = ConfirmacionTemporal(
             cfg.motion_confirm_hits, cfg.motion_confirm_window
@@ -132,6 +131,7 @@ class MotionAnomalyDetector(Detector):
             imgsz=self.cfg.imgsz,
             classes=[CLASE_PERSONA],
             device=self.device,
+            half=self.half,
             tracker="bytetrack.yaml",
         )
         self._ms_inferencia += (time.perf_counter() - t0) * 1000

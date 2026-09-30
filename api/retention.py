@@ -167,11 +167,17 @@ def purgar(session: Session, politica: Politica | None = None,
     if not simular:
         for a in alertas:
             _borrar_archivo(a.snapshot_path, base)
-            ev = session.exec(select(Event).where(Event.event_id == a.event_id)).first()
-            if ev is not None:
+            _borrar_archivo(getattr(a, "clip_path", None), base)
+            evento_id = a.event_id
+            # La alerta primero: referencia al evento por llave foranea, y
+            # PostgreSQL (a diferencia de SQLite) lo exige.
+            session.delete(a)
+            session.flush()
+            ev = session.exec(select(Event).where(Event.event_id == evento_id)).first()
+            otra = session.exec(select(Alert.id).where(Alert.event_id == evento_id)).first()
+            if ev is not None and otra is None:
                 session.exec(delete(FaceEmbedding).where(FaceEmbedding.event_id == ev.event_id))
                 session.delete(ev)
-            session.delete(a)
 
     # 5. Bitacora de auditoria ----------------------------------------------
     if politica.auditoria:

@@ -96,5 +96,5 @@ pyyaml>=6.0,<7
 
 # --- Opcionales (descomenta segun lo que uses) ------------------------------
 # psycopg[binary]>=3.1,<4      # DATABASE_URL=postgresql+psycopg://...
-# redis>=5,<9                  # REDIS_URL: varios procesos de API
+# redis>=5,<9                  # REDIS_URL + API_WORKERS: varios procesos de API
 # open-clip-torch>=2.24,<4     # busqueda en lenguaje natural (SEMANTIC_SEARCH=true)

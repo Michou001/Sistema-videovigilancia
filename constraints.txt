@@ -33,6 +33,13 @@ PyYAML==6.0.3
 psutil==7.2.2
 typing_extensions==4.16.0
 
+# --- PostgreSQL y Redis (opcionales) -----------------------------------------
+psycopg==3.3.6
+psycopg-binary==3.3.6
+redis==8.1.0
+fakeredis==2.38.0
+sortedcontainers==2.4.0
+
 # --- Lectura de placas -------------------------------------------------------
 fast-alpr==0.4.0
 fast-plate-ocr==1.1.0

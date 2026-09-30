@@ -88,12 +88,13 @@ class FaceEmbedder:
     _instancia: Optional["FaceEmbedder"] = None
 
     def __init__(self, nombre_modelo: str = "buffalo_l", device: str = "cuda",
-                 det_size: int = 640) -> None:
+                 det_size: int = 640, tensorrt: str = "false") -> None:
         configurar_onnx_gpu()
         from insightface.app import FaceAnalysis
 
-        proveedores = (["CUDAExecutionProvider", "CPUExecutionProvider"]
-                       if device == "cuda" else ["CPUExecutionProvider"])
+        from edge.aceleracion import proveedores_onnx
+
+        proveedores = proveedores_onnx(device, tensorrt)
 
         t0 = time.perf_counter()
         # Solo deteccion y reconocimiento: los modulos de landmarks y de
@@ -119,7 +120,7 @@ class FaceEmbedder:
         real = self.app.models["detection"].session.get_providers()[0]
         log.info("InsightFace '%s' listo en %.1fs (%s)",
                  nombre_modelo, time.perf_counter() - t0, real)
-        if device == "cuda" and real != "CUDAExecutionProvider":
+        if device == "cuda" and real == "CPUExecutionProvider":
             log.warning(
                 "InsightFace cayo a CPU pese a pedir GPU (6x mas lento). "
                 "Causa habitual: onnxruntime-gpu compilado para otra version "
@@ -129,10 +130,17 @@ class FaceEmbedder:
 
     @classmethod
     def compartido(cls, cfg: EdgeConfig) -> "FaceEmbedder":
-        """Instancia unica: cargar el modelo dos veces duplicaria el uso de VRAM."""
-        if cls._instancia is None:
-            cls._instancia = cls(cfg.face_model, cfg.resolve_device(), cfg.imgsz)
-        return cls._instancia
+        """Una instancia por configuracion en todo el proceso: cargar el modelo
+        dos veces duplicaria el uso de VRAM (ver edge/modelos.py). Las
+        sesiones de onnxruntime admiten llamadas concurrentes de varias
+        camaras."""
+        from edge.modelos import compartido
+
+        device = cfg.resolve_device()
+        clave = ("insightface", cfg.face_model, device, cfg.imgsz, cfg.ort_tensorrt)
+        instancia = compartido(clave, lambda: cls(cfg.face_model, device, cfg.imgsz, cfg.ort_tensorrt))
+        cls._instancia = instancia
+        return instancia
 
     def detectar(self, frame: np.ndarray) -> list:
         return self.app.get(frame)

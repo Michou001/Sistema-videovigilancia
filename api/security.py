@@ -110,7 +110,19 @@ class LimiteIntentos:
             self._fallos.pop(clave, None)
 
 
-limite_login = LimiteIntentos()
+def _crear_limite():
+    """En memoria con un solo proceso de API; en Redis con varios, para que el
+    atacante no tenga 5 intentos POR PROCESO (ver api/redis_compartido.py)."""
+    get_config()  # carga el .env: REDIS_URL puede venir de ahi
+    from api.redis_compartido import LimiteIntentosRedis, cliente_sync, url_redis
+
+    url = url_redis()
+    if url:
+        return LimiteIntentosRedis(cliente_sync(url))
+    return LimiteIntentos()
+
+
+limite_login = _crear_limite()
 
 
 # --------------------------------------------------------------------------

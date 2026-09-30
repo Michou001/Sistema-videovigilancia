@@ -22,5 +22,11 @@ cryptography>=42
 psutil>=5.9
 pyyaml>=6.0,<7
 
+# PostgreSQL y Redis: las pruebas corren contra ellos en la integracion
+# continua (PRUEBAS_POSTGRES, PRUEBAS_REDIS). fakeredis cubre Redis sin servidor.
+psycopg[binary]>=3.1,<4
+redis>=5,<9
+fakeredis>=2.20
+
 # Herramientas de desarrollo
 ruff>=0.6

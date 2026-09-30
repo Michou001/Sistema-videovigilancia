@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import StreamingResponse
 
 from api.deps import OperadorActual, OperadorLectura, verificar_worker
-from api.preview import MAX_BYTES_FRAME, buffer_preview
+from api.preview import MAX_BYTES_FRAME, obtener_preview
 from shared.events import PATRON_CAMARA
 
 log = logging.getLogger(__name__)
@@ -52,12 +52,12 @@ async def publicar_frame(request: Request,
     if not cuerpo.startswith(JPEG_SOI):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "El cuerpo no es un JPEG")
 
-    espectadores = buffer_preview.publicar(camera_id, cuerpo)
+    espectadores = await obtener_preview().apublicar(camera_id, cuerpo)
     return {"ok": True, "espectadores": espectadores}
 
 
 @router.get("/camaras")
-def camaras_en_vivo(_: OperadorActual) -> list[dict]:
+async def camaras_en_vivo(_: OperadorActual) -> list[dict]:
     """Camaras que estan mandando video en este momento.
 
     El dashboard consulta esto cada pocos segundos para montar y desmontar los
@@ -65,7 +65,7 @@ def camaras_en_vivo(_: OperadorActual) -> list[dict]:
     manda eventos, aqui solo si manda VIDEO. Una camara puede estar detectando
     perfectamente y no aparecer aqui porque el preview esta apagado en su .env.
     """
-    return buffer_preview.camaras()
+    return await obtener_preview().acamaras()
 
 
 @router.get("/{camera_id}/live.mjpg")
@@ -79,7 +79,7 @@ async def flujo_en_vivo(_: OperadorLectura,
     """
 
     return StreamingResponse(
-        buffer_preview.flujo_mjpeg(camera_id),
+        obtener_preview().flujo_mjpeg(camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
             # Sin esto un proxy intermedio puede intentar almacenar el flujo y

@@ -3,6 +3,8 @@
     python -m edge.worker                 # deteccion continua
     python -m edge.worker --diagnostico   # solo mide la fuente, sin modelos
     python -m edge.worker --env .env.cam2 # otra camara, con su propio .env
+    python -m edge.worker --env .env --env .env.cam2 --env .env.cam3
+                                          # VARIAS camaras en UN proceso
 
 Con la webcam:            SOURCE=webcam:0
 Con la Hikvision:         SOURCE=rtsp://admin:pass@192.168.1.64:554/Streaming/Channels/102
@@ -10,6 +12,13 @@ Con un video grabado:     SOURCE=file:videos/prueba.mp4
 
 El codigo de abajo NO cambia al pasar de una a otra: la camara es un detalle
 de configuracion (ver edge/sources.py), no de codigo.
+
+VARIAS CAMARAS EN UN PROCESO: los modelos de onnxruntime (placas, rostros) se
+cargan una sola vez y los comparten todas (ver edge/modelos.py), y hay un solo
+contexto de CUDA. Con un proceso por camara, en una GPU de 6 GB cabian unas 3
+camaras porque se acababa la VRAM; asi caben bastantes mas antes de que el
+limite sea el computo. Cada camara corre en su propio hilo con su propia
+fuente, detectores, envio y latido: si una camara se cae, las demas siguen.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ import argparse
 import logging
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -26,24 +36,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cv2  # noqa: E402
 
-from edge.config import EdgeConfig, load_config  # noqa: E402
+from edge.config import EdgeConfig, cargar_configuraciones  # noqa: E402
 from edge.sources import LiveSource, open_source  # noqa: E402
 
 log = logging.getLogger("edge.worker")
 
-_detener = False
+DETENER = threading.Event()
 
 
 def _manejar_senal(signum, frame):  # noqa: ARG001
-    """Ctrl+C limpio: cierra la camara en vez de dejar el handle colgado.
+    """Ctrl+C limpio: cierra las camaras en vez de dejar handles colgados.
     En Windows un VideoCapture sin liberar deja la webcam ocupada hasta que
     se cierra el proceso padre."""
-    global _detener
-    if _detener:
+    if DETENER.is_set():
         log.warning("Segunda senal recibida, saliendo a la fuerza")
         sys.exit(1)
     log.info("Senal recibida, cerrando ordenadamente...")
-    _detener = True
+    DETENER.set()
+
+
+def _uso_cpu() -> Optional[float]:
+    try:
+        import psutil
+
+        return psutil.cpu_percent(interval=None)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
@@ -52,6 +70,9 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
     Es la primera prueba que hay que pasar: si aqui los fps son inestables o la
     latencia crece, ningun modelo lo va a arreglar. Separar este diagnostico de
     la inferencia evita perder horas culpando a la GPU de un problema de red.
+
+    Tambien reporta el uso de CPU: es la forma de comparar HW_DECODE=off
+    contra HW_DECODE=auto (la decodificacion es lo que mas CPU gasta).
     """
     print("=" * 68)
     print(f"DIAGNOSTICO DE FUENTE  ({segundos:.0f}s)")
@@ -60,10 +81,11 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
     print(f"  source    : {_ocultar(cfg.source)}")
     print(f"  device    : {cfg.resolve_device()}")
     print(f"  infer_fps : {cfg.infer_fps}")
+    print(f"  hw_decode : {cfg.hw_decode}")
     print()
 
     try:
-        fuente = open_source(cfg.source)
+        fuente = open_source(cfg.source, hw_decode=cfg.hw_decode)
     except Exception as e:  # noqa: BLE001
         print(f"[x] No se pudo abrir la fuente: {e}")
         return 1
@@ -90,16 +112,18 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
         ancho, alto = primero.shape
         print(f"  resolucion: {ancho}x{alto}")
         print()
-        print(f"  {'t':>5}  {'fps_real':>9}  {'procesados':>10}  {'perdidos':>9}  {'latencia':>9}")
-        print("  " + "-" * 52)
+        print(f"  {'t':>5}  {'fps_real':>9}  {'procesados':>10}  {'perdidos':>9}  {'latencia':>9}  {'CPU':>5}")
+        print("  " + "-" * 60)
 
         inicio = time.monotonic()
         procesados = 0
         latencia_max = 0.0
         ultimo_reporte = inicio
+        muestras_cpu: list[float] = []
+        _uso_cpu()  # la primera lectura de psutil siempre es 0: se descarta
 
         for frame in fuente.frames(max_fps=cfg.infer_fps):
-            if _detener:
+            if DETENER.is_set():
                 break
             procesados += 1
             latencia_max = max(latencia_max, frame.age)
@@ -107,8 +131,12 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
             ahora = time.monotonic()
             if ahora - ultimo_reporte >= 2.0:
                 st = fuente.status
+                cpu = _uso_cpu()
+                if cpu is not None:
+                    muestras_cpu.append(cpu)
                 print(f"  {ahora - inicio:5.0f}  {st.measured_fps:9.1f}  {procesados:10d}"
-                      f"  {st.frames_dropped:9d}  {latencia_max * 1000:7.0f}ms")
+                      f"  {st.frames_dropped:9d}  {latencia_max * 1000:7.0f}ms"
+                      f"  {'' if cpu is None else f'{cpu:4.0f}%'}")
                 ultimo_reporte = ahora
                 latencia_max = 0.0
 
@@ -129,6 +157,9 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
               f"({procesados / transcurrido:.1f}/s, objetivo {cfg.infer_fps})")
         print(f"  reconexiones                     : {st.reconnects}")
         print(f"  fps reales de la camara          : {st.measured_fps:.1f}")
+        if muestras_cpu:
+            print(f"  uso de CPU promedio              : {sum(muestras_cpu) / len(muestras_cpu):.0f}%"
+                  f"  (compara con HW_DECODE=auto / off)")
 
         # Los descartes NO son un error: son el mecanismo que mantiene la
         # latencia baja. Lo preocupante seria lo contrario.
@@ -169,147 +200,268 @@ def construir_detectores(cfg: EdgeConfig) -> list:
         detectores.append(MotionAnomalyDetector(cfg))
 
     if not detectores:
-        raise RuntimeError("No hay ningun detector activo. Revisa ENABLE_* en el .env")
+        raise RuntimeError(f"[{cfg.camera_id}] No hay ningun detector activo. Revisa ENABLE_* en el .env")
     return detectores
 
 
-def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
-    """Bucle principal: captura -> detectores -> eventos."""
-    from edge.preview import crear_publicador
-    from edge.sink import crear_sink
+class Camara:
+    """Todo lo de una camara: fuente, detectores, envio, vista en vivo y latido.
 
-    print("=" * 68)
-    print("WORKER DE BORDE")
-    print("=" * 68)
-    print(f"  camara    : {cfg.camera_id}  ({_ocultar(cfg.source)})")
-    print(f"  device    : {cfg.resolve_device()}")
-    print(f"  infer_fps : {cfg.infer_fps}")
-    print()
+    Cada camara es independiente: con varias en un proceso, una que pierde la
+    senal o cuyo detector falla no afecta a las demas.
+    """
 
-    detectores = construir_detectores(cfg)
-    print(f"  detectores: {', '.join(d.name for d in detectores)}")
+    def __init__(self, cfg: EdgeConfig) -> None:
+        from edge.preview import crear_publicador
+        from edge.sink import crear_sink
 
-    sink = crear_sink(cfg)
-    preview = crear_publicador(cfg)
-    fuente = open_source(cfg.source)
-    total_eventos = 0
-    frames = 0
-    fallos: dict[str, int] = {d.name: 0 for d in detectores}
-    inicio = time.monotonic()
+        self.cfg = cfg
+        self.id = cfg.camera_id
+        self.detectores = construir_detectores(cfg)
+        self.sink = crear_sink(cfg)
+        self.preview = crear_publicador(cfg)
+        self.fuente = open_source(cfg.source, hw_decode=cfg.hw_decode)
+        self.complementos: list = []
+        """Piezas opcionales que reciben cada frame y/o producen eventos por su
+        cuenta (grabador de clips, eventos de la propia camara). Cumplen:
+        al_frame(frame), eventos() -> list, cerrar(), estado() -> dict."""
+        self.frames = 0
+        self.total_eventos = 0
+        self.fallos: dict[str, int] = {d.name: 0 for d in self.detectores}
+        self.inicio = time.monotonic()
+        self.latido = None
+        if cfg.api_url and cfg.api_token:
+            from edge.heartbeat import Heartbeat
 
-    def estado() -> dict:
+            self.latido = Heartbeat(cfg.api_url, cfg.api_token, cfg.camera_id, self.estado,
+                                    intervalo=cfg.heartbeat_s)
+
+    # ------------------------------------------------------------------
+
+    def estado(self) -> dict:
         """Lo que viaja en el latido hacia la API."""
-        transcurrido = max(1e-6, time.monotonic() - inicio)
-        return {
-            **fuente.status.as_dict(),
-            "fps_procesados": round(frames / transcurrido, 2),
-            "eventos": total_eventos,
-            "detectores": {d.name: d.resumen for d in detectores},
-            "fallos_detector": {k: v for k, v in fallos.items() if v},
+        from edge.modelos import cargados
+
+        transcurrido = max(1e-6, time.monotonic() - self.inicio)
+        datos = {
+            **self.fuente.status.as_dict(),
+            "fps_procesados": round(self.frames / transcurrido, 2),
+            "eventos": self.total_eventos,
+            "detectores": {d.name: d.resumen for d in self.detectores},
+            "fallos_detector": {k: v for k, v in self.fallos.items() if v},
+            "modelos_compartidos": cargados(),
         }
+        for c in self.complementos:
+            try:
+                datos.update(c.estado())
+            except Exception:  # noqa: BLE001
+                pass
+        return datos
 
-    latido = None
-    if cfg.api_url and cfg.api_token:
-        from edge.heartbeat import Heartbeat
+    def emitir(self, evento) -> None:
+        self.sink.enviar(evento)
+        self.total_eventos += 1
 
-        latido = Heartbeat(cfg.api_url, cfg.api_token, cfg.camera_id, estado,
-                           intervalo=cfg.heartbeat_s)
+    def procesar(self, frame) -> None:
+        """Un frame por todos los detectores y complementos."""
+        self.frames += 1
+        for det in self.detectores:
+            # Un detector que falla en un frame (memoria de GPU, un recorte
+            # raro para el OCR) no debe apagar a los demas ni al worker: se
+            # registra y se sigue con el siguiente frame.
+            try:
+                eventos = det.procesar(frame)
+            except Exception as e:  # noqa: BLE001
+                self.fallos[det.name] += 1
+                n = self.fallos[det.name]
+                if n in (1, 10) or n % 100 == 0:
+                    log.exception("[%s] El detector %s fallo (%d veces): %s", self.id, det.name, n, e)
+                continue
+            for evento in eventos:
+                self.emitir(evento)
 
-    try:
-        with fuente:
-            if isinstance(fuente, LiveSource) and not fuente.wait_until_ready(15.0):
-                print("[x] La fuente no entrego frames. Corre --diagnostico.")
-                return 1
+        for c in self.complementos:
+            try:
+                c.al_frame(frame)
+                for evento in c.eventos():
+                    self.emitir(evento)
+            except Exception as e:  # noqa: BLE001
+                log.debug("[%s] complemento %s fallo: %s", self.id, type(c).__name__, e)
 
-            print("\n  Detectando. Ctrl+C para detener.\n")
-            inicio = time.monotonic()
-            ultimo_reporte = inicio
+    def vista_anotada(self, frame):
+        vista = frame.frame.copy()
+        for det in self.detectores:
+            try:
+                vista = det.anotar(vista)
+            except Exception as e:  # noqa: BLE001
+                log.debug("No se pudo anotar %s: %s", det.name, e)
+        return vista
+
+    def correr(self, segundos: Optional[float] = None, ventana: bool = False) -> int:
+        """Bucle de captura -> detectores -> eventos hasta DETENER."""
+        cfg = self.cfg
+        with self.fuente:
+            if isinstance(self.fuente, LiveSource) and not self.fuente.wait_until_ready(15.0):
+                log.error("[%s] La fuente no entrego frames. Corre --diagnostico.", self.id)
+                if not self.fuente.reconectando:
+                    return 1
+                log.warning("[%s] Se sigue esperando: la fuente reintenta sola", self.id)
+
+            self.inicio = time.monotonic()
+            ultimo_reporte = self.inicio
 
             # esperar_cortes: un corte de la camara NO termina el worker. Es un
             # sistema que corre sin nadie mirando; si un parpadeo de red lo
             # apaga, nadie se entera hasta que alguien revisa al dia siguiente.
-            # El diagnostico usa el valor por defecto (terminar), que es lo que
-            # se quiere de una herramienta que mide y sale.
-            for frame in fuente.frames(max_fps=cfg.infer_fps, esperar_cortes=True):
-                if _detener:
+            for frame in self.fuente.frames(max_fps=cfg.infer_fps, esperar_cortes=True):
+                if DETENER.is_set():
                     break
-                frames += 1
+                self.procesar(frame)
 
-                for det in detectores:
-                    # Un detector que falla en un frame (memoria de GPU, un
-                    # recorte raro para el OCR) no debe apagar a los demas ni
-                    # al worker: se registra y se sigue con el siguiente frame.
-                    try:
-                        eventos = det.procesar(frame)
-                    except Exception as e:  # noqa: BLE001
-                        fallos[det.name] += 1
-                        n = fallos[det.name]
-                        if n in (1, 10) or n % 100 == 0:
-                            log.exception("El detector %s fallo (%d veces): %s", det.name, n, e)
-                        continue
-                    for evento in eventos:
-                        sink.enviar(evento)
-                        total_eventos += 1
-
-                # El frame anotado se calcula UNA sola vez y sirve para las dos
-                # cosas que lo quieren: la ventana local de depuracion y la
+                # El frame anotado se calcula UNA sola vez y sirve para las
+                # dos cosas que lo quieren: la ventana local de depuracion y la
                 # vista en vivo del dashboard. Se pregunta primero para no
                 # dibujar cajas que nadie va a ver.
-                para_preview = preview is not None and preview.quiere_frame()
-                if cfg.show_window or para_preview:
-                    vista = frame.frame.copy()
-                    for det in detectores:
-                        try:
-                            vista = det.anotar(vista)
-                        except Exception as e:  # noqa: BLE001
-                            log.debug("No se pudo anotar %s: %s", det.name, e)
-
+                para_preview = self.preview is not None and self.preview.quiere_frame()
+                if ventana or para_preview:
+                    vista = self.vista_anotada(frame)
                     if para_preview:
-                        preview.publicar(vista)
-
-                    if cfg.show_window:
-                        cv2.imshow("Videovigilancia - 'q' para salir", vista)
+                        self.preview.publicar(vista)
+                    if ventana:
+                        cv2.imshow(f"Videovigilancia {self.id} - 'q' para salir", vista)
                         if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                            DETENER.set()
                             break
 
                 ahora = time.monotonic()
                 if ahora - ultimo_reporte >= 10.0:
-                    st = fuente.status
-                    partes = " | ".join(f"{d.name}: {d.resumen}" for d in detectores)
-                    mirando = ""
-                    if preview is not None and preview.espectadores:
-                        mirando = f" | {preview.espectadores} viendo"
-                    print(f"  [{ahora - inicio:5.0f}s] {frames} frames, "
-                          f"{st.measured_fps:.1f} fps camara, {total_eventos} eventos "
-                          f"| {partes}{mirando}")
+                    self._reportar(ahora)
                     ultimo_reporte = ahora
 
-                if segundos and (ahora - inicio) >= segundos:
+                if segundos and (ahora - self.inicio) >= segundos:
                     break
 
             # Los objetos que seguian en pantalla al detener tambien cuentan.
-            print("\n  Cerrando tracks abiertos...")
-            for det in detectores:
+            log.info("[%s] Cerrando tracks abiertos...", self.id)
+            for det in self.detectores:
                 try:
                     for evento in det.vaciar():
-                        sink.enviar(evento)
-                        total_eventos += 1
+                        self.emitir(evento)
                 except Exception as e:  # noqa: BLE001
-                    log.error("No se pudieron cerrar los tracks de %s: %s", det.name, e)
-    finally:
-        if cfg.show_window:
-            cv2.destroyAllWindows()
-        if latido is not None:
-            latido.cerrar()
-        if preview is not None:
-            preview.cerrar()
-        for det in detectores:
-            print(f"\n  Estadisticas de {det.name}: {det.stats}")
-            det.cerrar()
-        sink.cerrar()
+                    log.error("[%s] No se pudieron cerrar los tracks de %s: %s", self.id, det.name, e)
+        return 0
 
-    print(f"\n  Total de eventos emitidos: {total_eventos}")
-    return 0
+    def _reportar(self, ahora: float) -> None:
+        st = self.fuente.status
+        partes = " | ".join(f"{d.name}: {d.resumen}" for d in self.detectores)
+        mirando = ""
+        if self.preview is not None and self.preview.espectadores:
+            mirando = f" | {self.preview.espectadores} viendo"
+        print(f"  [{self.id} {ahora - self.inicio:5.0f}s] {self.frames} frames, "
+              f"{st.measured_fps:.1f} fps camara, {self.total_eventos} eventos "
+              f"| {partes}{mirando}")
+
+    def cerrar(self) -> None:
+        for c in self.complementos:
+            try:
+                for evento in c.eventos():
+                    self.emitir(evento)
+                c.cerrar()
+            except Exception as e:  # noqa: BLE001
+                log.debug("[%s] cerrar complemento: %s", self.id, e)
+        if self.latido is not None:
+            self.latido.cerrar()
+        if self.preview is not None:
+            self.preview.cerrar()
+        for det in self.detectores:
+            print(f"\n  [{self.id}] Estadisticas de {det.name}: {det.stats}")
+            try:
+                det.cerrar()
+            except Exception:  # noqa: BLE001
+                pass
+        self.sink.cerrar()
+        print(f"  [{self.id}] Total de eventos emitidos: {self.total_eventos}")
+
+
+def _complementos(camara: Camara) -> None:
+    """Conecta las piezas opcionales de cada camara segun su config."""
+    try:
+        from edge.clips import crear_grabador
+
+        grabador = crear_grabador(camara.cfg, camara.sink)
+        if grabador is not None:
+            camara.complementos.append(grabador)
+    except ImportError:
+        pass
+    try:
+        from edge.isapi import crear_eventos_camara
+
+        eventos_camara = crear_eventos_camara(camara.cfg)
+        if eventos_camara is not None:
+            camara.complementos.append(eventos_camara)
+    except ImportError:
+        pass
+
+
+def ejecutar(configs: list[EdgeConfig], segundos: Optional[float] = None) -> int:
+    """Arranca una o varias camaras y espera a que terminen o a Ctrl+C."""
+    print("=" * 68)
+    print("WORKER DE BORDE" + (f"  ({len(configs)} camaras en un proceso)" if len(configs) > 1 else ""))
+    print("=" * 68)
+    for cfg in configs:
+        print(f"  camara    : {cfg.camera_id}  ({_ocultar(cfg.source)})")
+    print(f"  device    : {configs[0].resolve_device()}")
+    print(f"  infer_fps : {', '.join(str(c.infer_fps) for c in configs)}")
+    print()
+
+    # Las camaras se construyen en orden, en el hilo principal: la primera
+    # carga los modelos y las siguientes los reutilizan (edge/modelos.py).
+    camaras: list[Camara] = []
+    try:
+        for cfg in configs:
+            camara = Camara(cfg)
+            _complementos(camara)
+            camaras.append(camara)
+            print(f"  [{cfg.camera_id}] detectores: {', '.join(d.name for d in camara.detectores)}")
+    except Exception:
+        for c in camaras:
+            c.cerrar()
+        raise
+
+    print("\n  Detectando. Ctrl+C para detener.\n")
+    ventana = any(c.show_window for c in configs)
+    codigos: dict[str, int] = {}
+    try:
+        if len(camaras) == 1:
+            # Una sola camara en el hilo principal: cv2.imshow (la ventana de
+            # depuracion) solo funciona ahi en varios sistemas operativos.
+            codigos[camaras[0].id] = camaras[0].correr(segundos, ventana=ventana)
+        else:
+            if ventana:
+                log.warning("SHOW_WINDOW se ignora con varias camaras: usa la vista en vivo del dashboard")
+
+            def _hilo(c: Camara) -> None:
+                try:
+                    codigos[c.id] = c.correr(segundos)
+                except Exception as e:  # noqa: BLE001
+                    log.exception("[%s] La camara termino con error: %s", c.id, e)
+                    codigos[c.id] = 1
+
+            hilos = [threading.Thread(target=_hilo, args=(c,), name=f"camara-{c.id}", daemon=True)
+                     for c in camaras]
+            for h in hilos:
+                h.start()
+            while any(h.is_alive() for h in hilos):
+                for h in hilos:
+                    h.join(timeout=0.5)
+    finally:
+        DETENER.set()
+        if ventana:
+            cv2.destroyAllWindows()
+        for c in camaras:
+            c.cerrar()
+
+    return max(codigos.values(), default=0)
 
 
 def _ocultar(spec: str) -> str:
@@ -331,38 +483,44 @@ def main() -> int:
     p.add_argument("--limitar", action="store_true",
                    help="Detener la deteccion tras --segundos (por defecto corre indefinido)")
     p.add_argument("--ventana", action="store_true",
-                   help="Mostrar ventana con las detecciones dibujadas")
-    p.add_argument("--source", help="Sobrescribe SOURCE del .env")
-    p.add_argument("--env", help="Archivo de entorno a usar en vez de .env "
-                   "(para correr varias camaras: --env .env.cam2)")
+                   help="Mostrar ventana con las detecciones dibujadas (una sola camara)")
+    p.add_argument("--source", help="Sobrescribe SOURCE del .env (una sola camara)")
+    p.add_argument("--env", action="append", default=[],
+                   help="Archivo de entorno de una camara. Repetible para correr varias "
+                        "camaras en un solo proceso: --env .env --env .env.cam2")
     args = p.parse_args()
 
-    cfg = load_config(args.env)
+    configs = cargar_configuraciones(args.env)
     if args.source:
-        cfg.source = args.source
+        if len(configs) > 1:
+            p.error("--source solo aplica con una camara")
+        configs[0].source = args.source
 
     logging.basicConfig(
-        level=getattr(logging, cfg.log_level.upper(), logging.INFO),
+        level=getattr(logging, configs[0].log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
     # httpx escribe una linea INFO por cada peticion. Con la vista en vivo eso
-    # son PREVIEW_FPS lineas por segundo (10 con la configuracion actual), y el
-    # reporte periodico de deteccion -- lo unico que de verdad se mira aqui --
-    # queda enterrado. No aporta nada que el worker no diga mejor por su cuenta:
-    # los fallos de envio ya los reporta el sink y el preview con su propio
+    # son PREVIEW_FPS lineas por segundo por camara, y el reporte periodico de
+    # deteccion -- lo unico que de verdad se mira aqui -- queda enterrado. Los
+    # fallos de envio ya los reportan el sink y el preview con su propio
     # mensaje. Se deja en WARNING para no perder los problemas reales.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     signal.signal(signal.SIGINT, _manejar_senal)
+    if hasattr(signal, "SIGTERM"):
+        # systemd y NSSM detienen el servicio con SIGTERM: mismo cierre ordenado.
+        signal.signal(signal.SIGTERM, _manejar_senal)
 
     if args.ventana:
-        cfg.show_window = True
+        for c in configs:
+            c.show_window = True
 
     if args.diagnostico:
-        return diagnostico(cfg, args.segundos)
-    return ejecutar(cfg, args.segundos if args.limitar else None)
+        return max(diagnostico(c, args.segundos) for c in configs)
+    return ejecutar(configs, args.segundos if args.limitar else None)
 
 
 if __name__ == "__main__":
