@@ -48,6 +48,34 @@ PATRONES_PLACAS: list[tuple[str, str]] = [
 
 _PATRONES_COMPILADOS = [(re.compile(p), etiqueta) for p, etiqueta in PATRONES_PLACAS]
 
+# Los mismos formatos expresados como secuencia de clases de caracter
+# (L = letra, D = digito), sin separadores. Sirven para corregir la lectura
+# por POSICION: si el formato dice que ahi va un digito y el OCR leyo una "O",
+# es un cero. Los prefijos fijos (CD, CC, OF) no necesitan plantilla propia:
+# caben en las de 2 letras + digitos.
+PLANTILLAS: list[tuple[str, str]] = [
+    ("LLLDDD", "particular (3 letras + 3 digitos)"),
+    ("LLLDDDD", "particular Guanajuato / carga"),
+    ("LLLDDDL", "particular Edomex"),
+    ("LLDDDD", "2 letras + 4 digitos"),
+    ("LDDDD", "1 letra + 4 digitos"),
+    ("DDDLLL", "3 digitos + 3 letras"),
+]
+
+# Correcciones por posicion. Solo se aplican cuando la plantilla lo exige, asi
+# que no hay ambiguedad: en una posicion de digito una "B" solo puede ser 8.
+LETRA_A_DIGITO = {"O": "0", "D": "0", "Q": "0", "U": "0", "I": "1", "L": "1",
+                  "J": "1", "Z": "2", "S": "5", "G": "6", "B": "8", "A": "4",
+                  "T": "7"}
+DIGITO_A_LETRA = {"0": "O", "1": "I", "2": "Z", "4": "A", "5": "S", "6": "G",
+                  "7": "T", "8": "B"}
+
+# Texto que aparece en las placas y no es parte del numero: nombre del estado,
+# leyendas. Cualquier fragmento solo de letras con 5 o mas caracteres se
+# descarta igual (ninguna placa mexicana tiene 5 letras seguidas); aqui van
+# los cortos que pasarian por longitud.
+_LEYENDAS = {"CDMX"}
+
 
 # --------------------------------------------------------------------------
 # Normalizacion
@@ -114,6 +142,122 @@ def es_placa_valida(texto: str) -> tuple[bool, str, Optional[str]]:
         if patron.match(limpio):
             return True, limpio, etiqueta
     return False, limpio, None
+
+
+def corregir_placa(texto: str) -> Optional[tuple[str, str, int]]:
+    """Ajusta una lectura de OCR al formato de placa que mejor le queda.
+
+    El OCR no sabe que en "ABC-123" las tres primeras posiciones son letras:
+    lee "A8C-I23" y esa lectura no pasa ningun patron. Aqui se prueba cada
+    plantilla del mismo largo y se corrige caracter por caracter segun lo que
+    la plantilla espera en esa posicion.
+
+    Devuelve (texto_corregido, formato, numero_de_correcciones) con la
+    plantilla que menos correcciones necesito, o None si ninguna encaja.
+    Una lectura que ya era valida sale con 0 correcciones.
+    """
+    limpio = limpiar(texto)
+    valida, _, formato = es_placa_valida(limpio)
+    if valida:
+        return limpio, formato or "", 0
+
+    mejor: Optional[tuple[str, str, int]] = None
+    for plantilla, etiqueta in PLANTILLAS:
+        if len(plantilla) != len(limpio):
+            continue
+        salida = []
+        correcciones = 0
+        for c, clase in zip(limpio, plantilla):
+            if clase == "D" and not c.isdigit():
+                c2 = LETRA_A_DIGITO.get(c)
+            elif clase == "L" and not c.isalpha():
+                c2 = DIGITO_A_LETRA.get(c)
+            else:
+                c2 = c
+            if c2 is None:
+                break
+            correcciones += c2 != c
+            salida.append(c2)
+        else:
+            if mejor is None or correcciones < mejor[2]:
+                mejor = ("".join(salida), etiqueta, correcciones)
+
+    # Un OCR razonable confunde uno o dos caracteres por placa. Mas que eso ya
+    # no es una lectura corregida, es una lectura inventada.
+    if mejor is not None and mejor[2] > max(1, len(limpio) // 3):
+        return None
+    return mejor
+
+
+def _es_leyenda(fragmento: str) -> bool:
+    if fragmento == "OFICIAL":
+        return False
+    return fragmento in _LEYENDAS or (len(fragmento) >= 5 and fragmento.isalpha())
+
+
+def lecturas_de_ocr(resultados: Iterable, min_conf: float = 0.0,
+                    penalizacion: float = 0.9) -> list[tuple[str, float]]:
+    """Convierte la salida cruda de EasyOCR sobre UN recorte de placa en
+    lecturas candidatas (texto, confianza).
+
+    `resultados` es la lista que devuelve `readtext`: (caja, texto, conf), con
+    la caja como 4 puntos. EasyOCR parte la placa en varios trozos con
+    frecuencia ("ABC" y "123", o "ABC", "12", "34" en Guanajuato) y ademas lee
+    el nombre del estado. Tomar cada trozo por separado, como antes, dejaba
+    sin evento a esas placas: ningun trozo suelto tiene forma de placa.
+
+    Se generan tres tipos de candidato:
+      - cada fragmento por separado,
+      - los fragmentos de la linea principal unidos de izquierda a derecha
+        (los caracteres de la placa son el texto mas alto del recorte; las
+        leyendas son mas chicas),
+      - pares consecutivos de esa linea.
+    Cada candidato pasa por `corregir_placa`, y la confianza se multiplica por
+    `penalizacion` por cada caracter corregido: una lectura que necesito
+    ajustes vale un poco menos en el consenso que una que salio limpia.
+    """
+    fragmentos: list[tuple[float, float, float, str, float]] = []  # x, y, alto, texto, conf
+    for caja, texto, conf in resultados:
+        conf = float(conf)
+        limpio = limpiar(texto)
+        if not limpio or conf < min_conf or _es_leyenda(limpio):
+            continue
+        try:
+            xs = [float(p[0]) for p in caja]
+            ys = [float(p[1]) for p in caja]
+            x, y, alto = min(xs), (min(ys) + max(ys)) / 2, max(ys) - min(ys)
+        except (TypeError, ValueError, IndexError):
+            x, y, alto = float(len(fragmentos)), 0.0, 1.0
+        fragmentos.append((x, y, alto, limpio, conf))
+
+    if not fragmentos:
+        return []
+
+    candidatos: list[tuple[str, float]] = [(f[3], f[4]) for f in fragmentos]
+
+    alto_max = max(f[2] for f in fragmentos)
+    linea = sorted((f for f in fragmentos if f[2] >= 0.6 * alto_max), key=lambda f: f[0])
+    if len(linea) >= 2:
+        unido = "".join(f[3] for f in linea)
+        candidatos.append((unido, sum(f[4] for f in linea) / len(linea)))
+        for a, b in zip(linea, linea[1:]):
+            candidatos.append((a[3] + b[3], (a[4] + b[4]) / 2))
+
+    lecturas: list[tuple[str, float]] = []
+    vistas: set[str] = set()
+    for texto, conf in candidatos:
+        corregida = corregir_placa(texto)
+        if corregida is None:
+            continue
+        placa, _, n = corregida
+        if placa in vistas:
+            continue
+        vistas.add(placa)
+        lecturas.append((placa, conf * (penalizacion ** n)))
+
+    # Sin ninguna lectura con forma de placa se devuelven los fragmentos tal
+    # cual: el consenso por track puede combinarlos con otros frames.
+    return lecturas or [(f[3], f[4]) for f in fragmentos]
 
 
 # --------------------------------------------------------------------------
@@ -229,6 +373,13 @@ def elegir_mejor_lectura(lecturas: list[tuple[str, float]]) -> Optional[tuple[st
 
     Si varias lecturas normalizan al mismo valor, gana esa por consenso: que
     tres frames distintos coincidan es mejor evidencia que un solo puntaje alto.
+    El voto de cada grupo es la SUMA de confianzas, no el conteo: cuatro
+    lecturas dudosas (0.2) no deben ganarle a tres claras (0.9).
+
+    Ademas se intenta una fusion caracter por caracter (ver
+    `fusionar_por_posicion`): con varias lecturas del mismo largo, cada
+    posicion se decide por voto. Asi se recupera la placa aunque ningun frame
+    la haya leido completa sin error.
     """
     if not lecturas:
         return None
@@ -241,9 +392,61 @@ def elegir_mejor_lectura(lecturas: list[tuple[str, float]]) -> Optional[tuple[st
     for texto, conf in candidatas:
         grupos.setdefault(normalizar(texto), []).append((texto, conf))
 
-    # Gana el grupo con mas apariciones; a igualdad, el de mayor confianza media
     mejor_grupo = max(
         grupos.values(),
-        key=lambda g: (len(g), sum(c for _, c in g) / len(g)),
+        key=lambda g: (sum(c for _, c in g), len(g)),
     )
-    return max(mejor_grupo, key=lambda x: x[1])
+    elegida = max(mejor_grupo, key=lambda x: x[1])
+
+    if len(validas) >= 3:
+        fusion = fusionar_por_posicion(validas)
+        if fusion is not None and normalizar(fusion[0]) != normalizar(elegida[0]):
+            # La fusion solo sustituye a la eleccion por grupos si su voto es
+            # mas fuerte que el del grupo ganador.
+            voto_grupo = sum(c for _, c in mejor_grupo)
+            if fusion[2] > voto_grupo:
+                return fusion[0], fusion[1]
+    return elegida
+
+
+def fusionar_por_posicion(
+    lecturas: list[tuple[str, float]],
+) -> Optional[tuple[str, float, float]]:
+    """Voto por caracter entre lecturas validas del mismo largo.
+
+    Devuelve (placa, confianza, voto) o None si no hay una placa valida que
+    salga del voto. `voto` es la suma de las confianzas que respaldan cada
+    posicion, promediada por caracter: comparable con el voto de un grupo en
+    `elegir_mejor_lectura`.
+    """
+    por_largo: dict[int, list[tuple[str, float]]] = {}
+    for texto, conf in lecturas:
+        limpio = limpiar(texto)
+        por_largo.setdefault(len(limpio), []).append((limpio, conf))
+    if not por_largo:
+        return None
+
+    grupo = max(por_largo.values(), key=lambda g: sum(c for _, c in g))
+    if len(grupo) < 3:
+        return None
+
+    largo = len(grupo[0][0])
+    total = sum(c for _, c in grupo)
+    if total <= 0:
+        return None
+
+    salida, respaldo = [], 0.0
+    for i in range(largo):
+        votos: dict[str, float] = {}
+        for texto, conf in grupo:
+            votos[texto[i]] = votos.get(texto[i], 0.0) + conf
+        caracter, peso = max(votos.items(), key=lambda kv: kv[1])
+        salida.append(caracter)
+        respaldo += peso
+
+    placa = "".join(salida)
+    if not es_placa_valida(placa)[0]:
+        return None
+    voto = respaldo / largo
+    confianza = min(1.0, voto / len(grupo))
+    return formatear(placa), round(confianza, 4), voto

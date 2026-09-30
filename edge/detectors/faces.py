@@ -149,19 +149,99 @@ class FaceEmbedder:
         mejor = max(rostros, key=lambda r: (r.bbox[2] - r.bbox[0]) * (r.bbox[3] - r.bbox[1]))
         return np.asarray(mejor.normed_embedding, dtype=np.float32)
 
+    def analizar_foto_alta(self, imagen: np.ndarray,
+                           min_ancho: int = 60) -> tuple[Optional[np.ndarray], str]:
+        """Como `embedding_de_foto`, pero explica por que rechaza una foto.
+
+        La foto de alta es la referencia contra la que se compara a todo el que
+        pase frente a la camara: una referencia mala (rostro diminuto, de
+        perfil) da coincidencias falsas o ninguna, y el operador no se entera.
+        Devuelve (vector, "") o (None, motivo legible).
+        """
+        rostros = self.app.get(imagen)
+        if not rostros:
+            return None, "No se detectó ningún rostro en la foto."
+        mejor = max(rostros, key=lambda r: (r.bbox[2] - r.bbox[0]) * (r.bbox[3] - r.bbox[1]))
+        ancho = float(mejor.bbox[2] - mejor.bbox[0])
+        if ancho < min_ancho:
+            return None, (f"El rostro mide {ancho:.0f} px de ancho; hacen falta al menos "
+                          f"{min_ancho}. Usa una foto más cercana o de mayor resolución.")
+        if factor_pose(getattr(mejor, "kps", None)) < 0.45:
+            return None, "El rostro no está de frente. Usa una foto frontal."
+        return np.asarray(mejor.normed_embedding, dtype=np.float32), ""
+
+
+def factor_pose(kps) -> float:
+    """Que tan de frente esta el rostro, de 0.2 (perfil) a 1.0 (frontal).
+
+    Usa los 5 puntos que ya entrega el detector (ojos, nariz, comisuras): en un
+    rostro de frente la nariz cae a la mitad entre los ojos y a media altura
+    entre ojos y boca. Un rostro de perfil da un embedding mucho peor aunque
+    sea grande y nitido, y sin esto le ganaba a una vista frontal mas chica.
+    """
+    if kps is None:
+        return 1.0
+    try:
+        p = np.asarray(kps, dtype=np.float32).reshape(5, 2)
+    except (ValueError, TypeError):
+        return 1.0
+    ojo_i, ojo_d, nariz, boca_i, boca_d = p
+    dist_ojos = float(np.linalg.norm(ojo_d - ojo_i))
+    if dist_ojos < 1e-3:
+        return 0.2
+    centro_ojos = (ojo_i + ojo_d) / 2
+    giro = abs(float(nariz[0] - centro_ojos[0])) / dist_ojos          # 0 de frente, ~0.5 de perfil
+
+    centro_boca = (boca_i + boca_d) / 2
+    alto_cara = float(centro_boca[1] - centro_ojos[1])
+    if alto_cara <= 1e-3:
+        return 0.2
+    cabeceo = abs(float(nariz[1] - centro_ojos[1]) / alto_cara - 0.55)  # 0 de frente
+
+    factor = (1.0 - min(1.0, giro / 0.6)) * (1.0 - min(1.0, cabeceo / 0.45))
+    return max(0.2, factor)
+
+
+def factor_nitidez(recorte: np.ndarray) -> float:
+    """Nitidez del recorte (varianza del laplaciano), de 0.3 a 1.0.
+
+    Se mide a un tamano fijo para que no dependa de la resolucion: un rostro
+    grande pero movido no debe ganarle a uno mediano y enfocado.
+    """
+    if recorte is None or recorte.size == 0:
+        return 0.3
+    gris = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY) if recorte.ndim == 3 else recorte
+    gris = cv2.resize(gris, (112, 112), interpolation=cv2.INTER_AREA)
+    varianza = float(cv2.Laplacian(gris, cv2.CV_64F).var())
+    return max(0.3, min(1.0, varianza / 120.0))
+
+
+def plantilla_promedio(vistas: list[tuple[float, np.ndarray]], k: int) -> Optional[np.ndarray]:
+    """Promedia los `k` embeddings de mejor calidad de una persona seguida.
+
+    Antes de promediar se descartan las vistas que no se parecen a la mejor
+    (similitud < 0.4): si el tracker confundio a dos personas en algun frame,
+    ese embedding no debe contaminar el de la persona.
+    """
+    if not vistas:
+        return None
+    mejores = sorted(vistas, key=lambda v: v[0], reverse=True)[:max(1, k)]
+    ref = mejores[0][1]
+    usados = [e for _, e in mejores if float(np.dot(ref, e)) >= 0.4]
+    media = np.mean(usados, axis=0).astype(np.float32)
+    norma = float(np.linalg.norm(media))
+    return media / norma if norma > 0 else ref
+
 
 class FaceDetector(Detector):
     name = "faces"
 
-    # Un rostro mas chico que esto da un embedding inservible: no hay
-    # suficientes pixeles para los rasgos. InsightFace se entreno con recortes
-    # de 112x112, y por debajo de ~50 px de ancho la identificacion se vuelve
-    # ruido. Es preferible no reportar a reportar mal: un falso positivo
-    # biometrico senala a una persona equivocada.
-    MIN_ANCHO_ROSTRO = 50
-
     def __init__(self, cfg: EdgeConfig) -> None:
         self.cfg = cfg
+        # Un rostro mas chico que esto da un embedding inservible: InsightFace
+        # se entreno con recortes de 112x112, y por debajo de ~50 px de ancho
+        # la identificacion se vuelve ruido. Mejor no reportar que reportar mal.
+        self.MIN_ANCHO_ROSTRO = cfg.face_min_width
         self.embedder = FaceEmbedder.compartido(cfg)
         self.tracker = IoUTracker(iou_min=0.3, max_age=20, min_hits=3)
         self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
@@ -197,18 +277,27 @@ class FaceDetector(Detector):
 
         tracks = self.tracker.update(detecciones, frame.ts)
 
-        # Asocia cada track con el rostro cuya caja coincide, y se queda con el
-        # embedding de MEJOR CALIDAD visto hasta ahora para ese track.
+        # Asocia cada track con el rostro cuya caja coincide. Se guardan las
+        # mejores vistas (no solo la mejor) para promediarlas al cerrar, y el
+        # recorte de la de mayor calidad como evidencia.
+        k = max(1, self.cfg.face_template_size)
         for track in tracks:
             rostro = self._rostro_de(track, detecciones, datos_por_caja)
             if rostro is None:
                 continue
-            calidad = self._calidad(rostro)
+            recorte = self._recortar(frame.frame, rostro.bbox)
+            calidad = self._calidad(rostro, recorte)
+            embedding = np.asarray(rostro.normed_embedding, dtype=np.float32)
+
+            vistas: list = track.state.setdefault("vistas", [])
+            if len(vistas) < k or calidad > min(v[0] for v in vistas):
+                vistas.append((calidad, embedding))
+                vistas.sort(key=lambda v: v[0], reverse=True)
+                del vistas[k:]
+
             if calidad > track.state.get("calidad", 0.0):
                 track.state["calidad"] = calidad
-                track.state["embedding"] = np.asarray(rostro.normed_embedding,
-                                                      dtype=np.float32)
-                track.state["recorte"] = self._recortar(frame.frame, rostro.bbox)
+                track.state["recorte"] = recorte
                 track.state["det_score"] = float(rostro.det_score)
                 track.state["bbox_bajo"] = tuple(float(v) for v in rostro.bbox)
 
@@ -247,16 +336,18 @@ class FaceDetector(Detector):
         return None
 
     @staticmethod
-    def _calidad(rostro) -> float:
+    def _calidad(rostro, recorte: Optional[np.ndarray] = None) -> float:
         """Puntuacion de calidad del embedding.
 
-        Combina tamano y confianza de deteccion. El tamano pesa mas porque un
-        rostro grande y algo borroso da mejor embedding que uno nitido de 40 px:
-        la resolucion es lo que limita.
+        Tamano x confianza de deteccion x pose x nitidez. El tamano sigue
+        siendo la base (la resolucion es lo que mas limita), pero un perfil o
+        un rostro movido ya no le ganan a una vista frontal y enfocada.
         """
         x1, y1, x2, y2 = rostro.bbox
         lado = ((x2 - x1) * (y2 - y1)) ** 0.5
-        return float(lado) * float(rostro.det_score)
+        pose = factor_pose(getattr(rostro, "kps", None))
+        nitidez = factor_nitidez(recorte) if recorte is not None else 1.0
+        return float(lado) * float(rostro.det_score) * pose * nitidez
 
     @staticmethod
     def _recortar(frame: np.ndarray, bbox) -> np.ndarray:
@@ -300,14 +391,19 @@ class FaceDetector(Detector):
         if (mejor.bbox[2] - mejor.bbox[0]) < self.MIN_ANCHO_ROSTRO:
             return
 
-        track.state["embedding"] = np.asarray(mejor.normed_embedding, dtype=np.float32)
-        track.state["recorte"] = self._recortar(region, mejor.bbox)
+        recorte = self._recortar(region, mejor.bbox)
+        embedding = np.asarray(mejor.normed_embedding, dtype=np.float32)
+        # La vista HD entra a la plantilla como una vista mas, con su propia
+        # calidad (normalmente la mas alta: mas pixeles de rostro).
+        track.state.setdefault("vistas", []).append((self._calidad(mejor, recorte), embedding))
+        track.state["recorte"] = recorte
         track.state["det_score"] = float(mejor.det_score)
         self._hd_usados += 1
 
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
         self._mejorar_con_hd(track)
-        embedding = track.state.get("embedding")
+        embedding = plantilla_promedio(track.state.get("vistas", []),
+                                       self.cfg.face_template_size)
         if embedding is None:
             return None
 
@@ -324,7 +420,9 @@ class FaceDetector(Detector):
             last_seen=_a_utc(track.last_seen),
             ts=_a_utc(track.last_seen),
             embedding=embedding.tolist(),
-            meta={"calidad": round(track.state.get("calidad", 0.0), 1)},
+            meta={"calidad": round(track.state.get("calidad", 0.0), 1),
+                  "vistas_promediadas": min(len(track.state.get("vistas", [])),
+                                            self.cfg.face_template_size)},
         )
 
         recorte = track.state.get("recorte")

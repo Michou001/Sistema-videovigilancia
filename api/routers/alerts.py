@@ -1,7 +1,8 @@
-"""Consulta y gestion de alertas."""
+"""Consulta de eventos, gestion de alertas y estadisticas del dashboard."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -12,8 +13,18 @@ from sqlmodel import col, func, select
 from api.deps import OperadorActual, SesionBD
 from api.hub import hub
 from api.models import Alert, Camera, Event, FechasEnUtc
+from shared.plates import limpiar
 
 router = APIRouter(prefix="/api", tags=["alertas"])
+
+
+def _utc_sin_zona(fecha: datetime) -> datetime:
+    """Las fechas se guardan en UTC y sin zona (SQLite no la conserva). Una
+    fecha con zona que llega del navegador se lleva a UTC antes de comparar;
+    sin esto, "desde las 00:00" en Mexico filtraba seis horas corrido."""
+    if fecha.tzinfo is not None:
+        fecha = fecha.astimezone(timezone.utc)
+    return fecha.replace(tzinfo=None)
 
 
 class AlertaLeida(FechasEnUtc, BaseModel):
@@ -77,7 +88,7 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa alerta")
     if datos.accion not in {"acknowledge", "dismiss"}:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "accion debe ser 'acknowledge' o 'dismiss'")
+                            "acción debe ser 'acknowledge' o 'dismiss'")
 
     alerta.status = "acknowledged" if datos.accion == "acknowledge" else "dismissed"
     alerta.acknowledged_by = operador.username
@@ -95,15 +106,37 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
 def listar_eventos(
     session: SesionBD,
     _: OperadorActual,
-    tipo: Optional[str] = None,
+    tipo: Optional[str] = Query(None, description="plate | face | weapon | anomaly"),
     camera_id: Optional[str] = None,
-    limite: int = Query(100, le=1000),
+    q: Optional[str] = Query(None, max_length=20,
+                             description="Texto a buscar en el valor, ej. una placa"),
+    severidad: Optional[str] = Query(None, description="info | warning | critical"),
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+    limite: int = Query(100, ge=1, le=1000),
 ):
+    """Historico de eventos, del mas reciente al mas antiguo.
+
+    `q` busca sin importar guiones ni espacios: "abc123", "ABC 123" y
+    "ABC-123" encuentran lo mismo, porque asi es como el operador la va a
+    escribir y asi es como el OCR la pudo haber leido.
+    """
     consulta = select(Event)
     if tipo:
         consulta = consulta.where(Event.type == tipo)
     if camera_id:
         consulta = consulta.where(Event.camera_id == camera_id)
+    if severidad:
+        consulta = consulta.where(Event.severity == severidad)
+    if desde:
+        consulta = consulta.where(col(Event.ts) >= _utc_sin_zona(desde))
+    if hasta:
+        consulta = consulta.where(col(Event.ts) <= _utc_sin_zona(hasta))
+    if q:
+        buscado = limpiar(q)
+        if buscado:
+            sin_guiones = func.upper(func.replace(func.replace(Event.value, "-", ""), " ", ""))
+            consulta = consulta.where(sin_guiones.contains(buscado))
     return session.exec(consulta.order_by(col(Event.ts).desc()).limit(limite)).all()
 
 
@@ -130,13 +163,21 @@ def estadisticas(session: SesionBD, _: OperadorActual):
             if visto.tzinfo is None:
                 visto = visto.replace(tzinfo=timezone.utc)
             segundos = (datetime.now(timezone.utc) - visto).total_seconds()
+        try:
+            salud = json.loads(c.status_json) if c.status_json else {}
+        except ValueError:
+            salud = {}
         camaras.append({
             "camera_id": c.camera_id,
             "name": c.name,
-            # Sin senal en 60 s se considera caida: a 8 fps eso son ~480 frames
-            # perdidos, mas que suficiente para saber que algo pasa.
-            "online": segundos is not None and segundos < 60,
+            # El worker late cada 15 s; sin senal en 60 s se considera caida.
+            # Que la fuente reporte connected=False tambien cuenta: el worker
+            # sigue vivo pero la camara no entrega imagen.
+            "online": (segundos is not None and segundos < 60
+                       and salud.get("connected", True) is not False),
             "segundos_sin_senal": round(segundos) if segundos is not None else None,
+            "fps": salud.get("fps_procesados"),
+            "reconexiones": salud.get("reconnects"),
         })
 
     return {

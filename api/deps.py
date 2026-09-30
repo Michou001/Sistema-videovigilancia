@@ -30,11 +30,11 @@ def operador_actual(
     """Valida el JWT del dashboard y devuelve el operador."""
     token = _extraer_bearer(authorization)
     if not token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Falta el token de sesion")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Falta el token de sesión")
 
     datos = decodificar_token(token)
     if not datos:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalido o expirado")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido o expirado")
 
     operador = session.exec(
         select(Operator).where(Operator.username == datos.get("sub"))
@@ -69,4 +69,4 @@ def verificar_worker(
     """
     presentado = x_api_token or _extraer_bearer(authorization) or ""
     if not token_ingesta_valido(presentado):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de ingesta invalido")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de ingesta inválido")

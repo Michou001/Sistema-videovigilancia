@@ -56,10 +56,16 @@ from shared.plates import (  # noqa: E402
     elegir_mejor_lectura,
     es_placa_valida,
     formatear,
+    lecturas_de_ocr,
     normalizar,
 )
 
 log = logging.getLogger(__name__)
+
+# Las placas mexicanas solo usan mayusculas, digitos y guion. Restringir el
+# decodificador de EasyOCR a ese alfabeto evita lecturas con minusculas,
+# acentos o simbolos que despues no pasarian ningun patron.
+ALFABETO_PLACAS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
 
 
 class PlateDetector(Detector):
@@ -105,6 +111,7 @@ class PlateDetector(Detector):
         import easyocr
 
         self.reader = easyocr.Reader(["es", "en"], gpu=(self.device == "cuda"), verbose=False)
+        self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
         self.tracker = IoUTracker(iou_min=0.25, max_age=16, min_hits=3)
         self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
@@ -185,8 +192,10 @@ class PlateDetector(Detector):
 
     def _debe_leer(self, track: Track) -> bool:
         """Decide si vale la pena gastar OCR en este track ahora."""
-        lecturas: list = track.state.setdefault("lecturas", [])
-        if len(lecturas) >= self.MAX_LECTURAS_POR_TRACK:
+        # Se cuentan pasadas de OCR, no lecturas: una pasada puede dejar varias
+        # candidatas (fragmentos unidos, correcciones) y eso no es evidencia
+        # nueva sobre la placa.
+        if track.state.get("ocr_hechos", 0) >= self.MAX_LECTURAS_POR_TRACK:
             return False
         # Reparte en el tiempo, y desfasa por track_id para que dos placas
         # simultaneas no pidan OCR en el mismo frame.
@@ -214,23 +223,23 @@ class PlateDetector(Detector):
 
         t0 = time.perf_counter()
         try:
-            resultados = self.reader.readtext(self._preparar(recorte))
+            resultados = self.reader.readtext(self._preparar(recorte),
+                                              allowlist=ALFABETO_PLACAS)
         except Exception as e:  # noqa: BLE001 - un OCR fallido no debe tumbar el worker
             log.warning("OCR fallo en track %d: %s", track.track_id, e)
             return False
         self._ms_ocr += (time.perf_counter() - t0) * 1000
         self._ocr_ejecutados += 1
+        track.state["ocr_hechos"] = track.state.get("ocr_hechos", 0) + 1
 
         lecturas: list = track.state.setdefault("lecturas", [])
-        for _, texto, conf in resultados:
-            if conf >= self.cfg.ocr_conf:
-                lecturas.append((texto, float(conf)))
-                # Guarda el recorte de la lectura mas confiable como evidencia
-                mejor = track.state.get("mejor_conf", 0.0)
-                if conf > mejor:
-                    track.state["mejor_conf"] = float(conf)
-                    track.state["recorte"] = recorte.copy()
-                    track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
+        for texto, conf in lecturas_de_ocr(resultados, min_conf=self.cfg.ocr_conf):
+            lecturas.append((texto, conf))
+            # Guarda el recorte de la lectura mas confiable como evidencia
+            if conf > track.state.get("mejor_conf", 0.0):
+                track.state["mejor_conf"] = conf
+                track.state["recorte"] = recorte.copy()
+                track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
         return True
 
     def _preparar(self, recorte: np.ndarray) -> np.ndarray:
@@ -249,7 +258,7 @@ class PlateDetector(Detector):
         # Ecualizacion de contraste sobre el canal de luminancia: normaliza
         # placas quemadas por el sol o en sombra sin alterar el color.
         lab = cv2.cvtColor(recorte, cv2.COLOR_BGR2LAB)
-        lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
+        lab[:, :, 0] = self._clahe.apply(lab[:, :, 0])
         return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
     # -- Construccion del evento -------------------------------------------

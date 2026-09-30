@@ -1,8 +1,7 @@
 """Destinos de eventos.
 
-En la Fase 2 los eventos van a consola y a un archivo JSONL, que es suficiente
-para verificar que el detector funciona. En la Fase 3 se agrega el destino HTTP
-hacia la API, y el JSONL se queda como respaldo local.
+Los eventos van a consola, a un archivo JSONL diario (respaldo local) y, si hay
+API_TOKEN, a la plataforma web por HTTP.
 
 El diseno con buffer en disco no es opcional: si la plataforma web se cae, el
 worker NO debe morir ni perder detecciones. Escribe a disco y reintenta luego.
@@ -10,11 +9,17 @@ worker NO debe morir ni perder detecciones. Escribe a disco y reintenta luego.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import queue
+import threading
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
 
 from shared.events import DetectionEvent
 
@@ -41,13 +46,29 @@ class ConsoleSink(Sink):
 
 
 class JsonlSink(Sink):
-    """Una linea JSON por evento. Formato a prueba de cortes: si el proceso
-    muere a media escritura solo se pierde la ultima linea, no el archivo."""
+    """Una linea JSON por evento, un archivo por dia.
 
-    def __init__(self, ruta: Path) -> None:
-        self.ruta = ruta
-        self.ruta.parent.mkdir(parents=True, exist_ok=True)
-        self._f = self.ruta.open("a", encoding="utf-8")
+    Formato a prueba de cortes: si el proceso muere a media escritura solo se
+    pierde la ultima linea, no el archivo. El nombre se decide en cada
+    escritura y no al arrancar: un worker que corre semanas escribia todo en
+    el archivo del dia en que se inicio.
+    """
+
+    def __init__(self, carpeta: Path, prefijo: str = "eventos") -> None:
+        self.carpeta = carpeta
+        self.prefijo = prefijo
+        self.carpeta.mkdir(parents=True, exist_ok=True)
+        self._fecha: Optional[str] = None
+        self._f = None
+
+    def _archivo(self):
+        hoy = datetime.now().strftime("%Y%m%d")
+        if hoy != self._fecha:
+            if self._f is not None:
+                self._f.close()
+            self._f = (self.carpeta / f"{self.prefijo}-{hoy}.jsonl").open("a", encoding="utf-8")
+            self._fecha = hoy
+        return self._f
 
     def enviar(self, evento: DetectionEvent) -> None:
         datos = evento.model_dump(mode="json")
@@ -55,11 +76,14 @@ class JsonlSink(Sink):
         # biometricos sensibles y este archivo es de depuracion.
         datos.pop("embedding", None)
         datos.pop("snapshot_b64", None)
-        self._f.write(json.dumps(datos, ensure_ascii=False, default=str) + "\n")
-        self._f.flush()
+        f = self._archivo()
+        f.write(json.dumps(datos, ensure_ascii=False, default=str) + "\n")
+        f.flush()
 
     def cerrar(self) -> None:
-        self._f.close()
+        if self._f is not None:
+            self._f.close()
+            self._f = None
 
 
 class MultiSink(Sink):
@@ -84,96 +108,254 @@ class MultiSink(Sink):
 
 
 class HttpSink(Sink):
-    """Envia eventos a la API, con respaldo en disco si no responde.
+    """Envia eventos a la API en un hilo aparte, por lotes, con respaldo en disco.
 
-    El worker NO debe morir ni perder detecciones porque la plataforma web este
-    caida: si falla el envio, el evento se escribe en `spool/` y se reintenta
-    en el siguiente envio exitoso. Un reinicio del servidor web no debe costar
-    ni una sola placa.
+    `enviar()` solo deja el evento en una cola y vuelve de inmediato. Antes el
+    POST se hacia dentro del bucle de deteccion: con la API caida cada evento
+    esperaba el timeout completo (5 s) y el worker dejaba de procesar video
+    justo cuando mas eventos se estaban generando.
+
+    Si un envio falla, el lote se escribe en `spool/` y se reintenta con
+    espera creciente, tambien cuando no llegan eventos nuevos. Un reinicio del
+    servidor web no cuesta ni una sola deteccion.
     """
 
-    def __init__(self, base_url: str, token: str, spool_dir: Path,
-                 timeout: float = 5.0) -> None:
+    MAX_POR_LOTE = 20
+    MAX_BYTES_LOTE = 8 * 1024 * 1024   # con fotos en base64, no mas de ~8 MB por POST
+    ESPERA_MAX = 30.0
+
+    def __init__(self, base_url: str, token: str, spool_dir: Path, *,
+                 camera_id: str, adjuntar_fotos: bool = False,
+                 base_fotos: Optional[Path] = None, timeout: float = 10.0) -> None:
         import httpx
 
         self.url = base_url.rstrip("/") + "/api/events"
+        self.camera_id = camera_id
         self.spool_dir = spool_dir
         self.spool_dir.mkdir(parents=True, exist_ok=True)
+        self.rechazados_dir = spool_dir / "rechazados"
+        self.adjuntar_fotos = adjuntar_fotos
+        self.base_fotos = base_fotos
         self._cliente = httpx.Client(
             timeout=timeout,
             headers={"X-API-Token": token, "Content-Type": "application/json"},
         )
+
+        self._cola: queue.Queue[DetectionEvent] = queue.Queue(maxsize=5000)
+        self._parar = threading.Event()
         self._fallos = 0
+        self._espera = 1.0
+        self._proximo_intento = 0.0
+        self.enviados = 0
+        self.en_spool = len(list(self.spool_dir.glob("*.json")))
+
+        self._hilo = threading.Thread(target=self._bucle, name="envio-eventos", daemon=True)
+        self._hilo.start()
+
+    # -- interfaz ----------------------------------------------------------
 
     def enviar(self, evento: DetectionEvent) -> None:
-        lote = {
-            "camera_id": evento.camera_id,
+        try:
+            self._cola.put_nowait(evento)
+        except queue.Full:
+            # La API lleva mucho sin responder y la cola en memoria se lleno:
+            # directo a disco. Nunca se descarta un evento.
+            self._encolar(self._lote([self._con_foto(evento)]))
+
+    def cerrar(self) -> None:
+        self._parar.set()
+        self._hilo.join(timeout=15.0)
+        # Lo que no se alcanzo a mandar queda en disco para el siguiente arranque.
+        pendientes = []
+        while True:
+            try:
+                pendientes.append(self._con_foto(self._cola.get_nowait()))
+            except queue.Empty:
+                break
+        if pendientes:
+            self._encolar(self._lote(pendientes))
+        self._cliente.close()
+
+    @property
+    def stats(self) -> dict:
+        return {"enviados": self.enviados, "en_cola": self._cola.qsize(),
+                "en_spool": self.en_spool, "fallos_seguidos": self._fallos}
+
+    # -- hilo de envio -----------------------------------------------------
+
+    def _bucle(self) -> None:
+        while not self._parar.is_set() or not self._cola.empty():
+            eventos = self._tomar_lote()
+
+            if time.monotonic() < self._proximo_intento:
+                # API caida y todavia en espera: lo nuevo se guarda sin
+                # intentar la red, para no bloquear la cola con timeouts.
+                if eventos:
+                    self._encolar(self._lote(eventos))
+                if self._parar.is_set():
+                    break
+                continue
+
+            if eventos:
+                lote = self._lote(eventos)
+                if not self._publicar(lote):
+                    self._encolar(lote)
+                    continue
+            if self.en_spool:
+                self._reintentar_pendientes()
+
+    def _tomar_lote(self) -> list[DetectionEvent]:
+        try:
+            primero = self._cola.get(timeout=1.0)
+        except queue.Empty:
+            return []
+        eventos = [self._con_foto(primero)]
+        tamano = len(eventos[0].snapshot_b64 or "")
+        # Espera breve para juntar los eventos que salen casi a la vez (varios
+        # tracks que cierran en el mismo frame) en una sola peticion.
+        limite = time.monotonic() + 0.25
+        while len(eventos) < self.MAX_POR_LOTE and tamano < self.MAX_BYTES_LOTE:
+            restante = limite - time.monotonic()
+            if restante <= 0:
+                break
+            try:
+                ev = self._con_foto(self._cola.get(timeout=restante))
+            except queue.Empty:
+                break
+            eventos.append(ev)
+            tamano += len(ev.snapshot_b64 or "")
+        return eventos
+
+    def _con_foto(self, evento: DetectionEvent) -> DetectionEvent:
+        """Adjunta la captura en base64 cuando la API corre en otra maquina y
+        no puede leerla de este disco."""
+        if (not self.adjuntar_fotos or evento.snapshot_b64 or not evento.snapshot_path
+                or self.base_fotos is None):
+            return evento
+        try:
+            datos = (self.base_fotos / evento.snapshot_path).read_bytes()
+            evento.snapshot_b64 = base64.b64encode(datos).decode("ascii")
+        except OSError as e:
+            log.debug("No se pudo adjuntar %s: %s", evento.snapshot_path, e)
+        return evento
+
+    def _lote(self, eventos: list[DetectionEvent]) -> dict:
+        return {
+            "camera_id": self.camera_id,
             "sent_at": datetime.now().astimezone().isoformat(),
-            "events": [evento.model_dump(mode="json")],
+            "events": [e.model_dump(mode="json") for e in eventos],
         }
-        if self._publicar(lote):
-            self._reintentar_pendientes()
-        else:
-            self._encolar(lote)
 
     def _publicar(self, lote: dict) -> bool:
+        """True si el lote ya no necesita reintento (aceptado o descartado)."""
         try:
             r = self._cliente.post(self.url, json=lote)
-            if r.status_code == 401:
-                # Credencial mal configurada: reintentar no lo va a arreglar y
-                # llenaria el spool de basura. Se avisa fuerte y se descarta.
-                log.error("La API rechazo el token de ingesta (401). "
-                          "Revisa API_TOKEN en el .env del worker.")
-                return True
-            r.raise_for_status()
-            respuesta = r.json()
-            for m in respuesta.get("matches", []):
-                if m.get("severity") != "info":
-                    log.warning("  >> %s: %s", m["severity"].upper(), m.get("reason"))
-            self._fallos = 0
-            return True
         except Exception as e:  # noqa: BLE001
-            self._fallos += 1
-            if self._fallos in (1, 10) or self._fallos % 50 == 0:
-                log.error("No se pudo enviar a la API (%d fallos): %s", self._fallos, e)
+            self._registrar_fallo(f"{type(e).__name__}: {e}")
             return False
+
+        if r.status_code == 401:
+            # Token mal configurado. Los eventos se conservan en el spool: en
+            # cuanto se corrija API_TOKEN y se reinicie, llegan todos.
+            self._registrar_fallo("la API rechazo el token de ingesta (401); "
+                                  "revisa API_TOKEN en el .env del worker")
+            return False
+        if 400 <= r.status_code < 500:
+            # Un lote que la API rechaza por formato nunca va a entrar. Se
+            # aparta para revisarlo en vez de bloquear la cola para siempre.
+            self._apartar(lote, f"{r.status_code}: {r.text[:300]}")
+            return True
+        if r.status_code >= 500:
+            self._registrar_fallo(f"HTTP {r.status_code}")
+            return False
+
+        try:
+            respuesta = r.json()
+        except ValueError:
+            respuesta = {}
+        for m in respuesta.get("matches", []):
+            if m.get("severity") != "info":
+                log.warning("  >> %s: %s", m["severity"].upper(), m.get("reason"))
+
+        if self._fallos:
+            log.info("API disponible de nuevo tras %d intentos fallidos", self._fallos)
+        self._fallos = 0
+        self._espera = 1.0
+        self._proximo_intento = 0.0
+        self.enviados += len(lote.get("events", []))
+        return True
+
+    def _registrar_fallo(self, motivo: str) -> None:
+        self._fallos += 1
+        if self._fallos in (1, 10) or self._fallos % 50 == 0:
+            log.error("No se pudo enviar a la API (%d fallos seguidos): %s",
+                      self._fallos, motivo)
+        self._proximo_intento = time.monotonic() + self._espera
+        self._espera = min(self._espera * 2, self.ESPERA_MAX)
 
     def _encolar(self, lote: dict) -> None:
         marca = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         archivo = self.spool_dir / f"{marca}.json"
-        archivo.write_text(json.dumps(lote, ensure_ascii=False, default=str),
-                           encoding="utf-8")
+        try:
+            archivo.write_text(json.dumps(lote, ensure_ascii=False, default=str),
+                               encoding="utf-8")
+            self.en_spool += 1
+        except OSError as e:
+            log.error("No se pudo escribir el spool (%s): se pierde un lote de %d eventos",
+                      e, len(lote.get("events", [])))
+
+    def _apartar(self, lote: dict, motivo: str) -> None:
+        self.rechazados_dir.mkdir(parents=True, exist_ok=True)
+        marca = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        lote = {**lote, "_motivo_rechazo": motivo}
+        (self.rechazados_dir / f"{marca}.json").write_text(
+            json.dumps(lote, ensure_ascii=False, default=str), encoding="utf-8")
+        log.error("La API rechazo un lote de %d eventos (%s). Se aparto en %s",
+                  len(lote.get("events", [])), motivo, self.rechazados_dir)
 
     def _reintentar_pendientes(self) -> None:
         pendientes = sorted(self.spool_dir.glob("*.json"))
+        self.en_spool = len(pendientes)
         if not pendientes:
             return
-        log.info("Reenviando %d eventos pendientes...", len(pendientes))
-        for archivo in pendientes[:100]:  # por tandas, para no bloquear la captura
+        log.info("Reenviando %d lotes pendientes...", len(pendientes))
+        # Por tandas: entre tanda y tanda el hilo vuelve a atender eventos nuevos.
+        for archivo in pendientes[:50]:
+            if self._parar.is_set() and not self._cola.empty():
+                break
             try:
                 lote = json.loads(archivo.read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001 - archivo corrupto: no reintentar eternamente
                 archivo.unlink(missing_ok=True)
+                self.en_spool -= 1
                 continue
-            if self._publicar(lote):
-                archivo.unlink(missing_ok=True)
-            else:
+            if not self._publicar(lote):
                 break  # sigue caida: no gastar tiempo en el resto
+            archivo.unlink(missing_ok=True)
+            self.en_spool -= 1
 
-    def cerrar(self) -> None:
-        self._cliente.close()
+
+def _api_es_local(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1", ""}
 
 
 def crear_sink(cfg) -> Sink:
     """Destino por defecto del worker."""
-    marca = datetime.now().strftime("%Y%m%d")
+    from edge.config import BASE_DIR
+
     sinks: list[Sink] = [
         ConsoleSink(),
-        JsonlSink(cfg.offline_dir.parent / f"eventos-{marca}.jsonl"),
+        JsonlSink(cfg.offline_dir.parent),
     ]
     if cfg.api_url and cfg.api_token:
-        sinks.append(HttpSink(cfg.api_url, cfg.api_token, cfg.offline_dir))
-        log.info("Enviando eventos a %s", cfg.api_url)
+        modo = str(cfg.send_snapshot_b64).lower()
+        adjuntar = (not _api_es_local(cfg.api_url)) if modo == "auto" else modo == "true"
+        sinks.append(HttpSink(cfg.api_url, cfg.api_token, cfg.offline_dir,
+                              camera_id=cfg.camera_id, adjuntar_fotos=adjuntar,
+                              base_fotos=BASE_DIR))
+        log.info("Enviando eventos a %s%s", cfg.api_url,
+                 " (con fotos adjuntas)" if adjuntar else "")
     else:
         log.warning("Sin API_TOKEN en el .env: los eventos NO se envian a la "
                     "plataforma web, solo a consola y JSONL.")

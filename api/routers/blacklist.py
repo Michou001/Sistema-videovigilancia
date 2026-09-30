@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import col, select
 
 from api.deps import Admin, OperadorActual, SesionBD
+from api.matching import lista_negra
 from api.models import BlacklistPlate, FechasEnUtc
 from api.retroactive import reescanear_placa
 from shared.plates import es_placa_valida, formatear, normalizar
@@ -67,7 +68,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
     if not valida:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"'{datos.plate}' no tiene formato de placa mexicana valida. "
+            f"'{datos.plate}' no tiene formato de placa mexicana válida. "
             "Se valida al dar de alta para que una placa mal escrita no quede "
             "en la lista sin coincidir nunca con nada.",
         )
@@ -82,7 +83,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
     if existente is not None:
         if existente.active:
             raise HTTPException(status.HTTP_409_CONFLICT,
-                                f"La placa {existente.plate} ya esta en la lista negra")
+                                f"La placa {existente.plate} ya está en la lista negra")
         # Reactivar la existente es mejor que crear un duplicado: conserva el
         # historial de eventos que ya apuntaban a este registro.
         existente.active = True
@@ -94,6 +95,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         existente.created_at = datetime.now(timezone.utc)
         session.commit()
         session.refresh(existente)
+        lista_negra.invalidar()
         log.info("Placa %s reactivada en lista negra por %s", existente.plate, admin.username)
         tareas.add_task(reescanear_placa, existente)
         return existente
@@ -110,6 +112,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
     session.add(registro)
     session.commit()
     session.refresh(registro)
+    lista_negra.invalidar()
     log.info("Placa %s agregada a lista negra por %s", registro.plate, admin.username)
     # En segundo plano: si esta placa ya habia pasado antes de hoy, que el
     # operador se entere sin tener que acordarse de revisarlo el mismo.
@@ -129,4 +132,5 @@ def desactivar(registro_id: int, session: SesionBD, admin: Admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese registro")
     registro.active = False
     session.commit()
+    lista_negra.invalidar()
     log.info("Placa %s desactivada por %s", registro.plate, admin.username)

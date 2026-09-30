@@ -84,10 +84,8 @@ class EdgeConfig:
     plate_model: Path = field(
         default_factory=lambda: Path(os.getenv("PLATE_MODEL", "models/plates_yolov5.pt"))
     )
-    """OJO: este .pt esta en formato YOLOv5 y Ultralytics NO puede cargarlo
-    (verificado: lanza TypeError de incompatibilidad). En la Fase 2 hay que
-    exportarlo a ONNX o reentrenarlo con YOLO11. Ver docs/camara-hikvision.md
-    y el README."""
+    """Pesos en formato YOLOv5. Ultralytics no los carga; se cargan con
+    torch.hub desde el repo yolov5/ local (ver edge/detectors/plates.py)."""
     weapon_model: Path = field(
         default_factory=lambda: Path(os.getenv("WEAPON_MODEL", "models/weapons.pt"))
     )
@@ -96,7 +94,7 @@ class EdgeConfig:
     # --- Umbrales ----------------------------------------------------------
     plate_conf: float = field(default_factory=lambda: _env_float("PLATE_CONF", 0.45))
     ocr_conf: float = field(default_factory=lambda: _env_float("OCR_CONF", 0.35))
-    weapon_conf: float = field(default_factory=lambda: _env_float("WEAPON_CONF", 0.60))
+    weapon_conf: float = field(default_factory=lambda: _env_float("WEAPON_CONF", 0.40))
     face_conf: float = field(default_factory=lambda: _env_float("FACE_CONF", 0.50))
     motion_conf: float = field(default_factory=lambda: _env_float("MOTION_CONF", 0.45))
     """Confianza para la deteccion de PERSONAS (clase 'person' de COCO), no del
@@ -129,6 +127,23 @@ class EdgeConfig:
     la de armas a proposito: un forcejeo o un golpe dura menos de un segundo,
     y esperar una ventana larga significaria perderlo por completo."""
 
+    motion_cooldown_s: float = field(default_factory=lambda: _env_float("MOTION_COOLDOWN_S", 30.0))
+    """Tras alertar por una persona, cuanto esperar antes de poder alertar otra
+    vez por la MISMA persona seguida. Antes una persona solo podia alertar una
+    vez mientras siguiera en cuadro: un segundo incidente minutos despues, con
+    el mismo track vivo, pasaba en silencio."""
+
+    # --- Rostros -----------------------------------------------------------
+    face_min_width: int = field(default_factory=lambda: _env_int("FACE_MIN_WIDTH", 50))
+    """Ancho minimo en pixeles para usar un rostro. Por debajo, el embedding
+    no tiene resolucion suficiente y un falso positivo biometrico senala a la
+    persona equivocada."""
+
+    face_template_size: int = field(default_factory=lambda: _env_int("FACE_TEMPLATE_SIZE", 3))
+    """Cuantos embeddings de mejor calidad se promedian por persona seguida.
+    Promediar varias vistas buenas del mismo rostro da un vector mas estable
+    que la mejor vista sola (menos sensible a un gesto o a un desenfoque)."""
+
     # --- Agregacion de tracks ---------------------------------------------
     track_timeout_s: float = field(default_factory=lambda: _env_float("TRACK_TIMEOUT_S", 2.0))
     """Segundos sin ver un track antes de darlo por cerrado y emitir su evento."""
@@ -151,7 +166,15 @@ class EdgeConfig:
 
     # --- Evidencia ---------------------------------------------------------
     snapshot_dir: Path = BASE_DIR / "data" / "snapshots"
-    send_snapshot_b64: bool = field(default_factory=lambda: _env_bool("SEND_SNAPSHOT_B64", True))
+    send_snapshot_b64: str = field(
+        default_factory=lambda: os.getenv("SEND_SNAPSHOT_B64", "auto").strip().lower()
+    )
+    """auto | true | false. Adjunta la captura al evento en base64 para que la
+    API la guarde. Solo hace falta si la API corre en OTRA maquina (no comparte
+    el disco del worker); `auto` lo activa cuando API_URL no es localhost."""
+
+    heartbeat_s: float = field(default_factory=lambda: _env_float("HEARTBEAT_S", 15.0))
+    """Cada cuanto el worker reporta su salud a la API aunque no haya eventos."""
 
     snapshot_hd_enabled: bool = field(default_factory=lambda: _env_bool("SNAPSHOT_HD_ENABLED", True))
     """Pide una foto del canal PRINCIPAL de la Hikvision (no el sub-stream de
@@ -198,6 +221,10 @@ class EdgeConfig:
             self.plate_model = BASE_DIR / self.plate_model
         if not self.weapon_model.is_absolute():
             self.weapon_model = BASE_DIR / self.weapon_model
+        if self.send_snapshot_b64 in {"1", "yes", "si", "on"}:
+            self.send_snapshot_b64 = "true"
+        elif self.send_snapshot_b64 not in {"auto", "true"}:
+            self.send_snapshot_b64 = "false"
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self.offline_dir.mkdir(parents=True, exist_ok=True)
 
@@ -237,6 +264,30 @@ class EdgeConfig:
         return "cpu"
 
 
+def parse_env_line(line: str) -> "tuple[str, str] | None":
+    """Interpreta una linea `CLAVE=valor` de un archivo de entorno.
+
+    Quita el comentario al final de la linea (`ENABLE_MOTION=true  # nota`).
+    Sin esto el valor era "true  # nota": no contaba como verdadero y el
+    detector quedaba apagado, y DEVICE=auto con comentario llegaba a torch
+    como nombre de dispositivo. Solo se corta en un `#` precedido de espacio,
+    para no romper una contrasena que lleve `#` pegado.
+    """
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None
+    key, _, value = line.partition("=")
+    value = value.strip()
+    if value[:1] in {'"', "'"} and value[:1] in value[1:]:
+        value = value[1:value.index(value[0], 1)]
+    else:
+        for i, c in enumerate(value):
+            if c == "#" and i > 0 and value[i - 1] in " \t":
+                value = value[:i].rstrip()
+                break
+    return key.strip(), value
+
+
 def load_config(env_file: "str | os.PathLike | None" = None) -> EdgeConfig:
     """Carga un archivo de entorno (sin dependencia dura de python-dotenv) y arma la config.
 
@@ -251,10 +302,8 @@ def load_config(env_file: "str | os.PathLike | None" = None) -> EdgeConfig:
     if not ruta.is_absolute():
         ruta = BASE_DIR / ruta
     if ruta.exists():
-        for line in ruta.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        for line in ruta.read_text(encoding="utf-8-sig").splitlines():
+            par = parse_env_line(line)
+            if par is not None:
+                os.environ.setdefault(*par)
     return EdgeConfig()

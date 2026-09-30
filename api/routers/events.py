@@ -3,23 +3,36 @@
 Es el endpoint mas caliente del sistema: por aqui pasa todo lo que detectan las
 camaras. Tres cosas importan mas que en cualquier otro sitio del proyecto:
 
-  1. IDEMPOTENCIA. El worder reintenta cuando la red falla. El mismo evento
+  1. IDEMPOTENCIA. El worker reintenta cuando la red falla. El mismo evento
      puede llegar dos veces y no debe generar dos alertas.
   2. NO PERDER NADA. Si un evento del lote viene mal formado, se rechaza ese y
      los demas siguen. Un lote no se pierde entero por una manzana podrida.
-  3. RAPIDEZ. El worker espera esta respuesta; si tarda, deja de capturar.
+  3. NO FRENAR AL RESTO. La base de datos y el cruce contra la lista negra
+     corren en el pool de hilos, no en el bucle de eventos: si corrieran ahi,
+     cada lote congelaria el video en vivo y el WebSocket de todos los
+     dashboards mientras dura el commit.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import json
 import logging
+import re
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, Depends
-from sqlmodel import select
+from fastapi import APIRouter, Body, Depends
+from fastapi.concurrency import run_in_threadpool
+from sqlmodel import Session, col, select
 
-from api.deps import SesionBD, verificar_worker
+from api.config import BASE_DIR, get_config
+from api.database import engine
+from api.deps import verificar_worker
 from api.hub import hub
 from api.matching import evaluar
 from api.models import Alert, Camera, Event, FaceEmbedding
@@ -38,12 +51,17 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/events", tags=["eventos"],
                    dependencies=[Depends(verificar_worker)])
 
+# Una captura HD de 3200x1800 ronda 1 MB; 6 MB deja margen sin permitir que un
+# cliente mal configurado llene el disco.
+MAX_BYTES_FOTO = 6 * 1024 * 1024
+_ID_SEGURO = re.compile(r"[A-Za-z0-9\-]{8,64}")
+
 
 TITULOS = {
     EventType.PLATE: "Placa {valor} en lista negra",
     EventType.FACE: "Persona identificada: {valor}",
     EventType.WEAPON: "ARMA DETECTADA: {valor}",
-    EventType.ANOMALY: "Movimiento subito detectado",
+    EventType.ANOMALY: "Movimiento súbito detectado",
 }
 
 
@@ -56,12 +74,47 @@ def _titulo(evento: DetectionEvent, resultado: MatchResult) -> str:
     no siempre lee el detalle. El titulo tiene que cargar la incertidumbre.
     """
     if resultado.match_kind == MatchKind.FUZZY:
-        return f"Posible placa {resultado.matched_value} (se leyo {evento.value})"
+        return f"Posible placa {resultado.matched_value} (se leyó {evento.value})"
     etiqueta = resultado.matched_value or evento.value
-    return TITULOS.get(evento.type, "Deteccion {valor}").format(valor=etiqueta)
+    return TITULOS.get(evento.type, "Detección {valor}").format(valor=etiqueta)
 
 
-def _guardar(evento: DetectionEvent, resultado: MatchResult, session) -> tuple[Event, Alert | None]:
+def _ruta_captura(evento: DetectionEvent) -> Optional[str]:
+    """Ruta de la captura DENTRO de la carpeta de evidencia de la API.
+
+    Si el worker adjunto la foto (corre en otra maquina), se escribe aqui. Si
+    no, se asume disco compartido y solo se conserva el nombre del archivo: la
+    ruta que manda el worker nunca se usa tal cual, para que un valor raro no
+    apunte fuera de data/snapshots.
+    """
+    cfg = get_config()
+    carpeta = cfg.snapshot_dir
+
+    if evento.snapshot_b64:
+        try:
+            datos = base64.b64decode(evento.snapshot_b64, validate=True)
+        except (binascii.Error, ValueError):
+            datos = b""
+        if datos.startswith(b"\xff\xd8") and len(datos) <= MAX_BYTES_FOTO:
+            if _ID_SEGURO.fullmatch(evento.event_id):
+                nombre = f"{evento.event_id}.jpg"
+            else:
+                nombre = f"evento-{hashlib.sha1(evento.event_id.encode()).hexdigest()[:20]}.jpg"
+            destino = carpeta / nombre
+            if not destino.exists():
+                destino.write_bytes(datos)
+            return destino.relative_to(BASE_DIR).as_posix()
+        log.warning("Captura adjunta invalida en el evento %s; se ignora", evento.event_id)
+
+    if not evento.snapshot_path:
+        return None
+    nombre = Path(evento.snapshot_path).name
+    return (carpeta / nombre).relative_to(BASE_DIR).as_posix() if nombre else None
+
+
+def _guardar(evento: DetectionEvent, resultado: MatchResult,
+             session: Session) -> tuple[Event, Alert | None]:
+    captura = _ruta_captura(evento)
     fila = Event(
         event_id=evento.event_id,
         dedupe_key=evento.dedupe_key(),
@@ -76,12 +129,12 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult, session) -> tuple[E
         bbox_x2=evento.bbox.x2 if evento.bbox else None,
         bbox_y2=evento.bbox.y2 if evento.bbox else None,
         observations=evento.observations,
-        snapshot_path=evento.snapshot_path,
+        snapshot_path=captura,
         severity=resultado.severity.value,
         match_kind=resultado.match_kind.value,
         matched_blacklist_id=resultado.blacklist_id,
         match_score=resultado.score,
-        meta_json=None,
+        meta_json=json.dumps(evento.meta, ensure_ascii=False, default=str) if evento.meta else None,
     )
     session.add(fila)
 
@@ -114,104 +167,120 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult, session) -> tuple[E
             detail=resultado.reason,
             match_kind=resultado.match_kind.value,
             match_score=resultado.score,
-            snapshot_path=evento.snapshot_path,
+            snapshot_path=captura,
         )
         session.add(alerta)
 
     return fila, alerta
 
 
-@router.post("", response_model=IngestResponse)
-async def ingerir(lote: EventBatch, session: SesionBD) -> IngestResponse:
-    aceptados = 0
-    duplicados = 0
-    resultados: list[MatchResult] = []
-    # La alerta se guarda como OBJETO, no como diccionario ya armado: su `id` lo
-    # asigna la base de datos en el commit, que ocurre despues. Armando el
-    # diccionario aqui, el `id` viajaba en None y el dashboard pintaba la alerta
-    # sin los botones de "Atendida" y "Falso positivo" -- el operador tenia que
-    # recargar la pagina para poder resolver una alerta que acababa de ver
-    # entrar. Justo la que mas prisa corre.
-    a_difundir: list[tuple[dict, Alert | None]] = []
-
-    for evento in lote.events:
-        # Idempotencia: el borde reintenta ante fallos de red.
-        ya_existe = session.exec(
-            select(Event).where(Event.event_id == evento.event_id)
-        ).first()
-        if ya_existe:
-            duplicados += 1
-            continue
-
-        resultado = evaluar(evento, session)
-        fila, alerta = _guardar(evento, resultado, session)
-        resultados.append(resultado)
-        aceptados += 1
-
-        a_difundir.append((
-            {
-                "event_id": evento.event_id,
-                "camera_id": evento.camera_id,
-                "ts": evento.ts,
-                "type": evento.type.value,
-                "value": evento.value,
-                "confidence": evento.confidence,
-                "severity": resultado.severity.value,
-                "snapshot_path": evento.snapshot_path,
-                "observations": evento.observations,
-            },
-            alerta,
-        ))
-
-    # Heartbeat de la camara: saber que sigue viva sin consultar el video.
-    camara = session.exec(
-        select(Camera).where(Camera.camera_id == lote.camera_id)
-    ).first()
-    if camara is None:
-        camara = Camera(camera_id=lote.camera_id, name=lote.camera_id)
-        session.add(camara)
-    camara.last_heartbeat = datetime.now(timezone.utc)
-
-    session.commit()
-
-    # La difusion va DESPUES del commit: si se difunde antes y el commit falla,
-    # el dashboard muestra una alerta que no existe en la base de datos. Y solo
-    # aqui la alerta ya tiene `id`, que es lo que el dashboard necesita para
-    # poder resolverla.
-    for datos_evento, alerta in a_difundir:
-        await hub.difundir("event", datos_evento)
-        if alerta:
-            await hub.difundir("alert", {
-                "id": alerta.id,
-                "title": alerta.title,
-                "detail": alerta.detail,
-                "severity": alerta.severity,
-                "type": alerta.type,
-                "camera_id": alerta.camera_id,
-                "event_id": alerta.event_id,
-                "snapshot_path": alerta.snapshot_path,
-                "match_kind": alerta.match_kind,
-                "match_score": alerta.match_score,
-                "status": alerta.status,
-                "ts": datos_evento["ts"],
-            })
-            log.warning("ALERTA %s: %s", alerta.severity.upper(), alerta.title)
-
-    return IngestResponse(accepted=aceptados, duplicates=duplicados, matches=resultados)
-
-
-@router.post("/heartbeat")
-async def heartbeat(camera_id: str, status: dict, session: SesionBD) -> dict:
-    """El worker reporta salud aunque no haya detecciones. Sin esto, una camara
-    apagada es indistinguible de una camara sin trafico."""
-    import json
-
+def _latido(session: Session, camera_id: str, estado: Optional[dict] = None) -> None:
     camara = session.exec(select(Camera).where(Camera.camera_id == camera_id)).first()
     if camara is None:
         camara = Camera(camera_id=camera_id, name=camera_id)
         session.add(camara)
     camara.last_heartbeat = datetime.now(timezone.utc)
-    camara.status_json = json.dumps(status)
-    session.commit()
+    if estado is not None:
+        camara.status_json = json.dumps(estado, ensure_ascii=False, default=str)
+
+
+def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, Optional[dict]]]]:
+    """Todo el trabajo sincrono de la ingesta, en un hilo del pool."""
+    aceptados = 0
+    duplicados = 0
+    resultados: list[MatchResult] = []
+    guardados: list[tuple[dict, Alert | None]] = []
+
+    with Session(engine) as session:
+        # Idempotencia en UNA consulta para todo el lote, no una por evento.
+        ids = [e.event_id for e in lote.events]
+        existentes = set(session.exec(
+            select(Event.event_id).where(col(Event.event_id).in_(ids))
+        ).all()) if ids else set()
+
+        vistos: set[str] = set()
+        for evento in lote.events:
+            if evento.event_id in existentes or evento.event_id in vistos:
+                duplicados += 1
+                continue
+            vistos.add(evento.event_id)
+
+            resultado = evaluar(evento, session)
+            fila, alerta = _guardar(evento, resultado, session)
+            resultados.append(resultado)
+            aceptados += 1
+            guardados.append((
+                {
+                    "event_id": evento.event_id,
+                    "camera_id": evento.camera_id,
+                    "ts": evento.ts,
+                    "type": evento.type.value,
+                    "value": evento.value,
+                    "confidence": evento.confidence,
+                    "severity": resultado.severity.value,
+                    "snapshot_path": fila.snapshot_path,
+                    "observations": evento.observations,
+                },
+                alerta,
+            ))
+
+        # Un lote tambien cuenta como senal de vida de la camara.
+        _latido(session, lote.camera_id)
+        session.commit()
+
+        # El `id` de la alerta lo asigna la base de datos en el commit, y es lo
+        # que el dashboard necesita para mostrar los botones de "Atendida" y
+        # "Falso positivo". Por eso el mensaje se arma aqui, ya confirmado, y
+        # no antes: difundir antes del commit mostraria alertas que quiza no
+        # existan en la base de datos.
+        a_difundir = []
+        for datos_evento, alerta in guardados:
+            datos_alerta = None
+            if alerta is not None:
+                session.refresh(alerta)
+                datos_alerta = {
+                    "id": alerta.id,
+                    "title": alerta.title,
+                    "detail": alerta.detail,
+                    "severity": alerta.severity,
+                    "type": alerta.type,
+                    "camera_id": alerta.camera_id,
+                    "event_id": alerta.event_id,
+                    "snapshot_path": alerta.snapshot_path,
+                    "match_kind": alerta.match_kind,
+                    "match_score": alerta.match_score,
+                    "status": alerta.status,
+                    "ts": datos_evento["ts"],
+                }
+            a_difundir.append((datos_evento, datos_alerta))
+
+    respuesta = IngestResponse(accepted=aceptados, duplicates=duplicados, matches=resultados)
+    return respuesta, a_difundir
+
+
+@router.post("", response_model=IngestResponse)
+async def ingerir(lote: EventBatch) -> IngestResponse:
+    respuesta, a_difundir = await run_in_threadpool(_procesar_lote, lote)
+
+    for datos_evento, datos_alerta in a_difundir:
+        await hub.difundir("event", datos_evento)
+        if datos_alerta:
+            await hub.difundir("alert", datos_alerta)
+            log.warning("ALERTA %s: %s", datos_alerta["severity"].upper(), datos_alerta["title"])
+
+    return respuesta
+
+
+@router.post("/heartbeat")
+async def heartbeat(camera_id: str, status: dict = Body(default_factory=dict)) -> dict:
+    """El worker reporta salud aunque no haya detecciones. Sin esto, una camara
+    apagada es indistinguible de una camara sin trafico."""
+
+    def _registrar() -> None:
+        with Session(engine) as session:
+            _latido(session, camera_id, status)
+            session.commit()
+
+    await run_in_threadpool(_registrar)
     await hub.difundir("camera_status", {"camera_id": camera_id, "status": status})
     return {"ok": True}

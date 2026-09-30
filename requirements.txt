@@ -36,7 +36,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 sqlmodel>=0.0.22
 python-multipart>=0.0.9
-passlib[bcrypt]>=1.7.4
+bcrypt>=4.0                 # directo, sin passlib: passlib ya no se mantiene y
+                            # falla con bcrypt >= 4.1 en una instalacion nueva
 pyjwt>=2.9
 httpx>=0.27                 # el worker envia eventos a la API
 

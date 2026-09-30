@@ -1,18 +1,15 @@
 """Worker de borde: lee la camara, corre los detectores y emite eventos.
 
-Estado actual (Fase 1): el esqueleto de captura esta completo y funcionando.
-Los detectores todavia no estan conectados -- eso es Fase 2 (placas), Fase 4
-(rostros) y Fase 5 (armas). Ejecutalo hoy para verificar que tu fuente de video
-funciona antes de meterle modelos encima:
-
-    python -m edge.worker --diagnostico
+    python -m edge.worker                 # deteccion continua
+    python -m edge.worker --diagnostico   # solo mide la fuente, sin modelos
+    python -m edge.worker --env .env.cam2 # otra camara, con su propio .env
 
 Con la webcam:            SOURCE=webcam:0
 Con la Hikvision:         SOURCE=rtsp://admin:pass@192.168.1.64:554/Streaming/Channels/102
 Con un video grabado:     SOURCE=file:videos/prueba.mp4
 
-El codigo de abajo NO cambia al pasar de una a otra. Ese es justamente el punto
-de edge/sources.py: la camara es un detalle de configuracion, no de codigo.
+El codigo de abajo NO cambia al pasar de una a otra: la camara es un detalle
+de configuracion (ver edge/sources.py), no de codigo.
 """
 
 from __future__ import annotations
@@ -107,9 +104,6 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
             procesados += 1
             latencia_max = max(latencia_max, frame.age)
 
-            # Aqui es donde entraran los detectores en la Fase 2.
-            # placas.procesar(frame) -> [DetectionEvent, ...]
-
             ahora = time.monotonic()
             if ahora - ultimo_reporte >= 2.0:
                 st = fuente.status
@@ -145,17 +139,16 @@ def diagnostico(cfg: EdgeConfig, segundos: float = 20.0) -> int:
             print("\n  [!] No se alcanzo el fps objetivo. La fuente entrega menos")
             print("      de lo pedido, o la red no da abasto.")
         else:
-            print("\n  [OK] Fuente estable. Lista para conectarle detectores (Fase 2).")
+            print("\n  [OK] Fuente estable. Lista para detectar: python -m edge.worker")
         print("=" * 68)
 
     return 0
 
 
 def construir_detectores(cfg: EdgeConfig) -> list:
-    """Instancia los detectores activados en la configuracion.
+    """Instancia los detectores activados en la configuracion (ENABLE_*).
 
-    Agregar el de armas en la Fase 5 sera anadir tres lineas aqui: el worker no
-    necesita saber nada de sus modelos.
+    El worker no sabe nada de sus modelos: todos cumplen edge/detectors/base.py.
     """
     detectores = []
     if cfg.enable_plates:
@@ -200,6 +193,27 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
     preview = crear_publicador(cfg)
     fuente = open_source(cfg.source)
     total_eventos = 0
+    frames = 0
+    fallos: dict[str, int] = {d.name: 0 for d in detectores}
+    inicio = time.monotonic()
+
+    def estado() -> dict:
+        """Lo que viaja en el latido hacia la API."""
+        transcurrido = max(1e-6, time.monotonic() - inicio)
+        return {
+            **fuente.status.as_dict(),
+            "fps_procesados": round(frames / transcurrido, 2),
+            "eventos": total_eventos,
+            "detectores": {d.name: d.resumen for d in detectores},
+            "fallos_detector": {k: v for k, v in fallos.items() if v},
+        }
+
+    latido = None
+    if cfg.api_url and cfg.api_token:
+        from edge.heartbeat import Heartbeat
+
+        latido = Heartbeat(cfg.api_url, cfg.api_token, cfg.camera_id, estado,
+                           intervalo=cfg.heartbeat_s)
 
     try:
         with fuente:
@@ -210,7 +224,6 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
             print("\n  Detectando. Ctrl+C para detener.\n")
             inicio = time.monotonic()
             ultimo_reporte = inicio
-            frames = 0
 
             # esperar_cortes: un corte de la camara NO termina el worker. Es un
             # sistema que corre sin nadie mirando; si un parpadeo de red lo
@@ -223,7 +236,18 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
                 frames += 1
 
                 for det in detectores:
-                    for evento in det.procesar(frame):
+                    # Un detector que falla en un frame (memoria de GPU, un
+                    # recorte raro para el OCR) no debe apagar a los demas ni
+                    # al worker: se registra y se sigue con el siguiente frame.
+                    try:
+                        eventos = det.procesar(frame)
+                    except Exception as e:  # noqa: BLE001
+                        fallos[det.name] += 1
+                        n = fallos[det.name]
+                        if n in (1, 10) or n % 100 == 0:
+                            log.exception("El detector %s fallo (%d veces): %s", det.name, n, e)
+                        continue
+                    for evento in eventos:
                         sink.enviar(evento)
                         total_eventos += 1
 
@@ -235,7 +259,10 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
                 if cfg.show_window or para_preview:
                     vista = frame.frame.copy()
                     for det in detectores:
-                        vista = det.anotar(vista)
+                        try:
+                            vista = det.anotar(vista)
+                        except Exception as e:  # noqa: BLE001
+                            log.debug("No se pudo anotar %s: %s", det.name, e)
 
                     if para_preview:
                         preview.publicar(vista)
@@ -263,12 +290,17 @@ def ejecutar(cfg: EdgeConfig, segundos: Optional[float] = None) -> int:
             # Los objetos que seguian en pantalla al detener tambien cuentan.
             print("\n  Cerrando tracks abiertos...")
             for det in detectores:
-                for evento in det.vaciar():
-                    sink.enviar(evento)
-                    total_eventos += 1
+                try:
+                    for evento in det.vaciar():
+                        sink.enviar(evento)
+                        total_eventos += 1
+                except Exception as e:  # noqa: BLE001
+                    log.error("No se pudieron cerrar los tracks de %s: %s", det.name, e)
     finally:
         if cfg.show_window:
             cv2.destroyAllWindows()
+        if latido is not None:
+            latido.cerrar()
         if preview is not None:
             preview.cerrar()
         for det in detectores:

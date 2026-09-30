@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 Caja = tuple[float, float, float, float]  # x1, y1, x2, y2
 

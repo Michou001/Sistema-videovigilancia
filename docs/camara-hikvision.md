@@ -105,13 +105,14 @@ Para ver el video y confirmar el encuadre, agrega `--ver`.
 
 | Ruta | Qué es | Cuándo |
 |---|---|---|
-| `/Streaming/Channels/101` | Main stream, 1080p+ | Grabación y evidencia |
-| `/Streaming/Channels/102` | **Sub-stream, ~640×480** | **Inferencia — usa este** |
+| `/Streaming/Channels/101` | Main stream (3200×1800 en la cámara del proyecto) | Evidencia |
+| `/Streaming/Channels/102` | **Sub-stream (1280×720)** | **Inferencia — usa este** |
 
 El sub-stream es el correcto para el worker: los modelos trabajan a 640 px de
-todos modos, así que traer 1080p solo gasta ancho de banda y CPU en
-decodificación. Más adelante se puede usar el main stream **solo** para guardar
-el recorte de evidencia cuando hay una alerta.
+todos modos, así que traer el main stream solo gasta ancho de banda y CPU en
+decodificación. El main stream se usa **solo** para la evidencia: cuando un
+detector encuentra algo, el worker pide una foto fija del canal 101 por ISAPI
+(`SNAPSHOT_HD_ENABLED=true`) con las mismas credenciales de `SOURCE`.
 
 ---
 
@@ -161,18 +162,17 @@ maneja la codificación.
 
 ---
 
-## Mientras llega la cámara
+## Sin la cámara a la mano
 
-No estás bloqueado. El sistema entero se desarrolla con:
+El sistema entero funciona igual con:
 
 ```bash
-SOURCE=webcam:0                       # tu webcam
+SOURCE=webcam:0                       # la webcam de la laptop
 SOURCE=file:videos/prueba.mp4         # un video grabado (pruebas reproducibles)
 ```
 
-Y tu **celular también sirve como cámara IP** de prueba: instala *IP Webcam*
-(Android) o *EpocCam*, y te da una URL RTSP/HTTP que `open_source()` acepta sin
-cambios.
+Y un **celular también sirve como cámara IP** de prueba: *IP Webcam* (Android)
+o *EpocCam* dan una URL RTSP/HTTP que `open_source()` acepta sin cambios.
 
-El día que conectes la Hikvision, lo único que cambia es la línea `SOURCE` del
-`.env`. Ni una línea de código.
+Pasar de una a otra es cambiar la línea `SOURCE` del `.env`. Ni una línea de
+código.

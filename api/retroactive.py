@@ -23,25 +23,25 @@ en api/routers/events.py (MINIMIZACION DE DATOS BIOMETRICOS):
 
 Se corre en segundo plano (FastAPI BackgroundTasks) porque revisar dias de
 eventos puede tardar mas de lo que un POST deberia hacer esperar al operador.
+Y dentro de la tarea, el trabajo pesado (consultas, recalcular embeddings en
+GPU) va al pool de hilos: una tarea de fondo `async` corre en el mismo bucle
+de eventos que el video en vivo, y sin esto lo congelaba mientras duraba.
 
-OJO CON LA SESION: una tarea en segundo plano de FastAPI se ejecuta DESPUES de
-que la respuesta ya se armo, y para entonces la sesion de base de datos de la
-peticion original (inyectada por Depends) ya se cerro. Por eso estas funciones
-abren su PROPIA sesion nueva en vez de recibir una prestada -- usar la sesion
-de la peticion aqui fallaria de forma intermitente y dificil de reproducir.
-El registro de lista negra que reciben si puede venir de la sesion original:
-ya se hizo `session.refresh()` sobre el antes de desprenderse, asi que sus
-campos escalares (placa, severidad, id...) siguen siendo validos aunque la
-sesion que lo cargo ya no exista.
+OJO CON LA SESION: una tarea en segundo plano se ejecuta DESPUES de que la
+respuesta ya se armo, y para entonces la sesion de la peticion original ya se
+cerro. Por eso estas funciones abren su PROPIA sesion y reciben del registro
+solo valores planos (id, placa, severidad...), no el objeto de la sesion.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session, col, select
 
 from api.config import BASE_DIR, get_config
@@ -55,15 +55,34 @@ from shared.plates import buscar_coincidencia
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _Referencia:
+    id: int
+    valor: str          # placa o etiqueta de la persona
+    severity: str
+    reason: str
+
+
 def _desde(dias: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=dias)
 
 
-async def _difundir_alerta_retroactiva(alerta: Alert, evento: Event) -> None:
+def _en_utc(ts: datetime) -> datetime:
+    # SQLite devuelve las fechas sin zona; se guardaron en UTC.
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def _hora_local(ts: datetime) -> str:
+    """Fecha para el texto de la alerta, en la hora del servidor: el operador
+    lee "ya habia pasado el 3 de sept. a las 14:10", no una hora UTC."""
+    return f"{_en_utc(ts).astimezone():%Y-%m-%d %H:%M}"
+
+
+def _mensaje_alerta(alerta: Alert, evento: Event) -> dict:
     """Mismo formato que la alerta en vivo (ver api/routers/events.py), para
     que el dashboard no necesite un caso especial: si el operador tiene la
     pagina abierta, la ve aparecer igual que cualquier otra."""
-    await hub.difundir("alert", {
+    return {
         "id": alerta.id,
         "title": alerta.title,
         "detail": alerta.detail,
@@ -75,18 +94,23 @@ async def _difundir_alerta_retroactiva(alerta: Alert, evento: Event) -> None:
         "match_kind": alerta.match_kind,
         "match_score": alerta.match_score,
         "status": alerta.status,
-        "ts": evento.ts.isoformat(),
-    })
+        "ts": _en_utc(evento.ts).isoformat(),
+    }
+
+
+async def _difundir(mensajes: list[dict]) -> None:
+    for m in mensajes:
+        await hub.difundir("alert", m)
 
 
 # --------------------------------------------------------------------------
 # Placas
 # --------------------------------------------------------------------------
 
-async def reescanear_placa(registro: BlacklistPlate) -> int:
-    """Busca la placa recien agregada en las lecturas ya registradas."""
+def _reescanear_placa(ref: _Referencia) -> list[dict]:
     cfg = get_config()
     dias = Politica().eventos_info  # el texto de la placa vive tanto como el evento
+    mensajes: list[dict] = []
 
     with Session(engine) as session:
         eventos = session.exec(
@@ -97,18 +121,18 @@ async def reescanear_placa(registro: BlacklistPlate) -> int:
             )
         ).all()
 
-        encontrados = 0
+        nuevas: list[tuple[Alert, Event]] = []
         for evento in eventos:
             coincidencia = buscar_coincidencia(
-                evento.value, [(registro.plate, registro.id)],
+                evento.value, [(ref.valor, ref.id)],
                 max_distancia=cfg.plate_fuzzy_max_dist,
             )
             if coincidencia is None:
                 continue
 
-            evento.severity = registro.severity if coincidencia.exacta else "warning"
+            evento.severity = ref.severity if coincidencia.exacta else "warning"
             evento.match_kind = coincidencia.tipo
-            evento.matched_blacklist_id = registro.id
+            evento.matched_blacklist_id = ref.id
             evento.match_score = coincidencia.score
             session.add(evento)
 
@@ -117,42 +141,49 @@ async def reescanear_placa(registro: BlacklistPlate) -> int:
                 camera_id=evento.camera_id,
                 type=evento.type,
                 severity=evento.severity,
-                title=f"Coincidencia retroactiva: placa {registro.plate}",
-                detail=(f"Esta placa ya habia sido leida el {evento.ts:%Y-%m-%d %H:%M} "
+                title=f"Coincidencia retroactiva: placa {ref.valor}",
+                detail=(f"Esta placa ya había sido leída el {_hora_local(evento.ts)} "
                         f"(track {evento.track_id}), antes de agregarse a la lista negra. "
-                        f"{registro.reason}"),
+                        f"{ref.reason}"),
                 match_kind=coincidencia.tipo,
                 match_score=coincidencia.score,
                 snapshot_path=evento.snapshot_path,
             )
             session.add(alerta)
-            session.commit()
-            session.refresh(alerta)
-            await _difundir_alerta_retroactiva(alerta, evento)
-            encontrados += 1
+            nuevas.append((alerta, evento))
 
-    if encontrados:
+        if nuevas:
+            session.commit()
+            for alerta, evento in nuevas:
+                session.refresh(alerta)
+                session.refresh(evento)
+                mensajes.append(_mensaje_alerta(alerta, evento))
+    return mensajes
+
+
+async def reescanear_placa(registro: BlacklistPlate) -> int:
+    """Busca la placa recien agregada en las lecturas ya registradas."""
+    ref = _Referencia(registro.id, registro.plate, registro.severity, registro.reason)
+    try:
+        mensajes = await run_in_threadpool(_reescanear_placa, ref)
+    except Exception as e:  # noqa: BLE001 - una tarea de fondo no tiene a quien avisar
+        log.error("Fallo el re-escaneo retroactivo de la placa %s: %s", ref.valor, e)
+        return 0
+    await _difundir(mensajes)
+    if mensajes:
         log.warning("Re-escaneo retroactivo: placa %s ya habia pasado %d vez/veces",
-                    registro.plate, encontrados)
-    return encontrados
+                    ref.valor, len(mensajes))
+    return len(mensajes)
 
 
 # --------------------------------------------------------------------------
 # Rostros
 # --------------------------------------------------------------------------
 
-async def reescanear_rostro(registro: BlacklistFace) -> int:
-    """Vuelve a calcular el embedding de las FOTOS de rostros ya guardadas (no
-    hay vector que comparar: nunca se guardo uno para quien no coincidia) y
-    las compara contra el vector de referencia recien agregado.
-
-    El embedding recalculado vive solo en esta funcion: se usa para la
-    comparacion y se descarta, igual que en el cruce en tiempo real. Nunca se
-    escribe en la base de datos si no hay coincidencia.
-    """
+def _reescanear_rostro(ref: _Referencia, referencia: np.ndarray) -> list[dict]:
     cfg = get_config()
     dias = Politica().fotos_eventos  # sin foto no hay nada que re-calcular
-    referencia = np.frombuffer(registro.vector, dtype=np.float32, count=registro.dim)
+    mensajes: list[dict] = []
 
     with Session(engine) as session:
         eventos = session.exec(
@@ -164,14 +195,13 @@ async def reescanear_rostro(registro: BlacklistFace) -> int:
             )
         ).all()
         if not eventos:
-            return 0
+            return mensajes
 
         from edge.config import load_config
         from edge.detectors.faces import FaceEmbedder
 
         embedder = FaceEmbedder.compartido(load_config())
 
-        encontrados = 0
         for evento in eventos:
             ruta = BASE_DIR / evento.snapshot_path
             if not ruta.exists():
@@ -190,9 +220,9 @@ async def reescanear_rostro(registro: BlacklistFace) -> int:
             if score < cfg.face_match_threshold:
                 continue
 
-            evento.severity = registro.severity
+            evento.severity = ref.severity
             evento.match_kind = "biometric_retroactivo"
-            evento.matched_blacklist_id = registro.id
+            evento.matched_blacklist_id = ref.id
             evento.match_score = round(score, 4)
             session.add(evento)
 
@@ -201,10 +231,10 @@ async def reescanear_rostro(registro: BlacklistFace) -> int:
                 camera_id=evento.camera_id,
                 type=evento.type,
                 severity=evento.severity,
-                title=f"Coincidencia retroactiva: {registro.label}",
-                detail=(f"Esta persona ya habia sido vista el {evento.ts:%Y-%m-%d %H:%M}, "
+                title=f"Coincidencia retroactiva: {ref.valor}",
+                detail=(f"Esta persona ya había sido vista el {_hora_local(evento.ts)}, "
                         f"antes de agregarse a la lista negra ({score:.0%} de similitud). "
-                        f"{registro.reason}"),
+                        f"{ref.reason}"),
                 match_kind="biometric",
                 match_score=round(score, 4),
                 snapshot_path=evento.snapshot_path,
@@ -212,10 +242,29 @@ async def reescanear_rostro(registro: BlacklistFace) -> int:
             session.add(alerta)
             session.commit()
             session.refresh(alerta)
-            await _difundir_alerta_retroactiva(alerta, evento)
-            encontrados += 1
+            session.refresh(evento)
+            mensajes.append(_mensaje_alerta(alerta, evento))
+    return mensajes
 
-    if encontrados:
+
+async def reescanear_rostro(registro: BlacklistFace) -> int:
+    """Vuelve a calcular el embedding de las FOTOS de rostros ya guardadas (no
+    hay vector que comparar: nunca se guardo uno para quien no coincidia) y
+    las compara contra el vector de referencia recien agregado.
+
+    El embedding recalculado vive solo dentro de la busqueda: se usa para la
+    comparacion y se descarta, igual que en el cruce en tiempo real. Nunca se
+    escribe en la base de datos si no hay coincidencia.
+    """
+    ref = _Referencia(registro.id, registro.label, registro.severity, registro.reason)
+    referencia = np.frombuffer(registro.vector, dtype=np.float32, count=registro.dim).copy()
+    try:
+        mensajes = await run_in_threadpool(_reescanear_rostro, ref, referencia)
+    except Exception as e:  # noqa: BLE001
+        log.error("Fallo el re-escaneo retroactivo de '%s': %s", ref.valor, e)
+        return 0
+    await _difundir(mensajes)
+    if mensajes:
         log.warning("Re-escaneo retroactivo: '%s' ya habia sido visto %d vez/veces",
-                    registro.label, encontrados)
-    return encontrados
+                    ref.valor, len(mensajes))
+    return len(mensajes)

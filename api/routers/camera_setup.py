@@ -1,15 +1,15 @@
 """Alta de camaras desde el dashboard, para el monitorista.
 
-Hasta ahora encontrar la camara y armar su URL RTSP era trabajo de terminal
-(ver tools/probe_camara.py). Este router expone la MISMA logica --no la
-duplica-- como API, para que un monitorista sin conocimientos de linea de
-comandos pueda buscar la camara en su red, probar las credenciales y guardar
-el resultado, todo desde el navegador.
+Encontrar la camara y armar su URL RTSP era trabajo de terminal (ver
+tools/probe_camara.py). Este router expone la MISMA logica --no la duplica--
+como API, para que un monitorista sin conocimientos de linea de comandos pueda
+buscar la camara en su red, probar las credenciales y guardar el resultado,
+todo desde el navegador.
 
-LIMITACION HONESTA: el sistema hoy corre UN worker por UNA camara (SOURCE en
-.env, leido al arrancar). Guardar aqui escribe ese .env, pero el worker que ya
-esta corriendo no lo relee solo -- hay que reiniciarlo. Dashboard multi-camara
-en caliente es un proyecto aparte, no "una forma sencilla de anadir camaras".
+Cada camara corre en su propio worker con su propio archivo de entorno: la
+primera en `.env`, las demas en `.env.<camera_id>`. Guardar aqui escribe ese
+archivo; el worker lo lee al arrancar, asi que una camara nueva se levanta con
+`iniciar_worker.bat --env .env.<camera_id>` (la respuesta trae el comando).
 
 Se restringe a Admin por dos motivos: escanea la red local (una accion que
 vale la pena poder auditar) y prueba credenciales contra un dispositivo (igual
@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from pathlib import Path
 
 import cv2
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.config import BASE_DIR
 from api.deps import Admin
@@ -34,6 +35,18 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/camera-setup", tags=["configuracion de camara"])
 
 ENV_PATH = BASE_DIR / ".env"
+
+_HOST_VALIDO = re.compile(r"[A-Za-z0-9.\-:\[\]]{3,100}")
+_CAMARA_VALIDA = re.compile(r"[A-Za-z0-9_\-]{2,64}")
+_RUTA_VALIDA = re.compile(r"/[A-Za-z0-9_\-./?=&]{0,199}")
+
+
+def _sin_control(valor: str) -> str:
+    """Los valores terminan como lineas del .env: un salto de linea en una
+    contrasena escribiria una variable extra en el archivo."""
+    if any(ord(c) < 32 for c in valor):
+        raise ValueError("no puede contener saltos de línea ni caracteres de control")
+    return valor
 
 
 # --------------------------------------------------------------------------
@@ -72,6 +85,19 @@ class ProbarCamaraIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
     puerto: int = Field(default=554, ge=1, le=65535)
 
+    @field_validator("host")
+    @classmethod
+    def _host(cls, v: str) -> str:
+        v = v.strip()
+        if not _HOST_VALIDO.fullmatch(v):
+            raise ValueError("IP o nombre de host no válido")
+        return v
+
+    @field_validator("user", "password")
+    @classmethod
+    def _texto(cls, v: str) -> str:
+        return _sin_control(v)
+
 
 def _primera_ruta_funcional(host: str, user: str, password: str, puerto: int) -> dict | None:
     """Prueba las rutas conocidas EN ORDEN y se detiene en la primera que
@@ -79,19 +105,15 @@ def _primera_ruta_funcional(host: str, user: str, password: str, puerto: int) ->
     las prueba todas para comparar y elegir la de menor resolucion.
 
     Ese comportamiento exhaustivo tiene sentido para una herramienta de
-    diagnostico que se corre una vez y se espera. Aqui no: medido en este
-    mismo proceso, una ruta que NO responde tarda ~30s en agotar el timeout de
-    FFmpeg (mas de lo que promete el parametro `timeout` de probar_ruta, que
-    ademas esta sin usar en esa funcion). Con 9 rutas posibles, probarlas
-    todas puede pasar de los 4 minutos. Como la lista ya trae el sub-stream
+    diagnostico que se corre una vez y se espera. Aqui el monitorista esta
+    mirando un boton de "Probando...": como la lista ya trae el sub-stream
     recomendado primero, detenerse en el primer exito casi siempre da el mismo
-    resultado de todos modos -- y en el peor caso, uno peor pero en una
-    fraccion del tiempo.
+    resultado en una fraccion del tiempo.
     """
     from tools.probe_camara import RUTAS_CANDIDATAS, construir_url, probar_ruta
 
     for ruta, _descripcion in RUTAS_CANDIDATAS:
-        info = probar_ruta(construir_url(host, user, password, ruta, puerto))
+        info = probar_ruta(construir_url(host, user, password, ruta, puerto), timeout=6.0)
         if info is not None:
             info["ruta"] = ruta
             return info
@@ -111,7 +133,7 @@ def probar(datos: ProbarCamaraIn, admin: Admin) -> dict:
     if not identificar(datos.host, datos.user, datos.password):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            "La camara rechazo usuario/contrasena. No se probaron las rutas de "
+            "La cámara rechazó usuario/contraseña. No se probaron las rutas de "
             "video para no arriesgar el bloqueo por intentos fallidos: Hikvision "
             "bloquea la IP tras ~5.",
         )
@@ -120,9 +142,9 @@ def probar(datos: ProbarCamaraIn, admin: Admin) -> dict:
     if resultado is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Las credenciales son correctas pero ninguna ruta de video respondio. "
-            "Revisa que RTSP este activado en la camara (Configuracion > Red > "
-            "Avanzada > Protocolos) y que esta PC este en la misma red.",
+            "Las credenciales son correctas pero ninguna ruta de video respondió. "
+            "Revisa que RTSP esté activado en la cámara (Configuración > Red > "
+            "Avanzada > Protocolos) y que esta PC esté en la misma red.",
         )
 
     ok, buf = cv2.imencode(".jpg", resultado["frame"], [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -139,26 +161,72 @@ def probar(datos: ProbarCamaraIn, admin: Admin) -> dict:
 # Guardar en .env
 # --------------------------------------------------------------------------
 
-class GuardarCamaraIn(BaseModel):
-    host: str = Field(min_length=3, max_length=100)
-    user: str = Field(default="admin", max_length=64)
-    password: str = Field(min_length=1, max_length=200)
-    puerto: int = Field(default=554, ge=1, le=65535)
+class GuardarCamaraIn(ProbarCamaraIn):
     ruta: str = Field(min_length=1, max_length=200, description="Ruta RTSP ya probada, ej. /Streaming/Channels/102")
     camera_id: str = Field(default="cam-01", max_length=64)
 
+    @field_validator("ruta")
+    @classmethod
+    def _ruta(cls, v: str) -> str:
+        if not _RUTA_VALIDA.fullmatch(v):
+            raise ValueError("ruta RTSP no válida")
+        return v
 
-def _actualizar_env(cambios: dict[str, str]) -> None:
-    """Reemplaza (o agrega) claves en .env, conservando todo lo demas tal cual.
+    @field_validator("camera_id")
+    @classmethod
+    def _camara(cls, v: str) -> str:
+        v = v.strip()
+        if not _CAMARA_VALIDA.fullmatch(v):
+            raise ValueError("el identificador solo admite letras, números, '-' y '_'")
+        return v
+
+
+def _leer_env(ruta: Path) -> dict[str, str]:
+    from edge.config import parse_env_line
+
+    valores = {}
+    if ruta.exists():
+        for linea in ruta.read_text(encoding="utf-8-sig").splitlines():
+            par = parse_env_line(linea)
+            if par is not None:
+                valores[par[0]] = par[1]
+    return valores
+
+
+def archivo_env_para(camera_id: str) -> Path:
+    """Archivo de entorno del worker de esta camara.
+
+    `.env` si es la camara que ya vive ahi (o si todavia no hay ninguna). Si
+    no, el `.env.*` que ya tenga ese CAMERA_ID, o uno nuevo `.env.<camera_id>`.
+    Antes siempre se escribia `.env`: dar de alta la segunda camara
+    reemplazaba la configuracion de la primera.
+    """
+    principal = _leer_env(ENV_PATH)
+    if not principal or principal.get("CAMERA_ID", camera_id) == camera_id \
+            or not principal.get("SOURCE", "").startswith(("rtsp://", "rtsps://")):
+        return ENV_PATH
+    for otro in sorted(BASE_DIR.glob(".env.*")):
+        if otro.name == ".env.example" or otro.suffix in {".bak", ".example"}:
+            continue
+        if _leer_env(otro).get("CAMERA_ID") == camera_id:
+            return otro
+    return BASE_DIR / f".env.{camera_id}"
+
+
+def _actualizar_env(ruta: Path, cambios: dict[str, str]) -> None:
+    """Reemplaza (o agrega) claves en el archivo, conservando todo lo demas.
 
     Mismo criterio que guardar_source_en_env() en tools/probe_camara.py: no se
     reescribe el archivo entero con un template, porque eso perderia los
-    comentarios y el orden que ya tiene el operador ahi.
+    comentarios y el orden que ya tiene el operador ahi. Un archivo nuevo de
+    otra camara parte de una copia de `.env`: hereda API_URL, API_TOKEN y los
+    detectores activos, que son los mismos para todas.
     """
-    if not ENV_PATH.exists():
-        ENV_PATH.write_text("", encoding="utf-8")
+    if not ruta.exists():
+        base = ENV_PATH.read_text(encoding="utf-8") if ENV_PATH.exists() else ""
+        ruta.write_text(base, encoding="utf-8")
 
-    lineas = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    lineas = ruta.read_text(encoding="utf-8").splitlines()
     pendientes = dict(cambios)
 
     for i, linea in enumerate(lineas):
@@ -169,13 +237,13 @@ def _actualizar_env(cambios: dict[str, str]) -> None:
     for clave, valor in pendientes.items():
         lineas.append(f"{clave}={valor}")
 
-    ENV_PATH.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+    ruta.write_text("\n".join(lineas) + "\n", encoding="utf-8")
 
 
-@router.post("/guardar", status_code=status.HTTP_204_NO_CONTENT)
-def guardar(datos: GuardarCamaraIn, admin: Admin) -> None:
+@router.post("/guardar")
+def guardar(datos: GuardarCamaraIn, admin: Admin) -> dict:
     """Escribe SOURCE (y CAMERA_HOST/USER/PASSWORD, por si se vuelve a correr
-    tools/probe_camara.py mas adelante) en el .env del worker.
+    tools/probe_camara.py mas adelante) en el archivo de entorno de la camara.
 
     Exige haber probado la ruta primero (el frontend solo llama a esto despues
     de un /probar exitoso) para que nunca se guarde una camara que no se
@@ -187,11 +255,15 @@ def guardar(datos: GuardarCamaraIn, admin: Admin) -> None:
         f"rtsp://{quote(datos.user, safe='')}:{quote(datos.password, safe='')}"
         f"@{datos.host}:{datos.puerto}{datos.ruta}"
     )
-    _actualizar_env({
+    destino = archivo_env_para(datos.camera_id)
+    _actualizar_env(destino, {
         "CAMERA_HOST": datos.host,
         "CAMERA_USER": datos.user,
         "CAMERA_PASSWORD": datos.password,
         "CAMERA_ID": datos.camera_id,
         "SOURCE": url,
     })
-    log.info("Camara '%s' (%s) guardada en .env por %s", datos.camera_id, datos.host, admin.username)
+    log.info("Camara '%s' (%s) guardada en %s por %s",
+             datos.camera_id, datos.host, destino.name, admin.username)
+    comando = "iniciar_worker.bat" if destino == ENV_PATH else f"iniciar_worker.bat --env {destino.name}"
+    return {"archivo": destino.name, "comando": comando}
