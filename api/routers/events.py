@@ -33,6 +33,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, col, select
 
+from api.alertas import mensaje as mensaje_alerta
+from api.alertas import nueva_alerta
 from api.config import BASE_DIR, get_config
 from api.database import engine
 from api.deps import verificar_worker
@@ -43,9 +45,7 @@ from shared.events import (
     PATRON_CAMARA,
     DetectionEvent,
     EventoRechazado,
-    EventType,
     IngestResponse,
-    MatchKind,
     MatchResult,
     Severity,
 )
@@ -59,30 +59,6 @@ router = APIRouter(prefix="/api/events", tags=["eventos"],
 # cliente mal configurado llene el disco.
 MAX_BYTES_FOTO = 6 * 1024 * 1024
 _ID_SEGURO = re.compile(r"[A-Za-z0-9\-]{8,64}")
-
-
-TITULOS = {
-    EventType.PLATE: "Placa {valor} en lista negra",
-    EventType.FACE: "Persona identificada: {valor}",
-    EventType.WEAPON: "ARMA DETECTADA: {valor}",
-    EventType.ANOMALY: "Movimiento súbito detectado",
-}
-
-
-def _titulo(evento: DetectionEvent, resultado: MatchResult) -> str:
-    """Titulo de la alerta tal como lo vera el operador.
-
-    Una coincidencia DIFUSA nunca debe titularse como si fuera un hecho. Decir
-    "Placa ABC-123 en lista negra" cuando en realidad se leyo "ABD-123" lleva a
-    actuar contra el vehiculo equivocado: el operador ve el titulo y reacciona,
-    no siempre lee el detalle. El titulo tiene que cargar la incertidumbre.
-    """
-    if resultado.match_kind == MatchKind.FUZZY:
-        return f"Posible placa {resultado.matched_value} (se leyó {evento.value})"
-    if evento.value == "persona_caida":
-        return "Posible persona caída"
-    etiqueta = resultado.matched_value or evento.value
-    return TITULOS.get(evento.type, "Detección {valor}").format(valor=etiqueta)
 
 
 def _ruta_captura(evento: DetectionEvent) -> Optional[str]:
@@ -162,27 +138,21 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult,
             dim=len(evento.embedding),
         ))
 
-    alerta = None
-    if resultado.severity != Severity.INFO:
-        detalle = resultado.reason or ""
-        color = evento.meta.get("color_vehiculo")
-        if evento.type == EventType.PLATE and color:
-            # Lo primero que pregunta quien sale a buscar el vehiculo.
-            detalle = f"{detalle} · Vehículo {color} (color aprox.)".lstrip(" ·")
-        alerta = Alert(
-            event_id=evento.event_id,
-            camera_id=evento.camera_id,
-            type=evento.type.value,
-            severity=resultado.severity.value,
-            title=_titulo(evento, resultado),
-            detail=detalle,
-            match_kind=resultado.match_kind.value,
-            match_score=resultado.score,
-            snapshot_path=captura,
-        )
+    alerta = nueva_alerta(evento, resultado, captura)
+    if alerta is not None:
         session.add(alerta)
 
     return fila, alerta
+
+
+# Lo que el dashboard muestra de un evento en vivo. El resto de `meta`
+# (lecturas de OCR, velocidades) se queda en la base de datos.
+_META_VISIBLE = ("color_vehiculo", "tipo_placa", "entidad", "pais", "zona", "direccion",
+                 "lectura_original")
+
+
+def _meta_para_dashboard(meta: Optional[dict]) -> dict:
+    return {k: meta[k] for k in _META_VISIBLE if meta and meta.get(k) is not None}
 
 
 def _latido(session: Session, camera_id: str, estado: Optional[dict] = None) -> None:
@@ -261,8 +231,7 @@ def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
                     "severity": resultado.severity.value,
                     "snapshot_path": fila.snapshot_path,
                     "observations": evento.observations,
-                    "meta": {"color_vehiculo": evento.meta.get("color_vehiculo")}
-                    if evento.meta.get("color_vehiculo") else {},
+                    "meta": _meta_para_dashboard(evento.meta),
                 },
                 alerta,
             ))
@@ -281,20 +250,7 @@ def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
             datos_alerta = None
             if alerta is not None:
                 session.refresh(alerta)
-                datos_alerta = {
-                    "id": alerta.id,
-                    "title": alerta.title,
-                    "detail": alerta.detail,
-                    "severity": alerta.severity,
-                    "type": alerta.type,
-                    "camera_id": alerta.camera_id,
-                    "event_id": alerta.event_id,
-                    "snapshot_path": alerta.snapshot_path,
-                    "match_kind": alerta.match_kind,
-                    "match_score": alerta.match_score,
-                    "status": alerta.status,
-                    "ts": datos_evento["ts"],
-                }
+                datos_alerta = mensaje_alerta(alerta, datos_evento["ts"])
             a_difundir.append((datos_evento, datos_alerta))
 
     respuesta = IngestResponse(accepted=aceptados, duplicates=duplicados, matches=resultados)

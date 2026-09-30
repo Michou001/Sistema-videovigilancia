@@ -21,7 +21,14 @@ from api.matching import lista_negra
 from api.models import BlacklistPlate, FechasEnUtc
 from api.retroactive import reescanear_placa
 from shared.fechas import a_utc
-from shared.plates import es_placa_valida, formatear, normalizar
+from shared.plates import (
+    analizar_placa,
+    corregir_placa,
+    es_placa_valida,
+    formatear,
+    limpiar,
+    normalizar,
+)
 
 log = logging.getLogger(__name__)
 
@@ -29,11 +36,13 @@ router = APIRouter(prefix="/api/blacklist/plates", tags=["lista negra"])
 
 
 class AltaPlaca(BaseModel):
-    plate: str = Field(min_length=4, max_length=15)
+    plate: str = Field(min_length=2, max_length=15)
     reason: str = Field(min_length=3, max_length=300)
     severity: str = Field(default="critical")
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
     expires_at: Optional[datetime] = None
+    extranjera: bool = Field(default=False,
+                             description="Placa no mexicana: no se valida contra los formatos de la NOM")
 
     @field_validator("severity")
     @classmethod
@@ -59,6 +68,18 @@ class PlacaLeida(FechasEnUtc, BaseModel):
     created_by: Optional[str]
     created_at: datetime
     expires_at: Optional[datetime]
+    extranjera: bool = False
+    tipo: Optional[str] = None
+    entidad: Optional[str] = None
+
+
+def _leida(registro: BlacklistPlate) -> PlacaLeida:
+    """El registro con su tipo y entidad, para que el administrador vea que
+    placa dio de alta ("Automovil particular de Jalisco")."""
+    info = analizar_placa(registro.plate, "United States" if registro.extranjera else None)
+    return PlacaLeida(**registro.model_dump(),
+                      tipo=info.tipo if info else None,
+                      entidad=info.entidad if info else None)
 
 
 @router.get("", response_model=list[PlacaLeida])
@@ -66,19 +87,30 @@ def listar(session: SesionBD, _: OperadorActual, incluir_inactivas: bool = False
     consulta = select(BlacklistPlate)
     if not incluir_inactivas:
         consulta = consulta.where(BlacklistPlate.active)
-    return session.exec(consulta.order_by(col(BlacklistPlate.created_at).desc())).all()
+    filas = session.exec(consulta.order_by(col(BlacklistPlate.created_at).desc())).all()
+    return [_leida(r) for r in filas]
 
 
 @router.post("", response_model=PlacaLeida, status_code=status.HTTP_201_CREATED)
 def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: BackgroundTasks,
             request: Request):
-    valida, limpio, _ = es_placa_valida(datos.plate)
+    limpio = limpiar(datos.plate)
+    if datos.extranjera:
+        valida = 2 <= len(limpio) <= 10
+    else:
+        valida, limpio, _ = es_placa_valida(datos.plate)
     if not valida:
+        # Se valida al dar de alta para que una placa mal escrita no quede en
+        # la lista sin coincidir nunca con nada. Si hay una correccion
+        # plausible, se sugiere: casi siempre es una O en vez de D o de 0.
+        corregida = None if datos.extranjera else corregir_placa(datos.plate)
+        sugerencia = f" ¿Quisiste decir {formatear(corregida[0])}?" if corregida else ""
+        prohibidas = (" Las placas vigentes no usan las letras I, Ñ, O ni Q."
+                      if any(c in limpio for c in "IOQ") else "")
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"'{datos.plate}' no tiene formato de placa mexicana válida. "
-            "Se valida al dar de alta para que una placa mal escrita no quede "
-            "en la lista sin coincidir nunca con nada.",
+            f"'{datos.plate}' no tiene formato de placa mexicana.{sugerencia}{prohibidas} "
+            "Si es de otro país, marca «placa extranjera».",
         )
 
     normalizada = normalizar(limpio)
@@ -99,6 +131,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         existente.severity = datos.severity
         existente.notes = datos.notes
         existente.expires_at = datos.expires_at
+        existente.extranjera = datos.extranjera
         existente.created_by = admin.username
         existente.created_at = datetime.now(timezone.utc)
         registrar(session, "lista_negra.reactivacion_placa", usuario=admin.username,
@@ -110,10 +143,11 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         lista_negra.invalidar()
         log.info("Placa %s reactivada en lista negra por %s", existente.plate, admin.username)
         tareas.add_task(reescanear_placa, existente)
-        return existente
+        return _leida(existente)
 
     registro = BlacklistPlate(
-        plate=formatear(limpio),
+        plate=limpio if datos.extranjera else formatear(limpio),
+        extranjera=datos.extranjera,
         plate_normalized=normalizada,
         reason=datos.reason,
         severity=datos.severity,
@@ -124,7 +158,8 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
     session.add(registro)
     registrar(session, "lista_negra.alta_placa", usuario=admin.username,
               objetivo=registro.plate, detalle={"motivo": datos.reason, "vence": datos.expires_at,
-                                                "severidad": datos.severity},
+                                                "severidad": datos.severity,
+                                                "extranjera": datos.extranjera},
               request=request)
     session.commit()
     session.refresh(registro)
@@ -133,7 +168,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
     # En segundo plano: si esta placa ya habia pasado antes de hoy, que el
     # operador se entere sin tener que acordarse de revisarlo el mismo.
     tareas.add_task(reescanear_placa, registro)
-    return registro
+    return _leida(registro)
 
 
 @router.delete("/{registro_id}", status_code=status.HTTP_204_NO_CONTENT)

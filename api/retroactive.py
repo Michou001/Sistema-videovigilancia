@@ -44,6 +44,7 @@ import numpy as np
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session, col, select
 
+from api.alertas import descripcion_vehiculo, mensaje
 from api.config import BASE_DIR, get_config
 from api.database import engine
 from api.hub import hub
@@ -79,23 +80,10 @@ def _hora_local(ts: datetime) -> str:
 
 
 def _mensaje_alerta(alerta: Alert, evento: Event) -> dict:
-    """Mismo formato que la alerta en vivo (ver api/routers/events.py), para
-    que el dashboard no necesite un caso especial: si el operador tiene la
-    pagina abierta, la ve aparecer igual que cualquier otra."""
-    return {
-        "id": alerta.id,
-        "title": alerta.title,
-        "detail": alerta.detail,
-        "severity": alerta.severity,
-        "type": alerta.type,
-        "camera_id": alerta.camera_id,
-        "event_id": alerta.event_id,
-        "snapshot_path": alerta.snapshot_path,
-        "match_kind": alerta.match_kind,
-        "match_score": alerta.match_score,
-        "status": alerta.status,
-        "ts": _en_utc(evento.ts).isoformat(),
-    }
+    """Mismo formato que la alerta en vivo (ver api/alertas.py), para que el
+    dashboard no necesite un caso especial: si el operador tiene la pagina
+    abierta, la ve aparecer igual que cualquier otra."""
+    return mensaje(alerta, _en_utc(evento.ts).isoformat())
 
 
 async def _difundir(mensajes: list[dict]) -> None:
@@ -142,9 +130,11 @@ def _reescanear_placa(ref: _Referencia) -> list[dict]:
                 type=evento.type,
                 severity=evento.severity,
                 title=f"Coincidencia retroactiva: placa {ref.valor}",
-                detail=(f"Esta placa ya había sido leída el {_hora_local(evento.ts)} "
-                        f"(track {evento.track_id}), antes de agregarse a la lista negra. "
-                        f"{ref.reason}"),
+                detail=" · ".join(p for p in [
+                    f"Esta placa ya había sido leída el {_hora_local(evento.ts)} "
+                    f"(track {evento.track_id}), antes de agregarse a la lista negra. {ref.reason}",
+                    descripcion_vehiculo(evento.meta),
+                ] if p),
                 match_kind=coincidencia.tipo,
                 match_score=coincidencia.score,
                 snapshot_path=evento.snapshot_path,

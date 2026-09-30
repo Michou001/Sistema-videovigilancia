@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared.plates import (  # noqa: E402
+    analizar_placa,
     buscar_coincidencia,
     corregir_placa,
     elegir_mejor_lectura,
@@ -34,7 +35,8 @@ def _caja(x, y, ancho, alto):
 # Correccion por posicion
 
 def test_lectura_valida_no_se_toca():
-    assert corregir_placa("ABC-123") == ("ABC123", "particular (3 letras + 3 digitos)", 0)
+    assert corregir_placa("ABC-123") == ("ABC123", "Automóvil (formato anterior)", 0)
+    assert corregir_placa("PZW-123-A") == ("PZW123A", "Automóvil particular", 0)
 
 
 def test_digito_en_posicion_de_letra():
@@ -49,15 +51,16 @@ def test_letra_en_posicion_de_digito():
 
 def test_formato_edomex():
     placa, formato, _ = corregir_placa("MNP 12B J")
-    assert placa == "MNP128J"
-    assert "Edomex" in formato
+    assert placa == "MNP128J" and formato == "Automóvil particular"
+    # La serie MNP esta dentro de LGA-PEZ, asignada al Estado de Mexico.
+    assert analizar_placa(placa).entidad == "Estado de México"
 
 
 def test_demasiadas_correcciones_se_rechaza():
-    # Ninguna plantilla de 6 caracteres encaja con menos de 3 correcciones:
-    # eso ya no es una placa mal leida.
-    assert corregir_placa("ZZZZZZ") is None
+    # Ninguna plantilla encaja sin cambiar la mitad de los caracteres: eso ya
+    # no es una placa mal leida.
     assert corregir_placa("SSSSSSS") is None
+    assert corregir_placa("ZZZZZZZZZ") is None
 
 
 def test_texto_sin_forma_de_placa():

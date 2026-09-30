@@ -32,6 +32,7 @@ from api.routers import (  # noqa: E402
     events,
     faces,
     media,
+    placas,
     preview,
     usuarios,
 )
@@ -141,6 +142,7 @@ app.include_router(alerts.router)
 app.include_router(preview.router)
 app.include_router(camera_setup.router)
 app.include_router(media.router)
+app.include_router(placas.router)
 
 
 @app.websocket("/ws/alerts")

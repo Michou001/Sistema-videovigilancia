@@ -16,7 +16,7 @@ accion('cerrar-admin', () => modal('modalAdmin', false));
 
 accion('pestana-admin', (el) => {
   document.querySelectorAll('#modalAdmin .pest').forEach((x) => x.classList.toggle('activa', x === el));
-  for (const tab of ['Usuarios', 'Bitacora']) {
+  for (const tab of ['Usuarios', 'Bitacora', 'Datos']) {
     $('tab' + tab).style.display = el.dataset.tab === tab.toLowerCase() ? 'block' : 'none';
   }
   if (el.dataset.tab === 'bitacora') cargarBitacora();

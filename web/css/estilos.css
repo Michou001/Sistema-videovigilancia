@@ -330,7 +330,7 @@ tr.nuevo { animation: entra 1.2s ease-out; }
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
          backdrop-filter: blur(2px);
          z-index: 60; place-items: center; padding: 20px; overflow-y: auto; }
-#modal .tarjeta { max-width: 460px; }
+#modal .tarjeta { max-width: 540px; }
 #modalCamaras .tarjeta { max-width: 620px; }
 .fila { display: flex; gap: 10px; align-items: center; padding: 9px 0;
         border-bottom: 1px solid var(--borde-sutil); font-size: 13px; }
@@ -440,3 +440,11 @@ td select { padding: 4px 8px; font-size: 12.5px; }
 .toast.ok .t { color: var(--ok); }
 #visor video { max-width: 100%; max-height: calc(100vh - 110px); border-radius: 6px;
                border: 1px solid var(--borde); background: #000; }
+.casilla, .campo label.casilla { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--tenue);
+           margin-top: 8px; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.casilla input { width: auto; accent-color: var(--acento); }
+.ayuda.ok { color: var(--ok); }
+.ayuda.mal { color: var(--aviso); }
+.placa-lista { display: flex; flex-direction: column; min-width: 120px; }
+.tipo-placa { font-size: 10.5px; color: var(--tenue); }
+#modalCorreccion .tarjeta { max-width: 460px; }
