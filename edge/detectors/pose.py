@@ -36,7 +36,7 @@ import numpy as np
 
 from edge.aceleracion import precision
 from edge.config import BASE_DIR
-from edge.detectors.base import Detector
+from edge.detectors.base import Detector, caja
 from edge.sources import FrameInfo
 from shared.events import BBox, DetectionEvent, EventType
 
@@ -317,6 +317,18 @@ class PoseDetector(Detector):
                     cv2.line(frame, (int(p.puntos[a][0]), int(p.puntos[a][1])),
                              (int(p.puntos[b][0]), int(p.puntos[b][1])), (255, 200, 0), 2)
         return frame
+
+    def cajas(self) -> list[dict]:
+        """El esqueleto de cada persona: puntos visibles (o null) para que el
+        navegador dibuje los huesos."""
+        salida = []
+        for p in self._personas.values():
+            if p.puntos is None:
+                continue
+            puntos =[[int(x), int(y)] if c >= CONF_PUNTO else None
+                      for (x, y), c in zip(p.puntos.tolist(), p.confianzas.tolist())]
+            salida.append(caja(p.caja, "", "#ffc800", "esqueleto", p=puntos))
+        return salida
 
     def cerrar(self) -> None:
         try:

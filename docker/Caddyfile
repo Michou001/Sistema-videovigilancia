@@ -1,0 +1,44 @@
+# Entrada unica al sistema: HTTPS, el dashboard y el video por WebRTC.
+#
+# SITIO es lo que se escribe en el navegador:
+#   - un dominio (vigilancia.miempresa.mx): certificado de Let's Encrypt
+#     automatico si el puerto 80/443 es alcanzable desde internet;
+#   - una IP de la red local (192.168.1.10) o "localhost": certificado de la CA
+#     interna de Caddy. El navegador avisa hasta que se instala la raiz de esa
+#     CA (docs/despliegue.md explica como).
+
+{$SITIO:localhost} {
+	encode zstd gzip
+
+	# go2rtc no tiene contrasena propia: solo pasa quien tiene sesion en el
+	# dashboard (la cookie del login), verificada por la API en cada peticion.
+	# Y SOLO la negociacion de WebRTC: el resto de su API (/api/streams,
+	# /api/config, el editor) muestra las URLs RTSP CON LA CONTRASENA de cada
+	# camara, y permite cambiarlas.
+	handle_path /go2rtc/* {
+		@webrtc {
+			method POST
+			path /api/webrtc
+		}
+		handle @webrtc {
+			forward_auth api:8000 {
+				uri /api/auth/verificar
+			}
+			reverse_proxy go2rtc:1984
+		}
+		handle {
+			respond 404
+		}
+	}
+
+	handle {
+		reverse_proxy api:8000 {
+			# MJPEG y SSE: entregar cada trozo en cuanto llega, sin acumular.
+			flush_interval -1
+		}
+	}
+
+	header {
+		-Server
+	}
+}

@@ -1,0 +1,14 @@
+# Ejemplo. El real se genera con los .env de las camaras:
+#     python tools/go2rtc_config.py --todas --ip 192.168.1.10
+# y queda en docker/go2rtc.yaml (fuera de git: lleva contrasenas).
+api:
+  listen: ":1984"          # solo dentro de la red de Docker: se publica por Caddy
+rtsp:
+  listen: ""               # no re-publicar las camaras por RTSP
+webrtc:
+  listen: ":8555"
+  candidates:
+    - 192.168.1.10:8555    # IP de esta PC en la red local
+streams:
+  # El nombre del stream = CAMERA_ID de la camara
+  cam-entrada: 'rtsp://usuario:contrasena@192.168.1.64:554/Streaming/Channels/102'

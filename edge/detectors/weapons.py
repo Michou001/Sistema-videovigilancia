@@ -41,7 +41,7 @@ import numpy as np
 
 from edge.aceleracion import precision
 from edge.config import BASE_DIR, EdgeConfig
-from edge.detectors.base import Detector
+from edge.detectors.base import Detector, caja
 from edge.detectors.confirmacion import ConfirmacionTemporal
 from edge.sources import FrameInfo
 from shared.events import BBox, DetectionEvent, EventType
@@ -241,6 +241,16 @@ class WeaponDetector(Detector):
             cv2.putText(frame, etiqueta, (x1, max(12, y1 - 6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
         return frame
+
+    def cajas(self) -> list[dict]:
+        salida = []
+        for tid, datos in self._ultima_deteccion.items():
+            confirmado = self.confirmador.ya_alertado(tid)
+            aciertos, _ = self.confirmador.progreso(tid)
+            texto = (f"{NOMBRES_ES.get(datos['etiqueta'], datos['etiqueta'])} "
+                     f"{aciertos}/{self.cfg.weapon_confirm_hits}")
+            salida.append(caja(datos["bbox"], texto, "#ef4444" if confirmado else "#facc15", "arma"))
+        return salida
 
     @property
     def stats(self) -> dict[str, Any]:

@@ -21,6 +21,7 @@ un frame hace falta vive aqui, no repartida por el bucle de captura.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -57,11 +58,16 @@ class PreviewPublisher:
         )
 
         self._buzon: Optional[np.ndarray] = None
+        self._buzon_pistas: Optional[dict] = None
         self._lock = threading.Lock()
         self._hay_frame = threading.Event()
         self._parar = threading.Event()
 
         self._espectadores = 0
+        # Quienes miran por WebRTC (go2rtc) no piden JPEG: piden solo las
+        # cajas, por su propio canal y con su propia cuenta de espectadores.
+        self._espectadores_pistas = 0
+        self._ultimo_pistas = 0.0
         self._ultimo_tomado = 0.0
         self._enviados = 0
         self._descartados = 0
@@ -110,6 +116,23 @@ class PreviewPublisher:
             self._buzon = frame
         self._hay_frame.set()
 
+    def quiere_pistas(self) -> bool:
+        """Igual que quiere_frame(), para las cajas en JSON."""
+        if self._parar.is_set():
+            return False
+        ahora = time.monotonic()
+        if self._espectadores_pistas == 0:
+            return (ahora - self._ultimo_pistas) >= SONDEO_SIN_ESPECTADORES
+        return not self.intervalo or (ahora - self._ultimo_pistas) >= self.intervalo
+
+    def publicar_pistas(self, datos: dict) -> None:
+        if self._parar.is_set():
+            return
+        self._ultimo_pistas = time.monotonic()
+        with self._lock:
+            self._buzon_pistas = datos
+        self._hay_frame.set()
+
     def cerrar(self) -> None:
         self._parar.set()
         self._hay_frame.set()
@@ -122,6 +145,7 @@ class PreviewPublisher:
             "enviados": self._enviados,
             "descartados": self._descartados,
             "espectadores": self._espectadores,
+            "espectadores_webrtc": self._espectadores_pistas,
             "fallos": self._fallos,
         }
 
@@ -140,14 +164,26 @@ class PreviewPublisher:
             self._hay_frame.clear()
 
             with self._lock:
-                frame = self._buzon
-                self._buzon = None
+                frame, self._buzon = self._buzon, None
+                pistas, self._buzon_pistas = self._buzon_pistas, None
+            if pistas is not None:
+                self._subir_pistas(pistas)
             if frame is None:
                 continue
 
             jpeg = self._codificar(frame)
             if jpeg is not None:
                 self._subir(jpeg)
+
+    def _subir_pistas(self, datos: dict) -> None:
+        try:
+            r = self._cliente.post(f"{self.url}/pistas", content=json.dumps(datos, separators=(",", ":")),
+                                   headers={"Content-Type": "application/json"})
+            r.raise_for_status()
+            self._espectadores_pistas = int(r.json().get("espectadores", 0))
+        except Exception as e:  # noqa: BLE001
+            self._espectadores_pistas = 0
+            log.debug("Preview: no se pudieron enviar las cajas: %s", e)
 
     def _codificar(self, frame: np.ndarray) -> Optional[bytes]:
         try:

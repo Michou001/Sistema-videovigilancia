@@ -36,7 +36,7 @@ import numpy as np
 
 from edge.aceleracion import precision
 from edge.config import BASE_DIR, EdgeConfig
-from edge.detectors.base import Detector, Pista
+from edge.detectors.base import NOMBRES_OBJETO, Detector, Pista, caja
 from edge.detectors.confirmacion import ConfirmacionTemporal
 from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
@@ -249,6 +249,19 @@ class MotionAnomalyDetector(Detector):
 
     def pistas(self) -> list[Pista]:
         return list(self._pistas)
+
+    def cajas(self) -> list[dict]:
+        salida = []
+        for p in self._pistas:
+            if p.clase != "persona":
+                salida.append(caja(p.bbox, f"{NOMBRES_OBJETO.get(p.etiqueta, 'vehículo')} #{p.tid}",
+                                   "#38bdf8", "vehiculo"))
+                continue
+            datos = self._ultima_deteccion.get(p.tid, {})
+            alerta = self.confirmador.ya_alertado(p.tid)
+            texto = f"#{p.tid} {datos.get('velocidad', 0.0):.1f} alt/s"
+            salida.append(caja(p.bbox, texto, "#ff8c00" if alerta else "#c8c8c8", "persona"))
+        return salida
 
     @staticmethod
     def _salto_del_tracker(previa: tuple, actual: tuple) -> bool:
