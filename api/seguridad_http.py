@@ -19,11 +19,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-# Origenes externos de los que el dashboard carga codigo o recursos. Todos con
-# version fija en el HTML. Si la red de las camaras no tiene internet, la
-# pagina funciona igual (sin iconos ni mapa de calles).
-CDN_SCRIPTS = ("https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com")
-CDN_ESTILOS = ("https://cdnjs.cloudflare.com",)
+# El dashboard NO carga codigo de ningun CDN: las librerias (iconos, mapa) van
+# en web/vendor/ con version fija. Asi funciona en una red de camaras sin
+# internet y un CDN comprometido no puede inyectar codigo en la pagina del
+# operador. Lo unico externo son los mosaicos del mapa de calles (imagenes),
+# y solo si hay internet; sin el, el mapa muestra las camaras sobre fondo liso.
+CDN_SCRIPTS: tuple[str, ...] = ()
+CDN_ESTILOS: tuple[str, ...] = ()
 MOSAICOS_MAPA = ("https://tile.openstreetmap.org", "https://*.tile.openstreetmap.org")
 
 
@@ -34,10 +36,10 @@ def politica_csp(host: str, extra_connect: Iterable[str] = ()) -> str:
     conexiones += list(extra_connect)
     return "; ".join([
         "default-src 'self'",
-        f"script-src 'self' {' '.join(CDN_SCRIPTS)}",
+        " ".join(["script-src 'self'", *CDN_SCRIPTS]),
         # 'unsafe-inline' SOLO en estilos: el HTML usa atributos style="" para
         # detalles de maquetacion. Un estilo inyectado no ejecuta codigo.
-        f"style-src 'self' 'unsafe-inline' {' '.join(CDN_ESTILOS)}",
+        " ".join(["style-src 'self' 'unsafe-inline'", *CDN_ESTILOS]),
         f"img-src 'self' data: blob: {' '.join(MOSAICOS_MAPA)}",
         "media-src 'self' blob:",
         f"connect-src {' '.join(conexiones)}",

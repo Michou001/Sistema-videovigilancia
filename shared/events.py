@@ -213,6 +213,8 @@ class MatchResult(BaseModel):
         description="Similitud coseno (rostros) o distancia de edicion normalizada (placas)",
     )
     reason: Optional[str] = Field(default=None, description="Explicacion legible para el operador")
+    titulo: Optional[str] = Field(
+        default=None, description="Titulo de la alerta cuando la regla lo decide (zonas, camara)")
 
 
 class EventoRechazado(BaseModel):

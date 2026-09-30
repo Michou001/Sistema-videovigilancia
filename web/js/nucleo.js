@@ -198,8 +198,12 @@ export function valorLegible(ev) {
 
 export function colorTexto(ev) {
   const partes = [];
-  if (ev.meta && ev.meta.tipo_placa) partes.push(escapar(ev.meta.tipo_placa));
-  if (ev.meta && ev.meta.pais && ev.meta.pais !== 'México') partes.push('placa de ' + escapar(ev.meta.pais));
+  if (ev.meta && ev.meta.tipo_placa && ev.meta.tipo_placa !== 'Placa extranjera') {
+    partes.push(escapar(ev.meta.tipo_placa) + (ev.meta.entidad ? ' de ' + escapar(ev.meta.entidad) : ''));
+  }
+  if (ev.meta && ev.meta.pais && ev.meta.pais !== 'México') {
+    partes.push(ev.meta.pais === 'Extranjera' ? 'placa extranjera' : 'placa de ' + escapar(ev.meta.pais));
+  }
   if (ev.meta && ev.meta.color_vehiculo) partes.push('vehículo ' + escapar(ev.meta.color_vehiculo));
   return partes.length ? ' · ' + partes.join(' · ') : '';
 }

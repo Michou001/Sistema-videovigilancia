@@ -138,6 +138,13 @@ class Event(EnUtc, table=True):
 
     meta_json: Optional[str] = None
 
+    corregido: bool = Field(
+        default=False, index=True,
+        description="Un operador corrigio la lectura. Es verdad de campo para "
+                    "reentrenar el OCR, asi que se conserva mas tiempo "
+                    "(RETENCION_CORREGIDOS_DIAS).",
+    )
+
     @property
     def meta(self) -> dict:
         return json.loads(self.meta_json) if self.meta_json else {}
@@ -185,6 +192,7 @@ class BlacklistPlate(EnUtc, table=True):
     severity: str = Field(default="critical")
     notes: Optional[str] = None
     active: bool = Field(default=True, index=True)
+    extranjera: bool = Field(default=False, description="Placa no mexicana (EUA, Canada...)")
 
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)

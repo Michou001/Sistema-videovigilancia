@@ -28,6 +28,7 @@ import { conectarWs, desconectarWs } from './tiempo_real.js';
 import './camaras.js';
 import './admin.js';
 import './evidencia.js';
+import './placas.js';
 
 iconos();
 
@@ -209,6 +210,7 @@ escuchar('ws:alert', (a) => {
 });
 
 escuchar('ws:alert_resolved', () => { cargarAlertas(); pedirStats(); });
+escuchar('lectura-corregida', () => { cargarEventos().catch(() => {}); pedirStats(); });
 escuchar('ws:alert_updated', (a) => agregarAlerta(a));
 escuchar('ws:camera_status', pedirStats);
 

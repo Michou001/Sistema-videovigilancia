@@ -33,6 +33,19 @@ export function agregarEvento(ev, nuevo = false) {
     img.onerror = () => img.remove();
     celda.append(img);
   }
+  if (ev.type === 'plate' && ev.event_id && puede('operator')) {
+    // El operador corrige una lectura mirando la foto: la busqueda la
+    // encuentra, se vuelve a cruzar con la lista negra y queda como dato
+    // para reentrenar el OCR con placas mexicanas.
+    const b = document.createElement('button');
+    b.className = 'icono-fila';
+    b.title = 'Corregir la lectura de esta placa';
+    b.dataset.accion = 'corregir-placa';
+    b.dataset.evento = ev.event_id;
+    b.dataset.valor = ev.value;
+    b.innerHTML = '<i data-lucide="pencil-line"></i>';
+    celda.append(b);
+  }
   const tbody = $('tablaEventos');
   if (nuevo) tbody.prepend(tr); else tbody.append(tr);
   while (tbody.children.length > 300) tbody.lastChild.remove();

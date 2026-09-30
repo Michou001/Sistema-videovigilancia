@@ -59,6 +59,10 @@ class Politica:
         self.embeddings = dias("RETENCION_EMBEDDINGS_DIAS", 7)
         """Plazo maximo de un embedding que SI coincidio. Los que no coinciden
         no llegan a guardarse (ver guardar_embedding en routers/events.py)."""
+        self.corregidos = dias("RETENCION_CORREGIDOS_DIAS", 180)
+        """Lecturas de placa que un operador corrigio: son la verdad de campo
+        para reentrenar el OCR con placas mexicanas (tools/exportar_dataset.py)
+        y viven mas que un evento normal. Solo placas, nunca rostros."""
         self.auditoria = dias("RETENCION_AUDITORIA_DIAS", 730)
         """La bitacora vive mas que las alertas: sirve para responder, tiempo
         despues, quien vio o cambio que. 0 = no se purga nunca."""
@@ -66,6 +70,7 @@ class Politica:
     def resumen(self) -> str:
         return (f"fotos {self.fotos_eventos}d | eventos {self.eventos_info}d | "
                 f"alertas {self.alertas}d | embeddings {self.embeddings}d | "
+                f"corregidos {self.corregidos}d | "
                 f"bitacora {self.auditoria or 'sin limite'}d")
 
 
@@ -120,6 +125,7 @@ def purgar(session: Session, politica: Politica | None = None,
     con_foto = session.exec(
         select(Event).where(
             Event.severity == "info",
+            col(Event.corregido).is_(False),
             col(Event.snapshot_path).is_not(None),
             col(Event.ts) < _antes_de(politica.fotos_eventos),
         )
@@ -134,7 +140,16 @@ def purgar(session: Session, politica: Politica | None = None,
     antiguos = session.exec(
         select(Event).where(
             Event.severity == "info",
+            col(Event.corregido).is_(False),
             col(Event.ts) < _antes_de(politica.eventos_info),
+        )
+    ).all()
+    # Las lecturas corregidas por un operador tienen su propio plazo.
+    antiguos += session.exec(
+        select(Event).where(
+            Event.severity == "info",
+            col(Event.corregido).is_(True),
+            col(Event.ts) < _antes_de(politica.corregidos),
         )
     ).all()
     cuenta["eventos"] = len(antiguos)

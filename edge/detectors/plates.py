@@ -37,11 +37,16 @@ from edge.sources import FrameInfo
 from edge.tracking import Deteccion, IoUTracker, Track
 from shared.events import BBox, DetectionEvent, EventType
 from shared.plates import (
+    analizar_placa,
     elegir_mejor_lectura,
+    es_formato_frecuente,
     es_placa_valida,
     formatear,
     lecturas_de_ocr,
+    limpiar,
+    nombre_pais,
     normalizar,
+    pais_por_votos,
 )
 
 log = logging.getLogger(__name__)
@@ -236,13 +241,22 @@ class PlateDetector(Detector):
 
         t0 = time.perf_counter()
         try:
-            texto, conf = self._leer(recorte)
+            texto, conf, region, prob_region = self._leer(recorte)
         except Exception as e:  # noqa: BLE001 - un OCR fallido no debe tumbar el worker
             log.warning("OCR fallo en track %d: %s", track.track_id, e)
             return False
         self._ms_ocr += (time.perf_counter() - t0) * 1000
         self._ocr_ejecutados += 1
         track.state["ocr_hechos"] = track.state.get("ocr_hechos", 0) + 1
+
+        # Pais que reconoce el OCR (modelos v2) y la lectura SIN ajustar al
+        # formato mexicano: si el vehiculo resulta ser de Texas, el evento se
+        # arma con estas y no con las "corregidas" a una placa mexicana.
+        if conf >= self.cfg.ocr_conf:
+            track.state.setdefault("regiones", []).append((region, prob_region * conf))
+            crudo = limpiar(texto)
+            if crudo:
+                track.state.setdefault("crudas", []).append((crudo, conf))
 
         # El OCR devuelve la placa completa en un solo texto; la caja es la del
         # recorte entero. Pasa por la misma correccion por posicion y el mismo
@@ -260,9 +274,11 @@ class PlateDetector(Detector):
                 track.state["color"] = color_vehiculo(frame, (x1, y1, x2, y2))
         return True
 
-    def _leer(self, recorte: np.ndarray) -> tuple[str, float]:
-        """Texto de la placa y su confianza (el promedio de la de cada caracter,
-        asi un solo caracter dudoso baja la confianza de toda la lectura)."""
+    def _leer(self, recorte: np.ndarray) -> tuple[str, float, Optional[str], float]:
+        """Texto de la placa, su confianza (el promedio de la de cada caracter,
+        asi un solo caracter dudoso baja la confianza de toda la lectura), y el
+        pais que reconoce el modelo con su probabilidad (None si el modelo no
+        tiene esa salida)."""
         if self._ocr_color == "grayscale":
             entrada = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
         elif self._ocr_color == "rgb":
@@ -273,11 +289,14 @@ class PlateDetector(Detector):
         texto = (pred.plate or "").replace("_", "")
         probs = np.asarray(pred.char_probs if pred.char_probs is not None else [0.0], dtype=np.float32)
         probs = probs[: max(1, len(texto))]
-        return texto, float(probs.mean()) if probs.size else 0.0
+        region = getattr(pred, "region", None)
+        prob_region = float(getattr(pred, "region_prob", None) or (1.0 if region else 0.0))
+        return texto, float(probs.mean()) if probs.size else 0.0, region, prob_region
 
     # -- Construccion del evento -------------------------------------------
 
-    def _recorte_hd_o_normal(self, track: Track) -> Optional[np.ndarray]:
+    def _recorte_hd_o_normal(self, track: Track
+                             ) -> tuple[Optional[np.ndarray], tuple[float, float, float, float]]:
         """Si ya llego la foto HD pedida durante el track, recorta la misma
         region (escalada) de ahi en vez de usar el recorte de baja resolucion.
 
@@ -287,20 +306,28 @@ class PlateDetector(Detector):
         texto ya leido -- el OCR ya corrio sobre el recorte normal -- esto
         solo mejora que tan clara se ve la evidencia guardada.
         """
+        completo = (0.0, 0.0, 1.0, 1.0)
         frame_hd = SnapshotHD.resultado_listo(track.state.get("hd_future"))
         bbox_bajo = track.state.get("bbox_bajo")
         if frame_hd is None or frame_hd.size == 0 or bbox_bajo is None:
-            return track.state.get("recorte")
+            return track.state.get("recorte"), completo
 
         x1, y1, x2, y2 = escalar_bbox(bbox_bajo, self._forma_frame, frame_hd.shape[:2], margen=0.3)
         if x2 <= x1 or y2 <= y1:
-            return track.state.get("recorte")
+            return track.state.get("recorte"), completo
         recorte_hd = frame_hd[y1:y2, x1:x2]
         if recorte_hd.size == 0:
-            return track.state.get("recorte")
+            return track.state.get("recorte"), completo
 
+        # Donde queda la placa DENTRO de la evidencia (fraccion del ancho y
+        # alto): la foto lleva margen para el operador, pero el dataset para
+        # reentrenar el OCR necesita el recorte justo de la placa.
+        px1, py1, px2, py2 = escalar_bbox(bbox_bajo, self._forma_frame, frame_hd.shape[:2], margen=0.0)
+        ancho, alto = x2 - x1, y2 - y1
+        caja = (round((px1 - x1) / ancho, 4), round((py1 - y1) / alto, 4),
+                round((px2 - x1) / ancho, 4), round((py2 - y1) / alto, 4))
         self._hd_usados += 1
-        return recorte_hd
+        return recorte_hd, caja
 
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
         """Consolida un track terminado en un unico evento."""
@@ -312,14 +339,44 @@ class PlateDetector(Detector):
             log.debug("Track %d descartado: sin lecturas de OCR", track.track_id)
             return None
 
-        elegida = elegir_mejor_lectura(lecturas)
-        if elegida is None:
-            return None
-        texto, conf_ocr = elegida
+        # Pais segun el OCR, votado entre todas las lecturas del vehiculo.
+        region = pais_por_votos(track.state.get("regiones", []), minimo=0.75)
+        pais = nombre_pais(region)
 
-        valida, limpio, formato = es_placa_valida(texto)
-        if not valida:
-            log.debug("Track %d: '%s' no tiene formato de placa", track.track_id, texto)
+        elegida = elegir_mejor_lectura(lecturas)
+        valida = elegida is not None and es_placa_valida(elegida[0])[0]
+        if valida:
+            # Una lectura con formato mexicano valido SIEMPRE se trata como
+            # mexicana, diga lo que diga el OCR del pais: medido con placas
+            # mexicanas, el modelo contesta "United States" con frecuencia
+            # (fondo blanco, letras negras). El pais solo sirve para lo de abajo.
+            texto, conf_ocr = elegida
+            limpio = limpiar(texto)
+            info = analizar_placa(limpio)
+            if info is not None and not es_formato_frecuente(limpio) and conf_ocr < 0.85:
+                # Formatos raros (auto antiguo, demostracion...) atrapan lecturas
+                # malas de placas comunes: "PZW-123-A" mal leida como
+                # "6ZW123" encaja en demostracion. Solo cuentan si la lectura
+                # es muy segura.
+                log.debug("Track %d: '%s' (%s) con confianza %.2f, se descarta",
+                          track.track_id, texto, info.tipo, conf_ocr)
+                return None
+        elif pais and pais != "México":
+            # Sin formato mexicano, pero el OCR reconoce con claridad otra placa
+            # (una de Texas en una ciudad fronteriza): antes se descartaba. Se
+            # reporta la lectura tal cual, SIN ajustarla a formatos mexicanos.
+            crudas = [(t, c) for t, c in track.state.get("crudas", []) if 2 <= len(t) <= 10]
+            elegida = elegir_mejor_lectura(crudas)
+            if elegida is None:
+                return None
+            texto, conf_ocr = elegida
+            limpio = limpiar(texto)
+            info = analizar_placa(limpio, region)
+        else:
+            log.debug("Track %d: '%s' no tiene formato de placa", track.track_id,
+                      elegida[0] if elegida else "")
+            return None
+        if info is None:
             return None
 
         # Red de seguridad contra duplicados por track roto (ver plate_dedupe_s).
@@ -341,7 +398,7 @@ class PlateDetector(Detector):
             camera_id=self.cfg.camera_id,
             type=EventType.PLATE,
             track_id=track.track_id,
-            value=formatear(limpio),
+            value=info.legible,
             confidence=round(conf_ocr, 4),
             bbox=BBox(x1=int(track.bbox[0]), y1=int(track.bbox[1]),
                       x2=int(track.bbox[2]), y2=int(track.bbox[3])),
@@ -350,16 +407,19 @@ class PlateDetector(Detector):
             last_seen=_a_utc(track.last_seen),
             ts=_a_utc(track.last_seen),
             meta={
-                "formato": formato,
+                "formato": info.tipo,
+                **info.como_meta(),
                 "conf_deteccion": round(track.confidence, 4),
-                "lecturas_ocr": [[t, round(c, 3)] for t, c in lecturas],
+                "lecturas_ocr": [[t, round(c, 3)] for t, c in lecturas][:20],
                 "texto_crudo": texto,
                 "color_vehiculo": track.state.get("color"),
+                "pais_ocr": pais,
             },
         )
 
-        recorte = self._recorte_hd_o_normal(track)
+        recorte, caja_placa = self._recorte_hd_o_normal(track)
         if recorte is not None:
+            evento.meta["placa_en_evidencia"] = list(caja_placa)
             ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
             cv2.imwrite(str(ruta), recorte)
             # .as_posix() y no str(): en Windows str() da "data\snapshots\x.jpg",

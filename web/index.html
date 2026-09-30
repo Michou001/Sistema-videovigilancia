@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GOSS IP</title>
 <link rel="icon" type="image/png" href="/static/img/logo-icon.png">
-<!-- Lucide: iconos SVG, iguales en cualquier sistema operativo. Version fija:
-     con @latest una version nueva podia renombrar iconos sin aviso. Si el CDN
-     no carga (red de camaras sin internet), el panel sigue funcionando sin
-     iconos en vez de quedar en blanco. -->
-<script src="https://cdn.jsdelivr.net/npm/lucide@1.48.0/dist/umd/lucide.min.js"></script>
+<!-- Lucide 1.48.0 (licencia ISC): iconos SVG, iguales en cualquier sistema
+     operativo. Va DENTRO del proyecto (web/vendor/) y no desde un CDN: en una
+     red de camaras sin internet los botones que solo tienen icono (corregir,
+     contrasena, editar camara) quedaban invisibles. -->
+<script src="/static/vendor/lucide.min.js"></script>
 <link rel="stylesheet" href="/static/css/estilos.css">
 <!-- Sin JavaScript en linea (ni <script> ni onclick=""): la politica de
      seguridad del servidor lo prohibe. Toda la logica vive en /static/js. -->
@@ -195,7 +195,9 @@
         <div class="campo">
           <label for="nuevaPlaca">Placa</label>
           <input id="nuevaPlaca" placeholder="ABC-123-A" required autocomplete="off">
-          <div class="ayuda">Cualquier formato mexicano vigente o anterior (particular, camión, moto, remolque, CDMX…).</div>
+          <div class="ayuda" id="ayudaPlaca" aria-live="polite"></div>
+          <label class="casilla"><input type="checkbox" id="placaExtranjera"> Placa extranjera (EUA, Canadá…)</label>
+          <div class="ayuda">Cualquier formato mexicano vigente o anterior: particular, camión, moto, remolque, taxi, CDMX, federal…</div>
         </div>
         <div class="campo">
           <label for="motivo">Motivo</label>
@@ -342,6 +344,7 @@
     <div class="pestanas">
       <button class="pest activa" data-accion="pestana-admin" data-tab="usuarios" type="button"><i data-lucide="users"></i>Usuarios</button>
       <button class="pest" data-accion="pestana-admin" data-tab="bitacora" type="button"><i data-lucide="scroll-text"></i>Bitácora</button>
+      <button class="pest" data-accion="pestana-admin" data-tab="datos" type="button"><i data-lucide="database"></i>Reentrenamiento</button>
       <span class="crece"></span>
       <button class="sec" type="button" data-accion="cerrar-admin"><i data-lucide="x"></i>Cerrar</button>
     </div>
@@ -393,7 +396,48 @@
         </table>
       </div>
     </div>
+
+    <div id="tabDatos" style="display:none">
+      <p class="sub">
+        El OCR de placas se entrenó con placas de muchos países. Lo que más lo mejora aquí son
+        <strong>placas mexicanas de estas mismas cámaras</strong>. Cada vez que un operador corrige una
+        lectura en el Registro (lápiz en la fila), esa placa queda como dato de entrenamiento.
+      </p>
+      <label class="casilla"><input type="checkbox" id="dsAutomaticas">
+        Incluir también lecturas automáticas muy seguras (≥ 90% y ≥ 5 frames). Dan volumen pero pueden traer errores.</label>
+      <button type="button" data-accion="descargar-dataset" style="margin-top:12px">
+        <i data-lucide="download"></i>Descargar dataset de placas (.zip)</button>
+      <div class="ayuda" id="estadoDataset" style="margin-top:8px"></div>
+      <p class="sub" style="margin-top:16px">
+        El ZIP trae <span class="mono">anotaciones.csv</span> en el formato de fast-plate-ocr y un LEEME con los pasos
+        para afinar el modelo. Son placas reales: la descarga queda en la bitácora; guárdalo cifrado.
+      </p>
+    </div>
   </div>
+</div>
+
+<!-- ============ MODAL CORRECCION DE LECTURA ============ -->
+<div id="modalCorreccion" class="modal-overlay">
+  <form class="tarjeta" id="formCorreccion">
+    <div class="pestanas">
+      <span style="font-weight:700;display:flex;align-items:center;gap:8px">
+        <i data-lucide="pencil-line"></i>Corregir lectura
+      </span>
+      <span class="crece"></span>
+      <button class="sec" type="button" data-accion="cerrar-correccion"><i data-lucide="x"></i></button>
+    </div>
+    <p class="sub">El sistema leyó <strong class="mono" id="corOriginal"></strong>. Escribe la placa como se ve en la foto.
+      Se volverá a comparar con la lista negra.</p>
+    <input type="hidden" id="corEvento">
+    <div class="campo">
+      <label for="corValor">Placa correcta</label>
+      <input id="corValor" required maxlength="20" autocomplete="off" class="mono">
+      <div class="ayuda" id="corAyuda" aria-live="polite"></div>
+      <label class="casilla"><input type="checkbox" id="corExtranjera"> Placa extranjera</label>
+    </div>
+    <button type="submit"><i data-lucide="save"></i>Guardar corrección</button>
+    <div class="error" id="errorCorreccion"></div>
+  </form>
 </div>
 
 <!-- ============ MODAL CAMBIO DE CONTRASENA ============ -->

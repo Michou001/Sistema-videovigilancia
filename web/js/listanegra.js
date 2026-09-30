@@ -2,6 +2,9 @@
 
 import { $, accion, api, escapar, iconos, modal } from './nucleo.js';
 import { confirmar } from './avisos.js';
+import { validarEnVivo } from './placas.js';
+
+validarEnVivo($('nuevaPlaca'), $('ayudaPlaca'), $('placaExtranjera'));
 
 accion('abrir-lista-negra', async () => {
   modal('modal', true);
@@ -29,9 +32,11 @@ export async function cargarPlacas() {
           : vencida ? '<span style="color:var(--critico);font-size:11px">vencida</span>'
           : `<span style="color:var(--tenue);font-size:11px">hasta ${new Date(p.expires_at)
               .toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>`;
+        const tipo = p.tipo
+          ? `<span class="tipo-placa">${escapar(p.tipo)}${p.entidad ? ' · ' + escapar(p.entidad) : ''}</span>` : '';
         return `
         <div class="fila">
-          <strong class="mono">${escapar(p.plate)}</strong>
+          <span class="placa-lista"><strong class="mono">${escapar(p.plate)}</strong>${tipo}</span>
           <span class="crece" style="color:var(--tenue)">${escapar(p.reason)}</span>
           ${vigencia}
           <button class="peligro chico" data-accion="quitar-placa" data-id="${Number(p.id)}"
@@ -51,10 +56,13 @@ $('formPlaca').addEventListener('submit', async (e) => {
   try {
     const r = await api('/api/blacklist/plates', {
       method: 'POST',
-      body: JSON.stringify({ plate: $('nuevaPlaca').value, reason: $('motivo').value, expires_at: vence }),
+      body: JSON.stringify({ plate: $('nuevaPlaca').value, reason: $('motivo').value, expires_at: vence,
+                             extranjera: $('placaExtranjera').checked }),
     });
     $('nuevaPlaca').value = '';
     $('motivo').value = '';
+    $('placaExtranjera').checked = false;
+    $('ayudaPlaca').textContent = '';
     confirmar(`Placa ${r.plate} agregada`);
     await cargarPlacas();
   } catch (err) {
