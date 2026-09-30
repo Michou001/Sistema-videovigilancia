@@ -130,7 +130,8 @@ class PlateDetector(Detector):
                  cfg.plate_detector_model, cfg.plate_ocr_model, proveedores[0])
 
         self.tracker = IoUTracker(iou_min=0.25, max_age=16, min_hits=3)
-        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel)             if cfg.snapshot_hd_enabled else None
+        self.snapshot_hd = (SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel)
+                            if cfg.snapshot_hd_enabled else None)
 
         self._frame_idx = 0
         self._ocr_ejecutados = 0
@@ -249,11 +250,11 @@ class PlateDetector(Detector):
         alto_r, ancho_r = recorte.shape[:2]
         caja = [[0, 0], [ancho_r, 0], [ancho_r, alto_r], [0, alto_r]]
         lecturas: list = track.state.setdefault("lecturas", [])
-        for texto, conf in lecturas_de_ocr([(caja, texto, conf)], min_conf=self.cfg.ocr_conf):
-            lecturas.append((texto, conf))
+        for lectura, conf_lectura in lecturas_de_ocr([(caja, texto, conf)], min_conf=self.cfg.ocr_conf):
+            lecturas.append((lectura, conf_lectura))
             # Guarda el recorte de la lectura mas confiable como evidencia
-            if conf > track.state.get("mejor_conf", 0.0):
-                track.state["mejor_conf"] = conf
+            if conf_lectura > track.state.get("mejor_conf", 0.0):
+                track.state["mejor_conf"] = conf_lectura
                 track.state["recorte"] = recorte.copy()
                 track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
                 track.state["color"] = color_vehiculo(frame, (x1, y1, x2, y2))

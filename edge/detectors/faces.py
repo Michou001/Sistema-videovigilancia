@@ -33,12 +33,12 @@ warnings.filterwarnings("ignore", message=r".*SimilarityTransform\.from_estimate
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from edge.config import BASE_DIR, EdgeConfig
-from edge.detectors.base import Detector
-from edge.snapshot_hd import SnapshotHD, escalar_bbox
-from edge.sources import FrameInfo
-from edge.tracking import Deteccion, IoUTracker, Track
-from shared.events import BBox, DetectionEvent, EventType
+from edge.config import BASE_DIR, EdgeConfig  # noqa: E402
+from edge.detectors.base import Detector  # noqa: E402
+from edge.snapshot_hd import SnapshotHD, escalar_bbox  # noqa: E402
+from edge.sources import FrameInfo  # noqa: E402
+from edge.tracking import Deteccion, IoUTracker, Track  # noqa: E402
+from shared.events import BBox, DetectionEvent, EventType  # noqa: E402
 
 log = logging.getLogger(__name__)
 

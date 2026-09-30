@@ -1,0 +1,44 @@
+# Versiones EXACTAS con las que se probo el sistema y con las que corre la
+# integracion continua. Se usa junto con requirements.txt:
+#
+#     pip install -r requirements.txt -c constraints.txt
+#
+# Un archivo de restricciones no instala nada por si solo: solo fija la
+# version de los paquetes que otro archivo pide. Para actualizar, sube la
+# version aqui, corre `python tests/correr_todas.py` y, si pasa, confirma.
+#
+# No fija torch, ultralytics, insightface ni numpy: dependen de la GPU y del
+# CUDA de cada maquina (ver la cabecera de requirements.txt).
+
+# --- Plataforma web ----------------------------------------------------------
+fastapi==0.142.1
+starlette==1.7.0
+uvicorn==0.54.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+sqlmodel==0.0.47
+SQLAlchemy==2.0.54
+alembic==1.20.0
+Mako==1.4.3
+python-multipart==0.0.32
+bcrypt==5.0.0
+PyJWT==2.15.1
+httpx==0.28.1
+httpcore==1.0.9
+anyio==4.15.1
+h11==0.16.0
+websockets==17.1
+cryptography==50.0.1
+PyYAML==6.0.3
+psutil==7.2.2
+typing_extensions==4.16.0
+
+# --- Lectura de placas -------------------------------------------------------
+fast-alpr==0.4.0
+fast-plate-ocr==1.1.0
+open-image-models==0.6.0
+opencv-python==4.14.0.94
+opencv-python-headless==4.14.0.94
+
+# --- Desarrollo --------------------------------------------------------------
+ruff==0.16.9

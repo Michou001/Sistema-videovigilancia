@@ -10,5 +10,7 @@ if not exist "%VENV_PY%" (
     exit /b 1
 )
 
-"%VENV_PY%" -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+REM python -m api lee API_HOST, API_PORT y, si estan, SSL_CERTFILE/SSL_KEYFILE
+REM del .env para servir por HTTPS (ver tools\generar_certificado.py).
+"%VENV_PY%" -m api
 pause

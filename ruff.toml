@@ -1,0 +1,25 @@
+# Configuracion del linter (ruff). Lo corre la integracion continua:
+#
+#     ruff check .
+#
+# Reglas elegidas para atrapar errores reales (nombres no definidos, imports
+# sin usar, excepciones mal manejadas), no para imponer estilo: el codigo usa
+# Optional[...] y comentarios largos a proposito.
+
+line-length = 110
+target-version = "py311"
+extend-exclude = ["api/migraciones/versions"]
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "E501",   # lineas largas: el formato lo decide quien escribe
+    "B008",   # Depends()/Query() en valores por defecto: es el patron de FastAPI
+    "B905",   # zip(strict=): la mayoria de los zip son de listas del mismo largo por construccion
+    "B027",   # metodos vacios en clases base con implementacion opcional
+]
+
+[lint.per-file-ignores]
+# Los scripts y las pruebas ajustan sys.path antes de importar el proyecto.
+"tests/*" = ["E402"]
+"tools/*" = ["E402"]

@@ -88,7 +88,8 @@ def test_tracks_independientes():
 def test_no_realertar_del_mismo_objeto():
     """Un arma confirmada genera UNA alerta, no una por frame."""
     c = ConfirmacionTemporal(aciertos=2, ventana=4)
-    c.marcar(1, True); c.marcar(1, True)
+    c.marcar(1, True)
+    c.marcar(1, True)
     assert c.confirmado(1) and not c.ya_alertado(1)
     c.registrar_alerta(1)
     assert c.ya_alertado(1), "tras alertar no debe volver a alertar del mismo track"

@@ -147,6 +147,10 @@ class HttpSink(Sink):
         self._espera = 1.0
         self._proximo_intento = 0.0
         self.enviados = 0
+        self.al_responder = None
+        """Funcion opcional (lote, respuesta) que se llama tras cada envio
+        aceptado. La usa el grabador de clips para saber que eventos se
+        volvieron alerta: esa decision la toma la API, no el borde."""
         self.en_spool = len(list(self.spool_dir.glob("*.json")))
 
         self._hilo = threading.Thread(target=self._bucle, name="envio-eventos", daemon=True)
@@ -276,6 +280,21 @@ class HttpSink(Sink):
         for m in respuesta.get("matches", []):
             if m.get("severity") != "info":
                 log.warning("  >> %s: %s", m["severity"].upper(), m.get("reason"))
+
+        # La API acepta el lote aunque traiga eventos mal formados, y dice
+        # cuales rechazo. Esos se apartan para revisarlos: reintentarlos no
+        # sirve (van a fallar igual) y perderlos en silencio tampoco.
+        rechazados = respuesta.get("rejected") or []
+        if rechazados:
+            ids = {r.get("event_id") for r in rechazados}
+            malos = [e for e in lote.get("events", []) if e.get("event_id") in ids]
+            motivo = "; ".join(str(r.get("motivo")) for r in rechazados[:3])
+            self._apartar({**lote, "events": malos or rechazados}, f"rechazados: {motivo}")
+        if self.al_responder is not None:
+            try:
+                self.al_responder(lote, respuesta)
+            except Exception as e:  # noqa: BLE001 - un observador no tumba el envio
+                log.debug("El observador de respuestas fallo: %s", e)
 
         if self._fallos:
             log.info("API disponible de nuevo tras %d intentos fallidos", self._fallos)

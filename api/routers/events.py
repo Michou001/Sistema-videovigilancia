@@ -26,8 +26,11 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, Body, Depends
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, col, select
 
 from api.config import BASE_DIR, get_config
@@ -37,8 +40,9 @@ from api.hub import hub
 from api.matching import evaluar
 from api.models import Alert, Camera, Event, FaceEmbedding
 from shared.events import (
+    PATRON_CAMARA,
     DetectionEvent,
-    EventBatch,
+    EventoRechazado,
     EventType,
     IngestResponse,
     MatchKind,
@@ -191,7 +195,37 @@ def _latido(session: Session, camera_id: str, estado: Optional[dict] = None) -> 
         camara.status_json = json.dumps(estado, ensure_ascii=False, default=str)
 
 
-def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, Optional[dict]]]]:
+class LoteEntrante(BaseModel):
+    """El lote tal como llega. Los eventos se validan UNO POR UNO despues (ver
+    `ingerir`): si el lote entero se validara de golpe, un solo evento mal
+    formado hacia rechazar los veinte con 422 y el worker los apartaba todos."""
+
+    camera_id: str = Field(pattern=PATRON_CAMARA)
+    sent_at: Optional[datetime] = None
+    events: list[dict[str, Any]] = Field(max_length=500)
+
+
+def _validar_eventos(crudos: list[dict]) -> tuple[list[DetectionEvent], list[EventoRechazado]]:
+    validos, rechazados = [], []
+    for crudo in crudos:
+        try:
+            validos.append(DetectionEvent.model_validate(crudo))
+        except ValidationError as e:
+            errores = "; ".join(
+                f"{'.'.join(str(x) for x in err.get('loc', ()))}: {err.get('msg')}"
+                for err in e.errors()[:3]
+            )
+            evento_id = crudo.get("event_id") if isinstance(crudo, dict) else None
+            rechazados.append(EventoRechazado(
+                event_id=str(evento_id)[:64] if evento_id else None, motivo=errores[:300]))
+    if rechazados:
+        log.warning("Ingesta: %d evento(s) rechazados por formato: %s", len(rechazados),
+                    rechazados[0].motivo)
+    return validos, rechazados
+
+
+def _procesar_lote(camera_id: str, eventos: list[DetectionEvent]
+                   ) -> tuple[IngestResponse, list[tuple[dict, Optional[dict]]]]:
     """Todo el trabajo sincrono de la ingesta, en un hilo del pool."""
     aceptados = 0
     duplicados = 0
@@ -200,13 +234,13 @@ def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, O
 
     with Session(engine) as session:
         # Idempotencia en UNA consulta para todo el lote, no una por evento.
-        ids = [e.event_id for e in lote.events]
+        ids = [e.event_id for e in eventos]
         existentes = set(session.exec(
             select(Event.event_id).where(col(Event.event_id).in_(ids))
         ).all()) if ids else set()
 
         vistos: set[str] = set()
-        for evento in lote.events:
+        for evento in eventos:
             if evento.event_id in existentes or evento.event_id in vistos:
                 duplicados += 1
                 continue
@@ -234,7 +268,7 @@ def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, O
             ))
 
         # Un lote tambien cuenta como senal de vida de la camara.
-        _latido(session, lote.camera_id)
+        _latido(session, camera_id)
         session.commit()
 
         # El `id` de la alerta lo asigna la base de datos en el commit, y es lo
@@ -268,8 +302,10 @@ def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, O
 
 
 @router.post("", response_model=IngestResponse)
-async def ingerir(lote: EventBatch) -> IngestResponse:
-    respuesta, a_difundir = await run_in_threadpool(_procesar_lote, lote)
+async def ingerir(lote: LoteEntrante) -> IngestResponse:
+    eventos, rechazados = _validar_eventos(lote.events)
+    respuesta, a_difundir = await run_in_threadpool(_procesar_lote, lote.camera_id, eventos)
+    respuesta.rejected = rechazados
 
     for datos_evento, datos_alerta in a_difundir:
         await hub.difundir("event", datos_evento)
@@ -281,7 +317,8 @@ async def ingerir(lote: EventBatch) -> IngestResponse:
 
 
 @router.post("/heartbeat")
-async def heartbeat(camera_id: str, status: dict = Body(default_factory=dict)) -> dict:
+async def heartbeat(camera_id: str = Query(pattern=PATRON_CAMARA),
+                    status: dict = Body(default_factory=dict)) -> dict:
     """El worker reporta salud aunque no haya detecciones. Sin esto, una camara
     apagada es indistinguible de una camara sin trafico."""
 

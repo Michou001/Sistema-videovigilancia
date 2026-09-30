@@ -11,14 +11,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import col, select
 
+from api.auditoria import registrar
 from api.deps import Admin, OperadorActual, SesionBD
 from api.matching import lista_negra
 from api.models import BlacklistPlate, FechasEnUtc
 from api.retroactive import reescanear_placa
+from shared.fechas import a_utc
 from shared.plates import es_placa_valida, formatear, normalizar
 
 log = logging.getLogger(__name__)
@@ -39,6 +41,11 @@ class AltaPlaca(BaseModel):
         if v not in {"critical", "warning"}:
             raise ValueError("severity debe ser 'critical' o 'warning'")
         return v
+
+    @field_validator("expires_at")
+    @classmethod
+    def _vence_en_utc(cls, v: Optional[datetime]) -> Optional[datetime]:
+        return a_utc(v)
 
 
 class PlacaLeida(FechasEnUtc, BaseModel):
@@ -63,7 +70,8 @@ def listar(session: SesionBD, _: OperadorActual, incluir_inactivas: bool = False
 
 
 @router.post("", response_model=PlacaLeida, status_code=status.HTTP_201_CREATED)
-def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: BackgroundTasks):
+def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: BackgroundTasks,
+            request: Request):
     valida, limpio, _ = es_placa_valida(datos.plate)
     if not valida:
         raise HTTPException(
@@ -93,6 +101,10 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         existente.expires_at = datos.expires_at
         existente.created_by = admin.username
         existente.created_at = datetime.now(timezone.utc)
+        registrar(session, "lista_negra.reactivacion_placa", usuario=admin.username,
+                  objetivo=existente.plate, detalle={"motivo": datos.reason,
+                                                     "vence": datos.expires_at},
+                  request=request)
         session.commit()
         session.refresh(existente)
         lista_negra.invalidar()
@@ -110,6 +122,10 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
         created_by=admin.username,
     )
     session.add(registro)
+    registrar(session, "lista_negra.alta_placa", usuario=admin.username,
+              objetivo=registro.plate, detalle={"motivo": datos.reason, "vence": datos.expires_at,
+                                                "severidad": datos.severity},
+              request=request)
     session.commit()
     session.refresh(registro)
     lista_negra.invalidar()
@@ -121,7 +137,7 @@ def agregar(datos: AltaPlaca, session: SesionBD, admin: Admin, tareas: Backgroun
 
 
 @router.delete("/{registro_id}", status_code=status.HTTP_204_NO_CONTENT)
-def desactivar(registro_id: int, session: SesionBD, admin: Admin):
+def desactivar(registro_id: int, session: SesionBD, admin: Admin, request: Request):
     """Baja logica, no borrado.
 
     Los eventos historicos apuntan a este registro; borrarlo de verdad dejaria
@@ -131,6 +147,8 @@ def desactivar(registro_id: int, session: SesionBD, admin: Admin):
     if registro is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese registro")
     registro.active = False
+    registrar(session, "lista_negra.baja_placa", usuario=admin.username,
+              objetivo=registro.plate, request=request)
     session.commit()
     lista_negra.invalidar()
     log.info("Placa %s desactivada por %s", registro.plate, admin.username)

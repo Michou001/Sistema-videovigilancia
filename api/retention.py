@@ -36,7 +36,7 @@ from pathlib import Path
 from sqlmodel import Session, col, delete, select
 
 from api.config import get_config
-from api.models import Alert, Event, FaceEmbedding
+from api.models import Alert, AuditLog, Event, FaceEmbedding
 
 log = logging.getLogger(__name__)
 
@@ -59,10 +59,14 @@ class Politica:
         self.embeddings = dias("RETENCION_EMBEDDINGS_DIAS", 7)
         """Plazo maximo de un embedding que SI coincidio. Los que no coinciden
         no llegan a guardarse (ver guardar_embedding en routers/events.py)."""
+        self.auditoria = dias("RETENCION_AUDITORIA_DIAS", 730)
+        """La bitacora vive mas que las alertas: sirve para responder, tiempo
+        despues, quien vio o cambio que. 0 = no se purga nunca."""
 
     def resumen(self) -> str:
         return (f"fotos {self.fotos_eventos}d | eventos {self.eventos_info}d | "
-                f"alertas {self.alertas}d | embeddings {self.embeddings}d")
+                f"alertas {self.alertas}d | embeddings {self.embeddings}d | "
+                f"bitacora {self.auditoria or 'sin limite'}d")
 
 
 def _antes_de(dias: int) -> datetime:
@@ -98,7 +102,8 @@ def purgar(session: Session, politica: Politica | None = None,
     politica = politica or Politica()
     cfg = get_config()
     base = cfg.snapshot_dir.parent.parent  # raiz del proyecto
-    cuenta = {"fotos": 0, "eventos": 0, "alertas": 0, "embeddings": 0, "huerfanas": 0}
+    cuenta = {"fotos": 0, "eventos": 0, "alertas": 0, "embeddings": 0, "huerfanas": 0,
+              "auditoria": 0}
 
     # 1. Embeddings faciales caducados -------------------------------------
     viejos = session.exec(
@@ -153,10 +158,18 @@ def purgar(session: Session, politica: Politica | None = None,
                 session.delete(ev)
             session.delete(a)
 
+    # 5. Bitacora de auditoria ----------------------------------------------
+    if politica.auditoria:
+        limite = _antes_de(politica.auditoria)
+        cuenta["auditoria"] = len(session.exec(
+            select(AuditLog.id).where(col(AuditLog.ts) < limite)).all())
+        if not simular and cuenta["auditoria"]:
+            session.exec(delete(AuditLog).where(col(AuditLog.ts) < limite))
+
     if not simular:
         session.commit()
 
-    # 5. Archivos huerfanos -------------------------------------------------
+    # 6. Archivos huerfanos -------------------------------------------------
     # Si un borrado fallo a medias en algun momento, quedan fotos en disco sin
     # fila que las referencie. Nadie las va a mirar nunca y siguen siendo datos
     # personales, asi que se limpian.
@@ -202,4 +215,5 @@ def formatear(cuenta: dict[str, int], simular: bool) -> str:
     verbo = "se eliminarian" if simular else "eliminados"
     return (f"{verbo}: {cuenta['embeddings']} embeddings, {cuenta['fotos']} fotos, "
             f"{cuenta['eventos']} eventos, {cuenta['alertas']} alertas, "
-            f"{cuenta['huerfanas']} archivos huerfanos")
+            f"{cuenta['huerfanas']} archivos huerfanos, "
+            f"{cuenta.get('auditoria', 0)} entradas de bitacora")

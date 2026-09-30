@@ -222,6 +222,16 @@ class EdgeConfig:
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 
     def __post_init__(self) -> None:
+        import re
+
+        from shared.events import PATRON_CAMARA
+
+        # El identificador termina en URLs, nombres de archivo y en el HTML del
+        # dashboard; la API rechaza cualquier otro. Mejor fallar al arrancar
+        # con un mensaje claro que ver todos los eventos rebotar con 422.
+        if not re.fullmatch(PATRON_CAMARA, self.camera_id):
+            raise ValueError(f"CAMERA_ID='{self.camera_id}' no es valido: usa letras, numeros, "
+                             "'-', '_' o '.' (maximo 64), p.ej. cam-entrada")
         # Rutas de modelo relativas se resuelven contra la raiz del proyecto
         if not self.weapon_model.is_absolute():
             self.weapon_model = BASE_DIR / self.weapon_model
