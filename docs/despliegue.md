@@ -16,9 +16,10 @@ cosas que **no** viajan con el repositorio:
 | El archivo `.env` | Está en `.gitignore` a propósito: lleva la contraseña de la cámara |
 | La base de datos `data/` | Se crea sola con `tools/init_plataforma.py` |
 
-Los modelos **sí** viajan: `models/plates_yolov5.pt` está versionado, y es
-importante porque **es la única copia** — el dataset con que se entrenó estaba
-en Kaggle y ya no está disponible.
+Los modelos **no** van en el repositorio: se descargan solos la primera vez
+que arranca el worker (detector y OCR de placas ~30 MB, InsightFace ~280 MB,
+YOLO11 ~20 MB). La máquina necesita internet en ese primer arranque; después
+funciona sin conexión.
 
 ### Requisitos de la máquina
 

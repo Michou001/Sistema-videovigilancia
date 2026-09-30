@@ -81,11 +81,17 @@ class EdgeConfig:
     enable_motion: bool = field(default_factory=lambda: _env_bool("ENABLE_MOTION", True))
 
     # --- Modelos -----------------------------------------------------------
-    plate_model: Path = field(
-        default_factory=lambda: Path(os.getenv("PLATE_MODEL", "models/plates_yolov5.pt"))
+    plate_detector_model: str = field(
+        default_factory=lambda: os.getenv("PLATE_DETECTOR", "yolo-v9-s-608-license-plate-end2end")
     )
-    """Pesos en formato YOLOv5. Ultralytics no los carga; se cargan con
-    torch.hub desde el repo yolov5/ local (ver edge/detectors/plates.py)."""
+    """Detector de placas (open-image-models, ONNX). La variante "t-640" es
+    mas ligera si la GPU va justa; la "s-608" es la mas precisa."""
+
+    plate_ocr_model: str = field(
+        default_factory=lambda: os.getenv("PLATE_OCR", "cct-s-v2-global-model")
+    )
+    """OCR de placas (fast-plate-ocr, ONNX). "cct-xs-v2-global-model" es la
+    variante mas rapida."""
     weapon_model: Path = field(
         default_factory=lambda: Path(os.getenv("WEAPON_MODEL", "models/weapons.pt"))
     )
@@ -217,8 +223,6 @@ class EdgeConfig:
 
     def __post_init__(self) -> None:
         # Rutas de modelo relativas se resuelven contra la raiz del proyecto
-        if not self.plate_model.is_absolute():
-            self.plate_model = BASE_DIR / self.plate_model
         if not self.weapon_model.is_absolute():
             self.weapon_model = BASE_DIR / self.weapon_model
         if self.send_snapshot_b64 in {"1", "yes", "si", "on"}:

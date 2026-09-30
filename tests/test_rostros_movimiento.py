@@ -18,7 +18,8 @@ import numpy as np  # noqa: E402
 
 from edge.detectors.confirmacion import ConfirmacionTemporal  # noqa: E402
 from edge.detectors.faces import factor_nitidez, factor_pose, plantilla_promedio  # noqa: E402
-from edge.detectors.motion import MotionAnomalyDetector  # noqa: E402
+from edge.detectors.motion import MotionAnomalyDetector, es_caida  # noqa: E402
+from edge.detectors.plates import color_vehiculo  # noqa: E402
 
 # 5 puntos de InsightFace: ojo izq, ojo der, nariz, comisura izq, comisura der.
 FRONTAL = [[40, 50], [80, 50], [60, 72], [45, 90], [75, 90]]
@@ -97,6 +98,39 @@ def test_rearmar_permite_una_segunda_alerta():
     for _ in range(3):
         c.marcar(7, True)
     assert c.confirmado(7)
+
+
+def _postura(proporciones, dt=0.125):
+    return [(i * dt, r) for i, r in enumerate(proporciones)]
+
+
+def test_caida_de_pie_a_tendida():
+    # De pie (2.6), cae en medio segundo y queda tendida.
+    assert es_caida(_postura([2.6, 2.6, 2.5, 1.6, 1.1, 0.7, 0.6, 0.6]))
+
+
+def test_no_es_caida_sentarse_ni_agacharse():
+    # Sentarse o agacharse deja la caja "cuadrada", no tendida.
+    assert not es_caida(_postura([2.6, 2.5, 1.8, 1.3, 1.2, 1.2, 1.2]))
+
+
+def test_no_es_caida_acostarse_despacio():
+    # Tarda 4 s en pasar de pie a tendida: alguien acostandose en una banca.
+    lento = [2.6] + [1.2] * 32 + [0.7, 0.7, 0.7]
+    assert not es_caida(_postura(lento))
+
+
+def test_no_es_caida_si_ya_estaba_tendida():
+    assert not es_caida(_postura([0.6, 0.6, 0.6, 0.6, 0.6]))
+
+
+def test_color_de_vehiculo():
+    lienzo = np.zeros((300, 600, 3), np.uint8)
+    lienzo[:] = (200, 60, 20)                   # BGR: carroceria azul
+    lienzo[120:170, 250:350] = (255, 255, 255)  # la placa, blanca
+    assert color_vehiculo(lienzo, (250, 120, 350, 170)) == "azul"
+    lienzo[:] = (30, 30, 30)
+    assert color_vehiculo(lienzo, (250, 120, 350, 170)) == "negro"
 
 
 # --------------------------------------------------------------------------

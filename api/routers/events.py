@@ -75,6 +75,8 @@ def _titulo(evento: DetectionEvent, resultado: MatchResult) -> str:
     """
     if resultado.match_kind == MatchKind.FUZZY:
         return f"Posible placa {resultado.matched_value} (se leyó {evento.value})"
+    if evento.value == "persona_caida":
+        return "Posible persona caída"
     etiqueta = resultado.matched_value or evento.value
     return TITULOS.get(evento.type, "Detección {valor}").format(valor=etiqueta)
 
@@ -158,13 +160,18 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult,
 
     alerta = None
     if resultado.severity != Severity.INFO:
+        detalle = resultado.reason or ""
+        color = evento.meta.get("color_vehiculo")
+        if evento.type == EventType.PLATE and color:
+            # Lo primero que pregunta quien sale a buscar el vehiculo.
+            detalle = f"{detalle} · Vehículo {color} (color aprox.)".lstrip(" ·")
         alerta = Alert(
             event_id=evento.event_id,
             camera_id=evento.camera_id,
             type=evento.type.value,
             severity=resultado.severity.value,
             title=_titulo(evento, resultado),
-            detail=resultado.reason,
+            detail=detalle,
             match_kind=resultado.match_kind.value,
             match_score=resultado.score,
             snapshot_path=captura,
@@ -220,6 +227,8 @@ def _procesar_lote(lote: EventBatch) -> tuple[IngestResponse, list[tuple[dict, O
                     "severity": resultado.severity.value,
                     "snapshot_path": fila.snapshot_path,
                     "observations": evento.observations,
+                    "meta": {"color_vehiculo": evento.meta.get("color_vehiculo")}
+                    if evento.meta.get("color_vehiculo") else {},
                 },
                 alerta,
             ))

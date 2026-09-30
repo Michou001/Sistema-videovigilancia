@@ -29,8 +29,8 @@ from typing import Iterable, Optional
 # --------------------------------------------------------------------------
 # Formatos de placa mexicana
 # --------------------------------------------------------------------------
-# Heredados del detector original (legacy/detectarTexto.py), reescritos para
-# aceptar cualquier separador (guion, espacio o nada) en un solo patron.
+# Formatos de la NOM-001-SCT-2-2016 y de las placas estatales vigentes. Cada
+# patron acepta cualquier separador (guion, espacio o nada).
 
 _SEP = r"[\s\-]*"
 
@@ -197,14 +197,15 @@ def _es_leyenda(fragmento: str) -> bool:
 
 def lecturas_de_ocr(resultados: Iterable, min_conf: float = 0.0,
                     penalizacion: float = 0.9) -> list[tuple[str, float]]:
-    """Convierte la salida cruda de EasyOCR sobre UN recorte de placa en
+    """Convierte la salida cruda de un OCR sobre UN recorte de placa en
     lecturas candidatas (texto, confianza).
 
-    `resultados` es la lista que devuelve `readtext`: (caja, texto, conf), con
-    la caja como 4 puntos. EasyOCR parte la placa en varios trozos con
+    `resultados` es una lista de (caja, texto, conf), con la caja como 4
+    puntos. Un OCR de texto general parte la placa en varios trozos con
     frecuencia ("ABC" y "123", o "ABC", "12", "34" en Guanajuato) y ademas lee
-    el nombre del estado. Tomar cada trozo por separado, como antes, dejaba
-    sin evento a esas placas: ningun trozo suelto tiene forma de placa.
+    el nombre del estado; tomar cada trozo por separado dejaria sin evento a
+    esas placas. El OCR de placas del detector devuelve un solo trozo, que
+    pasa por el mismo camino.
 
     Se generan tres tipos de candidato:
       - cada fragmento por separado,

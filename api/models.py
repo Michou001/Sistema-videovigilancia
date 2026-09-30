@@ -251,6 +251,11 @@ class Alert(EnUtc, table=True):
     dismissed_reason: Optional[str] = Field(
         default=None, description="'falso positivo' alimenta el reentrenamiento"
     )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Nota de atencion del operador: que se hizo (se aviso a la patrulla, "
+                    "se verifico en video...). Es la bitacora del turno.",
+    )
 
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 

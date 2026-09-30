@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlmodel import col, func, select
 
-from api.deps import OperadorActual, SesionBD
+from api.deps import Admin, OperadorActual, SesionBD
 from api.hub import hub
 from api.models import Alert, Camera, Event, FechasEnUtc
 from shared.plates import limpiar
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["alertas"])
 
@@ -40,6 +46,9 @@ class AlertaLeida(FechasEnUtc, BaseModel):
     snapshot_path: Optional[str]
     status: str
     acknowledged_by: Optional[str]
+    acknowledged_at: Optional[datetime] = None
+    dismissed_reason: Optional[str] = None
+    notes: Optional[str] = None
     created_at: datetime
 
 
@@ -53,6 +62,7 @@ class EventoLeido(FechasEnUtc, BaseModel):
     severity: str
     observations: int
     snapshot_path: Optional[str]
+    meta: dict = Field(default_factory=dict)
 
 
 @router.get("/alerts", response_model=list[AlertaLeida])
@@ -72,7 +82,9 @@ def listar_alertas(
 
 class Resolucion(BaseModel):
     accion: str  # acknowledge | dismiss
-    motivo: Optional[str] = None
+    motivo: Optional[str] = Field(default=None, max_length=200)
+    nota: Optional[str] = Field(default=None, max_length=1000,
+                                description="Que se hizo: se aviso a la patrulla, se verifico...")
 
 
 @router.post("/alerts/{alerta_id}/resolver", response_model=AlertaLeida)
@@ -94,12 +106,33 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
     alerta.acknowledged_by = operador.username
     alerta.acknowledged_at = datetime.now(timezone.utc)
     alerta.dismissed_reason = datos.motivo
+    alerta.notes = (datos.nota or "").strip() or None
     session.commit()
     session.refresh(alerta)
 
     await hub.difundir("alert_resolved", {"id": alerta.id, "status": alerta.status,
-                                          "by": operador.username})
+                                          "by": operador.username, "notes": alerta.notes})
     return alerta
+
+
+def _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta):
+    consulta = select(Event)
+    if tipo:
+        consulta = consulta.where(Event.type == tipo)
+    if camera_id:
+        consulta = consulta.where(Event.camera_id == camera_id)
+    if severidad:
+        consulta = consulta.where(Event.severity == severidad)
+    if desde:
+        consulta = consulta.where(col(Event.ts) >= _utc_sin_zona(desde))
+    if hasta:
+        consulta = consulta.where(col(Event.ts) <= _utc_sin_zona(hasta))
+    if q:
+        buscado = limpiar(q)
+        if buscado:
+            sin_guiones = func.upper(func.replace(func.replace(Event.value, "-", ""), " ", ""))
+            consulta = consulta.where(sin_guiones.contains(buscado))
+    return consulta.order_by(col(Event.ts).desc())
 
 
 @router.get("/events", response_model=list[EventoLeido])
@@ -121,23 +154,66 @@ def listar_eventos(
     "ABC-123" encuentran lo mismo, porque asi es como el operador la va a
     escribir y asi es como el OCR la pudo haber leido.
     """
-    consulta = select(Event)
-    if tipo:
-        consulta = consulta.where(Event.type == tipo)
-    if camera_id:
-        consulta = consulta.where(Event.camera_id == camera_id)
-    if severidad:
-        consulta = consulta.where(Event.severity == severidad)
-    if desde:
-        consulta = consulta.where(col(Event.ts) >= _utc_sin_zona(desde))
-    if hasta:
-        consulta = consulta.where(col(Event.ts) <= _utc_sin_zona(hasta))
-    if q:
-        buscado = limpiar(q)
-        if buscado:
-            sin_guiones = func.upper(func.replace(func.replace(Event.value, "-", ""), " ", ""))
-            consulta = consulta.where(sin_guiones.contains(buscado))
-    return session.exec(consulta.order_by(col(Event.ts).desc()).limit(limite)).all()
+    consulta = _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta)
+    return session.exec(consulta.limit(limite)).all()
+
+
+@router.get("/events/export.csv")
+def exportar_eventos(
+    session: SesionBD,
+    operador: OperadorActual,
+    tipo: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    q: Optional[str] = Query(None, max_length=20),
+    severidad: Optional[str] = None,
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+):
+    """Los mismos filtros de la busqueda, como CSV para un reporte.
+
+    Es lo que se entrega cuando alguien pide "todas las veces que paso esta
+    placa" (un parte, una denuncia). Las fechas salen en hora local del
+    servidor, que es como las lee quien recibe el reporte. Hasta 10 000 filas.
+    """
+    filas = session.exec(_consulta_eventos(tipo, camera_id, q, severidad, desde, hasta)
+                         .limit(10_000)).all()
+    salida = io.StringIO()
+    escritor = csv.writer(salida)
+    escritor.writerow(["fecha_hora_local", "camara", "tipo", "valor", "color_vehiculo",
+                       "confianza", "estado", "coincidencia", "frames", "evidencia"])
+    for e in filas:
+        ts = e.ts if e.ts.tzinfo else e.ts.replace(tzinfo=timezone.utc)
+        escritor.writerow([f"{ts.astimezone():%Y-%m-%d %H:%M:%S}", e.camera_id, e.type,
+                           e.value, e.meta.get("color_vehiculo") or "", f"{e.confidence:.2f}",
+                           e.severity, e.match_kind, e.observations,
+                           Path(e.snapshot_path).name if e.snapshot_path else ""])
+    log.info("Reporte CSV de %d eventos exportado por %s", len(filas), operador.username)
+    nombre = f"eventos-{datetime.now():%Y%m%d-%H%M}.csv"
+    # Con BOM para que Excel abra bien los acentos.
+    return Response("\ufeff" + salida.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+class CamaraEdicion(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    location: Optional[str] = Field(default=None, max_length=160)
+
+
+@router.put("/cameras/{camera_id}")
+def editar_camara(camera_id: str, datos: CamaraEdicion, session: SesionBD, admin: Admin) -> dict:
+    """Nombre y ubicacion que ve el operador ("Acceso norte - Av. Juarez").
+
+    Un identificador como "cam-02" no le dice al monitorista a donde mandar
+    la patrulla; la ubicacion si.
+    """
+    camara = session.exec(select(Camera).where(Camera.camera_id == camera_id)).first()
+    if camara is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa cámara")
+    camara.name = datos.name.strip()
+    camara.location = (datos.location or "").strip() or None
+    session.commit()
+    log.info("Camara %s renombrada a '%s' por %s", camera_id, camara.name, admin.username)
+    return {"camera_id": camara.camera_id, "name": camara.name, "location": camara.location}
 
 
 @router.get("/stats")
@@ -170,6 +246,7 @@ def estadisticas(session: SesionBD, _: OperadorActual):
         camaras.append({
             "camera_id": c.camera_id,
             "name": c.name,
+            "location": c.location,
             # El worker late cada 15 s; sin senal en 60 s se considera caida.
             # Que la fuente reporte connected=False tambien cuenta: el worker
             # sigue vivo pero la camara no entrega imagen.

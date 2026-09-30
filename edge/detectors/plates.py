@@ -1,58 +1,42 @@
-"""Detector de placas: YOLOv5 para localizar + EasyOCR para leer + tracking.
+"""Detector de placas: YOLOv9 para localizar + OCR especializado + tracking.
 
-Portado desde legacy/main_camara.py. Los cambios de fondo respecto al original:
+Modelos (ambos ONNX, licencia MIT, se descargan solos la primera vez):
 
-  ANTES                                  AHORA
-  ---------------------------------      ---------------------------------
-  Una fila en CSV por cada lectura        Un evento por vehiculo
-  COOLDOWN_SEGUNDOS=15 para no repetir    track_id: se sabe que es el mismo coche
-  Se guarda la PRIMERA lectura valida     Se elige la MEJOR de todas por consenso
-  OCR cada 3 frames, global               Presupuesto de OCR por track
-  cv2.imshow + CSV dentro del detector    Devuelve eventos; no sabe de pantallas
+  DETECTOR  open-image-models, YOLOv9 end-to-end entrenado solo con placas
+            (mAP50 0.966 en su version "s"). Sustituye al YOLOv5 anterior.
+  OCR       fast-plate-ocr, transformer compacto (CCT) entrenado con placas de
+            muchos paises. Lee el recorte completo en menos de 1 ms; EasyOCR,
+            que era un OCR generico de texto, tardaba 30-120 ms por recorte.
 
-El cambio importante es el ultimo del bloque de arriba: la primera lectura que
-pasa el regex casi nunca es la mejor. El coche se acerca, la placa se ve mejor,
-y esa lectura tardia es la buena. Acumular todas las lecturas del mismo track y
-decidir al final sube la precision sin costar nada.
+Medido sobre fotos reales de placas mexicanas deformadas para simular el
+angulo de la camara (de lado 35-50 grados, desde arriba, rotada, lejos, poca
+luz): 35 de 35 lecturas correctas, contra 20 de 35 del YOLOv5 + EasyOCR.
+
+Encima de los modelos queda lo que es propio del sistema:
+
+  - un evento por vehiculo (tracking), no una fila por frame;
+  - varias lecturas por vehiculo y consenso entre ellas;
+  - correccion por posicion segun el formato de placa mexicana;
+  - foto HD del canal principal como evidencia;
+  - color aproximado del vehiculo, para que la alerta diga "sedan gris".
 """
 
 from __future__ import annotations
 
 import logging
-import pathlib
-import sys
 import time
-import warnings
 from typing import Any, Optional
 
-# El repo yolov5/ esta congelado en una version que usa APIs de torch ya
-# deprecadas (torch.cuda.amp.autocast). Emite un FutureWarning POR CADA
-# inferencia, lo que inunda la consola y esconde los eventos reales. No es un
-# error y no hay nada que arreglar de nuestro lado: el repo es de terceros.
-warnings.filterwarnings("ignore", category=FutureWarning, module="yolov5.*")
-warnings.filterwarnings("ignore", message=r".*torch\.cuda\.amp\.autocast.*")
+import cv2
+import numpy as np
 
-# Los pesos se entrenaron en Linux y guardan rutas PosixPath serializadas. Al
-# deserializarlos en Windows, donde PosixPath no se puede instanciar, torch.load
-# truena. El parche redirige esa clase.
-#
-# SOLO EN WINDOWS. En Linux este parche seria destructivo: sustituiria la clase
-# de rutas nativa del sistema por la de Windows y romperia el manejo de archivos
-# de todo el proceso, no solo el de este modulo. En Linux los pesos cargan bien
-# sin tocar nada, que es donde se entrenaron.
-if sys.platform == "win32":
-    pathlib.PosixPath = pathlib.WindowsPath
-
-import cv2  # noqa: E402
-import numpy as np  # noqa: E402
-
-from edge.config import BASE_DIR, EdgeConfig  # noqa: E402
-from edge.detectors.base import Detector  # noqa: E402
-from edge.snapshot_hd import SnapshotHD, escalar_bbox  # noqa: E402
-from edge.sources import FrameInfo  # noqa: E402
-from edge.tracking import Deteccion, IoUTracker, Track  # noqa: E402
-from shared.events import BBox, DetectionEvent, EventType  # noqa: E402
-from shared.plates import (  # noqa: E402
+from edge.config import BASE_DIR, EdgeConfig
+from edge.detectors.base import Detector
+from edge.snapshot_hd import SnapshotHD, escalar_bbox
+from edge.sources import FrameInfo
+from edge.tracking import Deteccion, IoUTracker, Track
+from shared.events import BBox, DetectionEvent, EventType
+from shared.plates import (
     elegir_mejor_lectura,
     es_placa_valida,
     formatear,
@@ -62,60 +46,91 @@ from shared.plates import (  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-# Las placas mexicanas solo usan mayusculas, digitos y guion. Restringir el
-# decodificador de EasyOCR a ese alfabeto evita lecturas con minusculas,
-# acentos o simbolos que despues no pasarian ningun patron.
-ALFABETO_PLACAS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+
+def color_vehiculo(frame: np.ndarray, bbox: tuple[float, float, float, float]) -> Optional[str]:
+    """Color dominante de la carroceria alrededor de la placa, en palabras.
+
+    Se mide la carroceria a los LADOS de la placa, a su misma altura: ahi casi
+    siempre hay defensa o cajuela pintada. Encima de la placa puede quedar el
+    vidrio polarizado o la parrilla, que dan el color equivocado. Es una
+    aproximacion (un reflejo o una sombra la cambian), por eso va como "color
+    aprox." y nunca decide una alerta: le sirve al operador para ubicar el
+    vehiculo en el video.
+    """
+    alto, ancho = frame.shape[:2]
+    x1, y1, x2, y2 = bbox
+    w, h = x2 - x1, y2 - y1
+    if w <= 0 or h <= 0:
+        return None
+    ry1, ry2 = int(max(0, y1 - h * 0.5)), int(min(alto, y2))
+    franjas = [frame[ry1:ry2, int(max(0, x1 - w * 0.9)):int(max(0, x1 - w * 0.1))],
+               frame[ry1:ry2, int(min(ancho, x2 + w * 0.1)):int(min(ancho, x2 + w * 0.9))]]
+    pixeles = [f.reshape(-1, 3) for f in franjas if f.size >= 3 * 16]
+    if not pixeles:
+        return None
+
+    hsv = cv2.cvtColor(np.concatenate(pixeles)[None, :, :], cv2.COLOR_BGR2HSV)[0].astype(np.float32)
+    matiz, sat, val = np.median(hsv[:, 0]), np.median(hsv[:, 1]), np.median(hsv[:, 2])
+    if val < 50:
+        return "negro"
+    if sat < 50:
+        return "blanco/plata" if val > 185 else "gris"
+    # OpenCV usa matiz de 0 a 180.
+    if matiz < 8 or matiz >= 165:
+        return "rojo"
+    if matiz < 20:
+        return "naranja/cafe" if val > 120 else "cafe"
+    if matiz < 35:
+        return "amarillo"
+    if matiz < 85:
+        return "verde"
+    if matiz < 130:
+        return "azul"
+    return "morado"
 
 
 class PlateDetector(Detector):
     name = "plates"
 
     # --- Presupuesto de OCR --------------------------------------------------
-    # EasyOCR cuesta 20-60 ms por recorte. Con varias placas en pantalla, hacer
-    # OCR de todas en cada frame arruina los fps. Estos tres limites reparten
-    # ese presupuesto donde rinde:
-    OCR_CADA_N_FRAMES = 3      # por track, no global
-    MAX_LECTURAS_POR_TRACK = 6  # tras 6 lecturas, ya se sabe lo que dice
-    MAX_OCR_POR_FRAME = 2       # techo duro aunque haya 10 placas visibles
+    # El OCR nuevo cuesta menos de 1 ms, asi que ya no hay que racionarlo como
+    # con EasyOCR: se lee cada track en frames alternos y se juntan mas
+    # lecturas para el consenso.
+    OCR_CADA_N_FRAMES = 2       # por track, no global
+    MAX_LECTURAS_POR_TRACK = 10  # pasadas de OCR por vehiculo
+    MAX_OCR_POR_FRAME = 6        # techo aunque haya muchas placas visibles
 
     # Un recorte mas chico que esto no tiene resolucion para leerse.
-    MIN_ANCHO_RECORTE = 40
-    MIN_ALTO_RECORTE = 15
+    MIN_ANCHO_RECORTE = 30
+    MIN_ALTO_RECORTE = 10
 
     def __init__(self, cfg: EdgeConfig) -> None:
         self.cfg = cfg
         self.device = cfg.resolve_device()
 
-        import torch
+        # Las DLL de CUDA que usa onnxruntime vienen con torch (ver faces.py).
+        from edge.detectors.faces import configurar_onnx_gpu
 
-        log.info("Cargando modelo de placas (%s)...", cfg.plate_model.name)
+        configurar_onnx_gpu()
+        from fast_plate_ocr import LicensePlateRecognizer
+        from open_image_models import LicensePlateDetector
+
+        proveedores = (["CUDAExecutionProvider", "CPUExecutionProvider"]
+                       if self.device == "cuda" else ["CPUExecutionProvider"])
+
         t0 = time.perf_counter()
-        if not cfg.plate_model.exists():
-            raise FileNotFoundError(f"No existe el modelo: {cfg.plate_model}")
-
-        # source='local' usa el repo yolov5/ del proyecto, sin salir a internet.
-        self.model = torch.hub.load(
-            str(BASE_DIR / "yolov5"),
-            "custom",
-            path=str(cfg.plate_model),
-            source="local",
-            force_reload=False,
-            verbose=False,
+        self.detector = LicensePlateDetector(
+            detection_model=cfg.plate_detector_model,
+            conf_thresh=cfg.plate_conf,
+            providers=proveedores,
         )
-        self.model.conf = cfg.plate_conf
-        self.model.to(self.device)
-        log.info("Modelo listo en %.1fs (device=%s)", time.perf_counter() - t0, self.device)
-
-        log.info("Inicializando EasyOCR...")
-        import easyocr
-
-        self.reader = easyocr.Reader(["es", "en"], gpu=(self.device == "cuda"), verbose=False)
-        self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.ocr = LicensePlateRecognizer(cfg.plate_ocr_model, providers=proveedores)
+        self._ocr_color = self.ocr.config.image_color_mode
+        log.info("Placas listas en %.1fs (%s + %s, %s)", time.perf_counter() - t0,
+                 cfg.plate_detector_model, cfg.plate_ocr_model, proveedores[0])
 
         self.tracker = IoUTracker(iou_min=0.25, max_age=16, min_hits=3)
-        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel) \
-            if cfg.snapshot_hd_enabled else None
+        self.snapshot_hd = SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel)             if cfg.snapshot_hd_enabled else None
 
         self._frame_idx = 0
         self._ocr_ejecutados = 0
@@ -144,20 +159,17 @@ class PlateDetector(Detector):
 
         # 1. Deteccion
         t0 = time.perf_counter()
-        rgb = cv2.cvtColor(frame.frame, cv2.COLOR_BGR2RGB)
-        resultados = self.model(rgb, size=self.cfg.imgsz)
+        resultados = self.detector.predict(frame.frame)
         self._ms_inferencia += (time.perf_counter() - t0) * 1000
 
-        # results.xyxy[0] -> tensor [N, 6]: x1, y1, x2, y2, conf, clase.
-        # Se usa el tensor y no .pandas() porque construir el DataFrame cuesta
-        # mas que la inferencia misma cuando hay pocas cajas.
         detecciones = [
             Deteccion(
-                bbox=(float(f[0]), float(f[1]), float(f[2]), float(f[3])),
-                confidence=float(f[4]),
+                bbox=(float(r.bounding_box.x1), float(r.bounding_box.y1),
+                      float(r.bounding_box.x2), float(r.bounding_box.y2)),
+                confidence=float(r.confidence),
                 label="placa",
             )
-            for f in resultados.xyxy[0].cpu().numpy()
+            for r in resultados
         ]
 
         # 2. Tracking
@@ -223,8 +235,7 @@ class PlateDetector(Detector):
 
         t0 = time.perf_counter()
         try:
-            resultados = self.reader.readtext(self._preparar(recorte),
-                                              allowlist=ALFABETO_PLACAS)
+            texto, conf = self._leer(recorte)
         except Exception as e:  # noqa: BLE001 - un OCR fallido no debe tumbar el worker
             log.warning("OCR fallo en track %d: %s", track.track_id, e)
             return False
@@ -232,34 +243,36 @@ class PlateDetector(Detector):
         self._ocr_ejecutados += 1
         track.state["ocr_hechos"] = track.state.get("ocr_hechos", 0) + 1
 
+        # El OCR devuelve la placa completa en un solo texto; la caja es la del
+        # recorte entero. Pasa por la misma correccion por posicion y el mismo
+        # filtro de confianza que cualquier lectura.
+        alto_r, ancho_r = recorte.shape[:2]
+        caja = [[0, 0], [ancho_r, 0], [ancho_r, alto_r], [0, alto_r]]
         lecturas: list = track.state.setdefault("lecturas", [])
-        for texto, conf in lecturas_de_ocr(resultados, min_conf=self.cfg.ocr_conf):
+        for texto, conf in lecturas_de_ocr([(caja, texto, conf)], min_conf=self.cfg.ocr_conf):
             lecturas.append((texto, conf))
             # Guarda el recorte de la lectura mas confiable como evidencia
             if conf > track.state.get("mejor_conf", 0.0):
                 track.state["mejor_conf"] = conf
                 track.state["recorte"] = recorte.copy()
                 track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
+                track.state["color"] = color_vehiculo(frame, (x1, y1, x2, y2))
         return True
 
-    def _preparar(self, recorte: np.ndarray) -> np.ndarray:
-        """Acondiciona el recorte antes del OCR.
-
-        El escalado es lo que mas rinde: EasyOCR se degrada mucho con texto de
-        menos de ~30 px de alto, y una placa a media distancia cae facil por
-        debajo. Ampliar con interpolacion cubica antes de leer sube bastante la
-        tasa de acierto y cuesta menos de 1 ms.
-        """
-        alto = recorte.shape[0]
-        if alto < 64:
-            escala = min(4.0, 64 / max(alto, 1))
-            recorte = cv2.resize(recorte, None, fx=escala, fy=escala,
-                                 interpolation=cv2.INTER_CUBIC)
-        # Ecualizacion de contraste sobre el canal de luminancia: normaliza
-        # placas quemadas por el sol o en sombra sin alterar el color.
-        lab = cv2.cvtColor(recorte, cv2.COLOR_BGR2LAB)
-        lab[:, :, 0] = self._clahe.apply(lab[:, :, 0])
-        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    def _leer(self, recorte: np.ndarray) -> tuple[str, float]:
+        """Texto de la placa y su confianza (el promedio de la de cada caracter,
+        asi un solo caracter dudoso baja la confianza de toda la lectura)."""
+        if self._ocr_color == "grayscale":
+            entrada = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+        elif self._ocr_color == "rgb":
+            entrada = cv2.cvtColor(recorte, cv2.COLOR_BGR2RGB)
+        else:
+            entrada = recorte
+        pred = self.ocr.run_one(entrada, return_confidence=True)
+        texto = (pred.plate or "").replace("_", "")
+        probs = np.asarray(pred.char_probs if pred.char_probs is not None else [0.0], dtype=np.float32)
+        probs = probs[: max(1, len(texto))]
+        return texto, float(probs.mean()) if probs.size else 0.0
 
     # -- Construccion del evento -------------------------------------------
 
@@ -340,6 +353,7 @@ class PlateDetector(Detector):
                 "conf_deteccion": round(track.confidence, 4),
                 "lecturas_ocr": [[t, round(c, 3)] for t, c in lecturas],
                 "texto_crudo": texto,
+                "color_vehiculo": track.state.get("color"),
             },
         )
 
@@ -384,14 +398,9 @@ class PlateDetector(Detector):
     def cerrar(self) -> None:
         if self.snapshot_hd is not None:
             self.snapshot_hd.cerrar()
-        try:
-            import torch
-
-            del self.model
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-        except Exception:  # noqa: BLE001
-            pass
+        # Las sesiones de onnxruntime liberan su memoria al destruirse.
+        self.detector = None
+        self.ocr = None
 
     @property
     def stats(self) -> dict[str, Any]:

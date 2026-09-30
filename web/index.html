@@ -405,6 +405,19 @@
                border-radius: 6px; border: 1px solid var(--borde); background: #000; }
   #visor figcaption { color: var(--tenue); font-size: 13px; text-align: center; }
 
+  .camara-cab .ubicacion { color: var(--tenue); font-size: 11px; overflow: hidden;
+                           text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+  .camara-cab .editar-cam { background: transparent; color: var(--tenue); padding: 2px 5px;
+                            font-size: 12px; transform: none; }
+  .alerta .folio { color: var(--texto); font-weight: 600; }
+  .alerta .nota { margin-top: 6px; font-size: 12px; color: var(--texto); padding: 6px 9px;
+                  background: var(--panel2); border-left: 2px solid var(--acento); border-radius: 3px; }
+  .alerta .atencion { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .alerta .atencion[hidden] { display: none; }
+  .alerta .atencion textarea { font-size: 12.5px; resize: vertical; }
+  .alerta .rapidas { display: flex; flex-wrap: wrap; gap: 5px; }
+  .alerta .rapidas .chip { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde);
+                           padding: 3px 8px; font-size: 11.5px; font-weight: 500; transform: none; }
   .camara-cab .salud { color: var(--tenue); font-size: 10.5px; font-family: var(--mono); }
   .campo .ayuda { color: var(--tenue); font-size: 11.5px; margin-top: 5px; }
   code.comando { display: block; margin-top: 6px; padding: 6px 9px; background: var(--fondo);
@@ -547,6 +560,7 @@
           </div>
           <button type="submit"><i data-lucide="search"></i>Buscar</button>
           <button type="button" class="sec" id="btnLimpiarFiltros"><i data-lucide="rotate-ccw"></i>Limpiar</button>
+          <button type="button" class="sec" id="btnExportar" title="Descargar la búsqueda como CSV"><i data-lucide="download"></i>Reporte</button>
         </form>
         <div class="lista">
           <table>

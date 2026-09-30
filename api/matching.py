@@ -263,6 +263,17 @@ def _cruzar_movimiento(evento: DetectionEvent) -> MatchResult:
     (N de M frames). Pero a diferencia de un arma, correr o forcejear tiene
     explicaciones inocentes -- se alerta como WARNING, no CRITICAL, para que
     el operador decida en vez de que salte una alarma automatica."""
+    if evento.value == "persona_caida":
+        return MatchResult(
+            event_id=evento.event_id,
+            severity=Severity.WARNING,
+            match_kind=MatchKind.RULE,
+            matched_value=evento.value,
+            score=evento.confidence,
+            reason="Posible persona caída: pasó de estar de pie a quedar tendida en "
+                   "menos de 2 s. Verificar en video.",
+        )
+
     velocidad = evento.meta.get("velocidad_alturas_por_s")
     umbral = evento.meta.get("umbral")
     detalle = ""
