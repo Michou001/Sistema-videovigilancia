@@ -5,17 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GOSS IP</title>
 <link rel="icon" type="image/png" href="/static/img/logo-icon.png">
-<!-- Tailwind (Play CDN): preflight apagado a proposito. El reset de Tailwind
-     redefine button/input/etc. y pisaria todo el CSS ya afinado abajo. Se usa
-     solo para utilidades sueltas en marcado nuevo, no para reescribir lo que
-     ya funciona. -->
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = { corePlugins: { preflight: false } };
-</script>
-<!-- Lucide: iconos como SVG en vez de emoji, para que se vean iguales en
-     cualquier sistema operativo y con el trazo tecnico del resto del panel. -->
-<script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
+<!-- Lucide: iconos SVG, iguales en cualquier sistema operativo. Version fija:
+     con @latest una version nueva podia renombrar iconos sin aviso. Si el CDN
+     no carga (red de camaras sin internet), app.js sigue funcionando sin
+     iconos en vez de dejar el panel en blanco. -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@1.48.0/dist/umd/lucide.min.js"></script>
 <style>
   /* Paleta propia de "centro de monitoreo": grafito frio en vez del gris casi
      negro generico, cian tecnico en vez del azul de SaaS/GitHub, verde y ambar
@@ -387,6 +381,35 @@
   .cargando { display: inline-flex; align-items: center; gap: 6px; color: var(--tenue); font-size: 12.5px; }
   .cargando svg.lucide { animation: girar 1s linear infinite; }
   @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* ---------- Busqueda en el registro ---------- */
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px;
+             border-bottom: 1px solid var(--borde); align-items: flex-end; }
+  .filtros .campo { margin: 0; flex: 1 1 120px; min-width: 110px; }
+  .filtros .campo.ancho { flex: 2 1 160px; }
+  .filtros input, .filtros select { padding: 7px 9px; font-size: 13px; }
+  .filtros button { padding: 7px 12px; font-size: 12.5px; }
+  .filtro-activo { color: var(--aviso); font-size: 11px; font-family: var(--mono); }
+  select { appearance: none; background-image: none; cursor: pointer; }
+  select:focus { outline: 2px solid var(--acento-fuerte); outline-offset: -1px; }
+
+  /* ---------- Evidencia ampliable ---------- */
+  img.ampliable { cursor: zoom-in; }
+  td .miniatura { width: 46px; height: 30px; object-fit: cover; border-radius: 3px;
+                  border: 1px solid var(--borde); display: block; }
+  #visor { display: none; position: fixed; inset: 0; z-index: 80; background: rgba(3,5,8,.9);
+           place-items: center; padding: 24px; cursor: zoom-out; }
+  #visor figure { max-width: min(1200px, 100%); max-height: 100%; display: flex;
+                  flex-direction: column; gap: 10px; align-items: center; }
+  #visor img { max-width: 100%; max-height: calc(100vh - 110px); object-fit: contain;
+               border-radius: 6px; border: 1px solid var(--borde); background: #000; }
+  #visor figcaption { color: var(--tenue); font-size: 13px; text-align: center; }
+
+  .camara-cab .salud { color: var(--tenue); font-size: 10.5px; font-family: var(--mono); }
+  .campo .ayuda { color: var(--tenue); font-size: 11.5px; margin-top: 5px; }
+  code.comando { display: block; margin-top: 6px; padding: 6px 9px; background: var(--fondo);
+                 border: 1px solid var(--borde); border-radius: 4px; color: var(--texto);
+                 font-family: var(--mono); font-size: 12px; user-select: all; }
 </style>
 </head>
 <body>
@@ -488,10 +511,46 @@
   <div class="vista" id="vistaRegistro">
     <main>
       <div class="panel">
-        <h2>Eventos <span class="crece" id="contadorEventos"></span></h2>
+        <h2>Eventos <span class="filtro-activo" id="filtroActivo"></span>
+            <span class="crece" id="contadorEventos"></span></h2>
+        <form class="filtros" id="formFiltros">
+          <div class="campo ancho">
+            <label for="fTexto">Placa o valor</label>
+            <input id="fTexto" placeholder="ABC-123" maxlength="20" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="fTipo">Tipo</label>
+            <select id="fTipo">
+              <option value="">Todos</option>
+              <option value="plate">Placa</option>
+              <option value="face">Rostro</option>
+              <option value="anomaly">Movimiento</option>
+              <option value="weapon">Arma</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="fSeveridad">Estado</label>
+            <select id="fSeveridad">
+              <option value="">Todos</option>
+              <option value="critical">Crítico</option>
+              <option value="warning">Aviso</option>
+              <option value="info">Info</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="fDesde">Desde</label>
+            <input id="fDesde" type="date">
+          </div>
+          <div class="campo">
+            <label for="fHasta">Hasta</label>
+            <input id="fHasta" type="date">
+          </div>
+          <button type="submit"><i data-lucide="search"></i>Buscar</button>
+          <button type="button" class="sec" id="btnLimpiarFiltros"><i data-lucide="rotate-ccw"></i>Limpiar</button>
+        </form>
         <div class="lista">
           <table>
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th><th></th></tr></thead>
             <tbody id="tablaEventos"></tbody>
           </table>
           <div class="vacio" id="sinEventos">Sin eventos todavía. Inicia el worker para empezar a detectar.</div>
@@ -527,6 +586,17 @@
         <div class="campo">
           <label for="motivo">Motivo</label>
           <input id="motivo" placeholder="Reporte de robo, orden judicial…" required>
+        </div>
+        <div class="campo">
+          <label for="vigencia">Vigencia</label>
+          <select id="vigencia">
+            <option value="">Sin vencimiento</option>
+            <option value="7">7 días</option>
+            <option value="30" selected>30 días</option>
+            <option value="90">90 días</option>
+            <option value="365">1 año</option>
+          </select>
+          <div class="ayuda">Al vencer deja de generar alertas. Una placa no debería quedar buscada para siempre.</div>
         </div>
         <button type="submit"><i data-lucide="plus"></i>Agregar placa</button>
         <div class="error" id="errorPlaca"></div>
@@ -616,6 +686,14 @@
 
     <div id="resultadoCamara"></div>
   </div>
+</div>
+
+<!-- ============ VISOR DE EVIDENCIA ============ -->
+<div id="visor" onclick="cerrarVisor()">
+  <figure>
+    <img id="visorImg" alt="Evidencia">
+    <figcaption id="visorTexto"></figcaption>
+  </figure>
 </div>
 
 <script src="/static/app.js"></script>

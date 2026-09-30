@@ -12,6 +12,11 @@ from fastapi import WebSocket
 
 log = logging.getLogger(__name__)
 
+# Un dashboard que no acepta un mensaje en este tiempo se da por caido. Sin
+# limite, un navegador colgado (portatil suspendida con la pestana abierta)
+# frenaba la difusion a todos los demas.
+TIMEOUT_ENVIO = 3.0
+
 
 def _serializar(obj: Any) -> Any:
     if isinstance(obj, datetime):
@@ -25,7 +30,8 @@ class Hub:
     Difundir NUNCA debe hacer fallar la ingesta: si un navegador se desconecta
     a media escritura, eso no puede propagarse hasta devolverle un error 500 al
     worker de borde. Por eso cada envio va con su propio try y los clientes
-    muertos se retiran en silencio.
+    muertos se retiran en silencio. Los envios van en paralelo: el mensaje
+    tarda lo que el cliente mas lento, no la suma de todos.
     """
 
     def __init__(self) -> None:
@@ -43,19 +49,23 @@ class Hub:
             self._clientes.discard(ws)
         log.info("Dashboard desconectado (%d activos)", len(self._clientes))
 
+    async def _enviar(self, ws: WebSocket, mensaje: str) -> bool:
+        try:
+            await asyncio.wait_for(ws.send_text(mensaje), TIMEOUT_ENVIO)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     async def difundir(self, tipo: str, datos: dict) -> None:
         mensaje = json.dumps({"type": tipo, "data": datos}, default=_serializar,
                              ensure_ascii=False)
         async with self._lock:
             clientes = list(self._clientes)
+        if not clientes:
+            return
 
-        caidos = []
-        for ws in clientes:
-            try:
-                await ws.send_text(mensaje)
-            except Exception:  # noqa: BLE001
-                caidos.append(ws)
-
+        resultados = await asyncio.gather(*(self._enviar(ws, mensaje) for ws in clientes))
+        caidos = [ws for ws, ok in zip(clientes, resultados) if not ok]
         if caidos:
             async with self._lock:
                 for ws in caidos:

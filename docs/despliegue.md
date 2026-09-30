@@ -126,8 +126,7 @@ After=vigilancia-api.service
 Type=simple
 User=vigilancia
 WorkingDirectory=/opt/sistema-videovigilancia
-Environment=CAMERA_ID=%i
-ExecStart=/opt/sistema-videovigilancia/venv/bin/python -m edge.worker
+ExecStart=/opt/sistema-videovigilancia/venv/bin/python -m edge.worker --env .env.%i
 Restart=always
 RestartSec=15
 
@@ -137,7 +136,7 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl enable --now vigilancia-api
-sudo systemctl enable --now vigilancia-worker@cam-entrada
+sudo systemctl enable --now vigilancia-worker@cam-entrada   # lee .env.cam-entrada
 ```
 
 `Restart=always` importa: si el worker muere por un fallo de red o de la
@@ -153,13 +152,22 @@ Programador de tareas con disparador "al iniciar el sistema".
 
 ## Varias cámaras
 
-Un worker por cámara, cada uno con su `CAMERA_ID` y su `SOURCE`. Todos apuntan
-a la misma API.
+Un worker por cámara, cada uno con su archivo de entorno (su `CAMERA_ID` y su
+`SOURCE`). Todos apuntan a la misma API con el mismo `API_TOKEN`.
 
 ```bash
-CAMERA_ID=cam-entrada SOURCE=rtsp://... python -m edge.worker
-CAMERA_ID=cam-salida  SOURCE=rtsp://... python -m edge.worker
+python -m edge.worker --env .env.cam-entrada
+python -m edge.worker --env .env.cam-salida
 ```
+
+El botón **Cámaras** del dashboard crea esos archivos: la primera cámara va a
+`.env` y las siguientes a `.env.<camera_id>`, copiando el token y los
+detectores activos.
+
+Si un worker corre en **otra máquina** que la API (una PC junto a las
+cámaras y el servidor en otro lado), no comparten disco: con
+`SEND_SNAPSHOT_B64=auto` (el valor por defecto) el worker detecta que la API
+no es `localhost` y adjunta cada captura al evento para que la API la guarde.
 
 **Cuántas caben en una GPU:** cada worker con los tres detectores usa ~1.6 GB
 de VRAM y ~44 ms de cómputo por frame. En una tarjeta de 6 GB caben unos **3
@@ -182,8 +190,10 @@ workers**; el límite de VRAM llega antes que el de cómputo.
 
 ## Salud del sistema
 
-El dashboard muestra si cada cámara está en línea (sin señal por más de 60 s se
-marca caída). Para monitoreo externo:
+Cada worker manda un latido cada 15 s (`HEARTBEAT_S`) con los fps reales, las
+reconexiones y si la cámara entrega imagen. El dashboard marca caída una cámara
+sin latido en 60 s, o cuyo worker sigue vivo pero ya no recibe video. Para
+monitoreo externo:
 
 ```bash
 curl http://localhost:8000/api/health

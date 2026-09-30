@@ -44,6 +44,13 @@ class ConfirmacionTemporal:
         h = self._historial.get(tid)
         return h is not None and len(h) == self.ventana and not any(h)
 
+    def rearmar(self, tid: int) -> None:
+        """Permite volver a confirmar un track que ya alerto, empezando de cero.
+        Quien llama decide cuando (por ejemplo, tras un tiempo de enfriamiento)."""
+        self._confirmados.discard(tid)
+        if tid in self._historial:
+            self._historial[tid].clear()
+
     def olvidar(self, tid: int) -> None:
         if self._historial.pop(tid, None) is not None and tid not in self._confirmados:
             self.descartados_sin_confirmar += 1

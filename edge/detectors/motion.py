@@ -47,6 +47,17 @@ CLASE_PERSONA = 0  # id de 'person' en COCO
 
 VALOR_EVENTO = "movimiento_subito"
 
+# Velocidad (alturas de cuerpo por segundo) entre dos muestras consecutivas
+# por encima de la cual el salto no es de la persona sino del tracker: cambio
+# de identidad entre dos personas cercanas, o una caja que se corto por una
+# oclusion. Nadie se desplaza diez veces su estatura en un segundo.
+SALTO_IMPOSIBLE = 10.0
+
+# Cambio de altura de la caja entre muestras consecutivas que indica lo mismo:
+# la caja dejo de corresponder a la misma silueta completa. Es holgado a
+# proposito: agacharse o caer cambia la altura, pero no a la mitad en 1/8 s.
+RAZON_ALTURA_MAX = 2.0
+
 
 class MotionAnomalyDetector(Detector):
     name = "motion"
@@ -84,9 +95,11 @@ class MotionAnomalyDetector(Detector):
         self._posiciones: dict[int, deque[tuple[float, float, float, float]]] = {}
         self._ultima_deteccion: dict[int, dict] = {}
         self._hd_futures: dict[int, Future] = {}
+        self._alertado_en: dict[int, float] = {}
 
         self._frame_idx = 0
         self._eventos_emitidos = 0
+        self._saltos_descartados = 0
         self._ms_inferencia = 0.0
         self._forma_frame: tuple[int, int] = (0, 0)
         self._hd_usados = 0
@@ -126,6 +139,11 @@ class MotionAnomalyDetector(Detector):
                 historial = self._posiciones.setdefault(
                     tid, deque(maxlen=self._ventana_posiciones)
                 )
+                if historial and self._salto_del_tracker(historial[-1], (frame.ts, cx, cy, alto)):
+                    # El historial ya no describe a esta silueta: se empieza
+                    # de nuevo en vez de medir una "velocidad" que no existio.
+                    historial.clear()
+                    self._saltos_descartados += 1
                 historial.append((frame.ts, cx, cy, alto))
                 velocidad = self._velocidad(historial)
 
@@ -155,17 +173,39 @@ class MotionAnomalyDetector(Detector):
                     self._posiciones.pop(tid, None)
                     self._ultima_deteccion.pop(tid, None)
                     self._hd_futures.pop(tid, None)
+                    self._alertado_en.pop(tid, None)
 
         eventos = []
         for tid in vistos_ahora:
             if self.confirmador.ya_alertado(tid):
+                # Pasado el enfriamiento y con la persona ya calmada, se
+                # rearma: un segundo incidente de la misma persona tambien
+                # debe avisar.
+                calmado = self.confirmador.progreso(tid)[0] == 0
+                if calmado and frame.ts - self._alertado_en.get(tid, frame.ts) >= self.cfg.motion_cooldown_s:
+                    self.confirmador.rearmar(tid)
+                    self._hd_futures.pop(tid, None)
                 continue
             if self.confirmador.confirmado(tid):
                 evento = self._construir_evento(tid, frame)
                 if evento is not None:
                     eventos.append(evento)
                     self.confirmador.registrar_alerta(tid)
+                    self._alertado_en[tid] = frame.ts
         return eventos
+
+    @staticmethod
+    def _salto_del_tracker(previa: tuple, actual: tuple) -> bool:
+        t0, x0, y0, h0 = previa
+        t1, x1, y1, h1 = actual
+        razon = max(h0, h1) / max(1.0, min(h0, h1))
+        if razon > RAZON_ALTURA_MAX:
+            return True
+        dt = t1 - t0
+        if dt <= 0:
+            return False
+        distancia = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        return (distancia / ((h0 + h1) / 2)) / dt > SALTO_IMPOSIBLE
 
     def _velocidad(self, historial: deque) -> float:
         """Velocidad en 'alturas de cuerpo por segundo' entre el extremo mas
@@ -243,7 +283,7 @@ class MotionAnomalyDetector(Detector):
 
         vista, ex1, ey1, ex2, ey2 = self._frame_evidencia(tid, frame, (x1, y1, x2, y2))
         cv2.rectangle(vista, (ex1, ey1), (ex2, ey2), (0, 140, 255), 3)
-        cv2.putText(vista, f"MOVIMIENTO SUBITO {velocidad:.1f}x", (ex1, max(20, ey1 - 8)),
+        cv2.putText(vista, f"MOVIMIENTO SUBITO {velocidad:.1f} alt/s", (ex1, max(20, ey1 - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 140, 255), 2)
         ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
         cv2.imwrite(str(ruta), vista)
@@ -260,7 +300,8 @@ class MotionAnomalyDetector(Detector):
             confirmado = self.confirmador.ya_alertado(tid)
             color = (0, 140, 255) if confirmado else (200, 200, 200)
             aciertos, _ = self.confirmador.progreso(tid)
-            etiqueta = f"#{tid} {datos['velocidad']:.1f}x [{aciertos}/{self.cfg.motion_confirm_hits}]"
+            etiqueta = (f"#{tid} {datos['velocidad']:.1f} alt/s "
+                        f"[{aciertos}/{self.cfg.motion_confirm_hits}]")
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, etiqueta, (x1, max(12, y1 - 6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -287,6 +328,7 @@ class MotionAnomalyDetector(Detector):
             "evidencia_hd_usada": self._hd_usados,
             "eventos_emitidos": self._eventos_emitidos,
             "descartados_sin_confirmar": self.confirmador.descartados_sin_confirmar,
+            "saltos_de_tracker_descartados": self._saltos_descartados,
             "ms_inferencia_promedio": round(self._ms_inferencia / n, 1),
         }
 

@@ -27,7 +27,7 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -254,8 +254,19 @@ class LiveSource(FrameSource):
     # -- ciclo del hilo lector ---------------------------------------------
 
     def _open(self) -> bool:
-        backend = cv2.CAP_FFMPEG if isinstance(self.target, str) else cv2.CAP_ANY
-        cap = cv2.VideoCapture(self.target, backend)
+        if isinstance(self.target, str):
+            # Limites de espera explicitos: sin ellos, una camara que dejo de
+            # responder a media lectura podia tener al hilo colgado mucho mas
+            # que los 5 s de `stimeout`, sin reconectar.
+            try:
+                cap = cv2.VideoCapture(self.target, cv2.CAP_FFMPEG, [
+                    cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(self.open_timeout * 1000),
+                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000,
+                ])
+            except (AttributeError, cv2.error, TypeError):
+                cap = cv2.VideoCapture(self.target, cv2.CAP_FFMPEG)
+        else:
+            cap = cv2.VideoCapture(self.target, cv2.CAP_ANY)
         if not cap.isOpened():
             cap.release()
             return False
@@ -441,6 +452,11 @@ class FileSource(FrameSource):
         self._status = SourceStatus(connected=True)
         self._native_fps = self._cap.get(cv2.CAP_PROP_FPS) or 25.0
         self._t0 = time.monotonic()
+        # Reloj del VIDEO, no de la maquina: el frame n ocurrio n/fps segundos
+        # despues del inicio. Con la hora de lectura, un video procesado mas
+        # rapido (o mas lento) que tiempo real daba velocidades de movimiento
+        # falsas y duraciones de track que no correspondian a la grabacion.
+        self._inicio_video = time.time()
 
     def read(self, timeout: float = 5.0) -> Optional[FrameInfo]:
         ok, frame = self._cap.read()
@@ -465,7 +481,8 @@ class FileSource(FrameSource):
             if delay > 0:
                 time.sleep(delay)
 
-        return FrameInfo(frame=frame, index=self._counter, ts=time.time())
+        ts = self._inicio_video + (self._counter - 1) / self._native_fps
+        return FrameInfo(frame=frame, index=self._counter, ts=ts)
 
     def release(self) -> None:
         self._cap.release()

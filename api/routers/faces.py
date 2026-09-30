@@ -18,11 +18,13 @@ from typing import Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import col, select
 
 from api.config import get_config
 from api.deps import Admin, OperadorActual, SesionBD
+from api.matching import lista_negra
 from api.models import BlacklistFace, FechasEnUtc
 from api.retroactive import reescanear_rostro
 
@@ -90,14 +92,14 @@ async def agregar(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "No se pudo leer la imagen (formato no soportado)")
 
-    vector = _embedder().embedding_de_foto(imagen)
+    # Cargar el modelo (la primera vez) y correrlo tarda segundos: en el pool
+    # de hilos, no en el bucle de eventos, o el video en vivo y el WebSocket
+    # de todos los dashboards se congelan mientras tanto.
+    vector, motivo = await run_in_threadpool(lambda: _embedder().analizar_foto_alta(imagen))
     if vector is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "No se detecto ningun rostro en la foto. Se rechaza aqui a proposito: "
-            "un registro sin rostro valido nunca coincidiria con nada y quedaria "
-            "en la lista dando una falsa sensacion de cobertura.",
-        )
+        # Se rechaza aqui a proposito: una referencia sin rostro valido nunca
+        # coincidiria con nada y daria una falsa sensacion de cobertura.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, motivo)
 
     cfg = get_config()
     registro = BlacklistFace(
@@ -122,6 +124,7 @@ async def agregar(
     registro.photo_path = ruta.relative_to(cfg.snapshot_dir.parent.parent).as_posix()
     session.commit()
     session.refresh(registro)
+    lista_negra.invalidar()
 
     log.info("Rostro '%s' agregado a lista negra por %s (fundamento: %s)",
              label, admin.username, legal_basis)
@@ -141,4 +144,5 @@ def desactivar(registro_id: int, session: SesionBD, admin: Admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese registro")
     registro.active = False
     session.commit()
+    lista_negra.invalidar()
     log.info("Rostro '%s' desactivado por %s", registro.label, admin.username)

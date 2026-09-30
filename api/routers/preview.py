@@ -77,7 +77,7 @@ async def flujo_en_vivo(camera_id: str, token: str = "") -> StreamingResponse:
     el token de ingesta del worker.
     """
     if not decodificar_token(token):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalido o expirado")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido o expirado")
 
     return StreamingResponse(
         buffer_preview.flujo_mjpeg(camera_id),

@@ -22,8 +22,14 @@ let usuario = null;
 let ws = null;
 let reconexion = null;
 let intentos = 0;
+let temporizadorStats = null;
 
 const $ = (id) => document.getElementById(id);
+
+// Si el CDN de iconos no cargo (red de las camaras sin salida a internet), el
+// panel sigue funcionando sin iconos. Sin esto, la primera llamada a lucide
+// lanzaba un error y el script entero se detenia: ni siquiera el login servia.
+if (!window.lucide) window.lucide = { createIcons() {} };
 
 // Convierte los <i data-lucide> ya presentes en el HTML (login, botones de
 // cabecera) apenas carga el script. El resto de la app llama a esto de nuevo
@@ -43,10 +49,20 @@ async function api(ruta, opciones = {}) {
       ...(opciones.headers || {}),
     },
   });
-  if (r.status === 401) { salir(); throw new Error('Sesión expirada'); }
+  // Un 401 del login es "contrasena incorrecta", no "sesion expirada".
+  if (r.status === 401 && token && ruta !== '/api/auth/login') {
+    salir();
+    throw new Error('Sesión expirada');
+  }
   if (!r.ok) {
     let detalle = 'Error ' + r.status;
-    try { detalle = (await r.json()).detail || detalle; } catch {}
+    try {
+      const cuerpo = await r.json();
+      // FastAPI devuelve los errores de validacion como lista de objetos.
+      detalle = Array.isArray(cuerpo.detail)
+        ? cuerpo.detail.map((d) => d.msg).join('; ')
+        : (cuerpo.detail || detalle);
+    } catch {}
     throw new Error(detalle);
   }
   return r.status === 204 ? null : r.json();
@@ -76,6 +92,12 @@ $('formLogin').addEventListener('submit', async (e) => {
 function salir() {
   localStorage.removeItem('token');
   token = '';
+  // Todos los temporizadores: sin esto, tras cerrar sesion el reintento del
+  // WebSocket y el refresco de estadisticas seguian corriendo, y al volver a
+  // entrar se duplicaban.
+  clearTimeout(reconexion);
+  clearInterval(temporizadorStats);
+  temporizadorStats = null;
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   detenerCamaras();
   clearInterval(temporizadorCamaras);
@@ -87,10 +109,9 @@ async function arrancar() {
   $('login').style.display = 'none';
   $('app').style.display = 'block';
   $('quien').textContent = usuario.display_name + ' · ' + usuario.role;
-  if (usuario.role !== 'admin') {
-    $('btnListaNegra').style.display = 'none';
-    $('btnCamaras').style.display = 'none';
-  }
+  const esAdmin = usuario.role === 'admin';
+  $('btnListaNegra').style.display = esAdmin ? '' : 'none';
+  $('btnCamaras').style.display = esAdmin ? '' : 'none';
   // cargarPlacas() tambien alimenta la metrica "en lista negra" de la cabecera,
   // por eso se llama al arrancar y no solo al abrir el modal.
   await Promise.all([
@@ -98,7 +119,8 @@ async function arrancar() {
     cargarPlacas(), cargarDetecciones(),
   ]);
   conectarWs();
-  setInterval(refrescarStats, 15000);
+  clearInterval(temporizadorStats);
+  temporizadorStats = setInterval(refrescarStats, 15000);
   // El apartado se recuerda entre recargas: si el operador dejo el navegador
   // en Registro, un F5 no deberia devolverlo a Monitoreo.
   mostrarVista(localStorage.getItem('vista') || 'monitoreo');
@@ -208,7 +230,13 @@ async function refrescarCamaras() {
     r.el.querySelector('.nom').textContent = (meta && meta.name) || id;
     r.el.querySelector('.punto').className =
       'punto ' + (vivo ? 'on' : (meta && meta.online ? '' : 'off'));
-    r.el.querySelector('.fps').textContent = vivo ? `${vivo.fps} fps` : '';
+    r.el.querySelector('.fps').textContent = vivo ? `${vivo.fps} fps video` : '';
+    // Salud reportada por el latido del worker: fps a los que de verdad esta
+    // detectando y cuantas veces tuvo que reconectar con la camara.
+    const salud = [];
+    if (meta && meta.fps != null) salud.push(`${meta.fps} fps análisis`);
+    if (meta && meta.reconexiones) salud.push(`${meta.reconexiones} reconex.`);
+    r.el.querySelector('.salud').textContent = salud.join(' · ');
 
     if (vivo) arrancarFlujo(r, id);
     else if (r.transmitiendo) { detenerFlujo(r); r.cuerpo.innerHTML = PLACEHOLDER_SIN_SENAL; }
@@ -235,6 +263,7 @@ function crearRecuadro(id) {
       <span class="punto"></span>
       <span class="nom">${escapar(id)}</span>
       <span class="crece"></span>
+      <span class="salud"></span>
       <span class="fps"></span>
     </div>
     <div class="camara-video">${PLACEHOLDER_SIN_SENAL}</div>`;
@@ -281,7 +310,7 @@ function marcarEnCamara(ev) {
   if (!r || !r.capa) return;
   r.capa.innerHTML =
     `<span>${iconoTag(ev.type)}</span>` +
-    `<span class="v">${escapar(ev.value)}</span>` +
+    `<span class="v">${escapar(valorLegible(ev))}</span>` +
     `<span class="c">${hora(ev.ts)}</span>`;
   r.capa.classList.add('visible');
   lucide.createIcons();
@@ -307,7 +336,7 @@ function agregarDeteccion(ev, nueva = false) {
 
   div.innerHTML = `
     <div class="crece">
-      <div class="v">${iconoTag(ev.type)} ${escapar(ev.value)}</div>
+      <div class="v">${iconoTag(ev.type)} ${escapar(valorLegible(ev))}</div>
       <div class="m">${hora(ev.ts)} · ${escapar(ev.camera_id)}
         ${ev.observations ? '· ' + ev.observations + ' frames' : ''}</div>
     </div>`;
@@ -320,9 +349,8 @@ function agregarDeteccion(ev, nueva = false) {
   hueco.innerHTML = iconoTag(ev.type);
 
   if (ev.snapshot_path) {
-    const img = document.createElement('img');
-    img.alt = '';
-    img.src = '/media/' + ev.snapshot_path.split('/').pop();
+    const img = miniatura(ev.snapshot_path,
+      `${NOMBRES[ev.type] || ev.type} ${valorLegible(ev)} · ${fechaHora(ev.ts)} · ${ev.camera_id}`);
     // La captura pudo borrarla la politica de retencion: se cae al icono en
     // vez de dejar la imagen rota del navegador.
     img.onerror = () => img.replaceWith(hueco);
@@ -364,20 +392,24 @@ function conectarWs() {
   ws.onmessage = (e) => {
     const { type, data } = JSON.parse(e.data);
     if (type === 'event') {
-      agregarEvento(data, true);
+      // Con una busqueda activa, la tabla muestra el resultado de esa busqueda:
+      // meterle eventos en vivo que quiza no cumplen el filtro la contradiria.
+      if (!filtroActivo()) agregarEvento(data, true);
       agregarDeteccion(data, true);
       marcarEnCamara(data);
-      refrescarStats();
+      pedirStats();
     }
     else if (type === 'alert') {
       agregarAlerta(data, true);
+      pedirStats();
       if (data.severity === 'critical') mostrarBanner(data);
       else if (data.severity === 'warning') mostrarToast(data);
     }
-    else if (type === 'alert_resolved') cargarAlertas();
+    else if (type === 'alert_resolved') { cargarAlertas(); pedirStats(); }
   };
 
   ws.onclose = () => {
+    if (!token) return;
     $('puntoWs').className = 'punto off';
     // Reintento con espera creciente: si el servidor se reinicia, el navegador
     // no debe martillarlo con una conexion por milisegundo.
@@ -402,62 +434,156 @@ const ICONOS = { plate: 'car', face: 'user-round', weapon: 'shield-alert', anoma
 const NOMBRES = { plate: 'Placa', face: 'Rostro', weapon: 'Arma', anomaly: 'Movimiento' };
 const iconoTag = (tipo) => `<i data-lucide="${ICONOS[tipo] || 'circle-dot'}"></i>`;
 
+/* El valor tal como lo lee el operador. En placas y armas es el dato mismo;
+ * en rostros y movimiento el worker manda una etiqueta interna. */
+const VALORES = { movimiento_subito: 'Movimiento súbito', rostro: 'Rostro' };
+const valorLegible = (ev) => VALORES[ev.value] || ev.value;
+
+const ETIQUETAS_SEVERIDAD = { critical: 'crítico', warning: 'aviso', info: 'info' };
+
 function hora(iso) {
   return new Date(iso).toLocaleTimeString('es-MX', { hour12: false });
 }
+
+/* Hora sola si es de hoy; fecha y hora si no. En el registro conviven eventos
+ * de varios dias y "14:02" a secas no dice de cual. */
+function fechaHora(iso) {
+  const d = new Date(iso);
+  const hoy = new Date();
+  if (d.toDateString() === hoy.toDateString()) return hora(iso);
+  return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) + ' ' + hora(iso);
+}
+
+/* Miniatura de evidencia que se amplia al hacer clic. La foto guardada puede
+ * ser la captura HD de 3200 px: a 66 px de ancho el operador no ve nada. */
+function miniatura(ruta, descripcion, clase = '') {
+  const img = document.createElement('img');
+  img.alt = '';
+  img.className = ('ampliable ' + clase).trim();
+  img.loading = 'lazy';
+  img.src = '/media/' + encodeURIComponent(ruta.split('/').pop());
+  img.addEventListener('click', (e) => { e.stopPropagation(); abrirVisor(img.src, descripcion); });
+  return img;
+}
+
+function abrirVisor(src, texto) {
+  $('visorImg').src = src;
+  $('visorTexto').textContent = texto || '';
+  $('visor').style.display = 'grid';
+}
+function cerrarVisor() {
+  $('visor').style.display = 'none';
+  $('visorImg').removeAttribute('src');
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarVisor(); });
 
 function agregarEvento(ev, nuevo = false) {
   $('sinEventos').style.display = 'none';
   const tr = document.createElement('tr');
   if (nuevo) tr.className = 'nuevo';
   tr.innerHTML = `
-    <td class="mono" style="color:var(--tenue)">${hora(ev.ts)}</td>
-    <td>${iconoTag(ev.type)} ${NOMBRES[ev.type] || ev.type}</td>
-    <td class="mono"><strong>${escapar(ev.value)}</strong></td>
+    <td class="mono" style="color:var(--tenue);white-space:nowrap">${fechaHora(ev.ts)}</td>
+    <td>${iconoTag(ev.type)} ${NOMBRES[ev.type] || escapar(ev.type)}</td>
+    <td class="mono"><strong>${escapar(valorLegible(ev))}</strong></td>
     <td style="color:var(--tenue)">${escapar(ev.camera_id)}</td>
-    <td><span class="etiqueta ${ev.severity}">${ev.severity}</span></td>`;
+    <td><span class="etiqueta ${escapar(ev.severity)}">${ETIQUETAS_SEVERIDAD[ev.severity] || escapar(ev.severity)}</span></td>
+    <td></td>`;
+  if (ev.snapshot_path) {
+    const img = miniatura(ev.snapshot_path,
+      `${NOMBRES[ev.type] || ev.type} ${valorLegible(ev)} · ${fechaHora(ev.ts)} · ${ev.camera_id}`, 'miniatura');
+    img.onerror = () => img.remove();
+    tr.lastElementChild.append(img);
+  }
   const tbody = $('tablaEventos');
-  tbody.prepend(tr);
-  while (tbody.children.length > 200) tbody.lastChild.remove();
+  if (nuevo) tbody.prepend(tr); else tbody.append(tr);
+  while (tbody.children.length > 300) tbody.lastChild.remove();
   $('contadorEventos').textContent = tbody.children.length + ' mostrados';
   lucide.createIcons();
 }
 
-async function cargarEventos() {
-  const eventos = await api('/api/events?limite=100');
-  $('tablaEventos').innerHTML = '';
-  // Llegan del mas reciente al mas antiguo; se invierte porque agregarEvento
-  // hace prepend y asi el orden final vuelve a quedar correcto.
-  eventos.reverse().forEach((e) => agregarEvento(e));
-  if (eventos.length === 0) $('sinEventos').style.display = 'block';
+/* ---- Busqueda en el registro ---- */
+
+function filtros() {
+  const p = new URLSearchParams();
+  const texto = $('fTexto').value.trim();
+  if (texto) p.set('q', texto);
+  if ($('fTipo').value) p.set('tipo', $('fTipo').value);
+  if ($('fSeveridad').value) p.set('severidad', $('fSeveridad').value);
+  // Las fechas del formulario son dias LOCALES. Se mandan como instante con
+  // zona para que la API compare contra UTC sin correr el dia seis horas.
+  if ($('fDesde').value) p.set('desde', new Date($('fDesde').value + 'T00:00:00').toISOString());
+  if ($('fHasta').value) p.set('hasta', new Date($('fHasta').value + 'T23:59:59.999').toISOString());
+  return p;
 }
+
+function filtroActivo() {
+  return [...filtros().keys()].length > 0;
+}
+
+async function cargarEventos() {
+  const p = filtros();
+  const activo = [...p.keys()].length > 0;
+  p.set('limite', activo ? '500' : '100');
+  const eventos = await api('/api/events?' + p.toString());
+  $('tablaEventos').innerHTML = '';
+  eventos.forEach((e) => agregarEvento(e));
+  $('sinEventos').textContent = activo
+    ? 'Ningún evento coincide con la búsqueda.'
+    : 'Sin eventos todavía. Inicia el worker para empezar a detectar.';
+  $('sinEventos').style.display = eventos.length ? 'none' : 'block';
+  $('contadorEventos').textContent = eventos.length + (activo ? ' encontrados' : ' mostrados');
+  $('filtroActivo').textContent = activo ? '· búsqueda activa' : '';
+}
+
+$('formFiltros').addEventListener('submit', (e) => {
+  e.preventDefault();
+  cargarEventos().catch((err) => { $('contadorEventos').textContent = err.message; });
+});
+$('btnLimpiarFiltros').addEventListener('click', () => {
+  $('formFiltros').reset();
+  cargarEventos().catch(() => {});
+});
 
 /* ------------------------------------------------------------------ */
 /* Alertas                                                             */
 /* ------------------------------------------------------------------ */
 
+const ESTADOS_ALERTA = { acknowledged: 'atendida', dismissed: 'falso positivo' };
+const TIPOS_COINCIDENCIA = {
+  exact: 'coincidencia exacta', fuzzy: 'coincidencia aproximada',
+  biometric: 'coincidencia biométrica', rule: 'regla',
+};
+
 function agregarAlerta(a, nuevo = false) {
   $('sinAlertas').style.display = 'none';
   const div = document.createElement('div');
   div.className = 'alerta ' + a.severity + (a.status && a.status !== 'new' ? ' resuelta' : '');
-  const img = a.snapshot_path
-    ? `<img src="/media/${a.snapshot_path.split('/').pop()}" alt="" onerror="this.style.display='none'">`
-    : '';
   const acciones = (!a.status || a.status === 'new') && a.id
     ? `<div class="acciones">
-         <button onclick="resolver(${a.id},'acknowledge')"><i data-lucide="check"></i>Atendida</button>
-         <button class="sec" onclick="resolver(${a.id},'dismiss')"><i data-lucide="x"></i>Falso positivo</button>
+         <button onclick="resolver(${Number(a.id)},'acknowledge')"><i data-lucide="check"></i>Atendida</button>
+         <button class="sec" onclick="resolver(${Number(a.id)},'dismiss')"><i data-lucide="x"></i>Falso positivo</button>
        </div>` : '';
+  const partes = [fechaHora(a.ts || a.created_at), escapar(a.camera_id)];
+  if (a.match_kind && a.match_kind !== 'none') {
+    let coincidencia = TIPOS_COINCIDENCIA[a.match_kind] || escapar(a.match_kind);
+    if (a.match_score != null && a.match_kind !== 'rule') {
+      coincidencia += ` ${Math.round(a.match_score * 100)}%`;
+    }
+    partes.push(coincidencia);
+  }
+  if (a.status && a.status !== 'new') partes.push(ESTADOS_ALERTA[a.status] || escapar(a.status));
   div.innerHTML = `
-    ${img}
     <div class="crece">
       <div class="t">${escapar(a.title)}</div>
       <div class="d">${escapar(a.detail || '')}</div>
-      <div class="meta">${hora(a.ts || a.created_at)} · ${escapar(a.camera_id)}
-        ${a.match_kind && a.match_kind !== 'none' ? '· ' + a.match_kind : ''}
-        ${a.status && a.status !== 'new' ? '· ' + a.status : ''}</div>
+      <div class="meta">${partes.join(' · ')}</div>
       ${acciones}
     </div>`;
+  if (a.snapshot_path) {
+    const img = miniatura(a.snapshot_path, `${a.title} · ${fechaHora(a.ts || a.created_at)}`);
+    img.onerror = () => img.remove();
+    div.prepend(img);
+  }
   const lista = $('listaAlertas');
   if (nuevo) lista.prepend(div); else lista.append(div);
   while (lista.children.length > 60) lista.lastChild.remove();
@@ -486,6 +612,9 @@ function mostrarBanner(a) {
   // El banner vive dentro de #barra, asi que al mostrarlo empuja la cabecera
   // hacia abajo por si solo. Nada que medir.
   $('banner').style.display = 'flex';
+  // Una alerta critica tambien suena, y distinto que un aviso: el operador
+  // puede estar mirando otra pantalla.
+  sonarAviso(true);
 }
 function cerrarBanner() { $('banner').style.display = 'none'; }
 
@@ -525,11 +654,12 @@ function mostrarToast(a) {
  * interaccion). Si el navegador lo bloquea de todos modos, se ignora --
  * el toast visual sigue apareciendo igual. */
 let _audioCtx = null;
-function sonarAviso() {
+function sonarAviso(critico = false) {
   try {
     _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const ahora = _audioCtx.currentTime;
-    [880, 660].forEach((frecuencia, i) => {
+    const tonos = critico ? [988, 740, 988, 740] : [880, 660];
+    tonos.forEach((frecuencia, i) => {
       const osc = _audioCtx.createOscillator();
       const gain = _audioCtx.createGain();
       osc.type = 'sine';
@@ -547,6 +677,18 @@ function sonarAviso() {
 /* ------------------------------------------------------------------ */
 /* Estadisticas                                                        */
 /* ------------------------------------------------------------------ */
+
+/* Pide estadisticas como mucho una vez cada 2 s. Antes se pedian con CADA
+ * evento que llegaba por WebSocket: con trafico, eran decenas de consultas
+ * COUNT por segundo por cada dashboard abierto, para mostrar un numero. */
+let _statsPendiente = null;
+function pedirStats() {
+  if (_statsPendiente) return;
+  _statsPendiente = setTimeout(() => {
+    _statsPendiente = null;
+    refrescarStats();
+  }, 2000);
+}
 
 async function refrescarStats() {
   try {
@@ -686,13 +828,13 @@ $('formCamara').addEventListener('submit', async (e) => {
 async function guardarCamara() {
   if (!camaraProbada) return;
   try {
-    await api('/api/camera-setup/guardar', { method: 'POST', body: JSON.stringify(camaraProbada) });
+    const r = await api('/api/camera-setup/guardar', { method: 'POST', body: JSON.stringify(camaraProbada) });
     $('resultadoCamara').innerHTML += `
       <div class="aviso-reinicio">
         <i data-lucide="triangle-alert"></i>
-        <span><strong>Guardado.</strong> El worker no relee la configuración solo:
-        detenlo y vuelve a correr <code class="mono">iniciar_worker.bat</code> para
-        que empiece a usar esta cámara.</span>
+        <span><strong>Guardado en ${escapar(r.archivo)}.</strong> El worker lee su
+        configuración al arrancar: (re)inicia el de esta cámara con
+        <code class="comando">${escapar(r.comando)}</code></span>
       </div>`;
     lucide.createIcons();
   } catch (err) {
@@ -730,17 +872,30 @@ $('formRostro').addEventListener('submit', async (e) => {
   fd.append('legal_basis', $('fundamento').value);
   fd.append('foto', archivo);
 
+  const boton = $('formRostro').querySelector('button[type=submit]');
+  boton.disabled = true;
   try {
     const r = await fetch('/api/blacklist/faces', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + token },
       body: fd,
     });
-    if (!r.ok) throw new Error((await r.json()).detail || 'Error ' + r.status);
+    if (r.status === 401) { salir(); throw new Error('Sesión expirada'); }
+    if (!r.ok) {
+      let detalle = 'Error ' + r.status;
+      try {
+        const cuerpo = await r.json();
+        detalle = Array.isArray(cuerpo.detail)
+          ? cuerpo.detail.map((d) => d.msg).join('; ') : (cuerpo.detail || detalle);
+      } catch {}
+      throw new Error(detalle);
+    }
     $('formRostro').reset();
     await cargarRostros();
   } catch (err) {
     $('errorRostro').textContent = err.message;
+  } finally {
+    boton.disabled = false;
   }
 });
 
@@ -752,14 +907,23 @@ async function quitarRostro(id) {
 async function cargarPlacas() {
   const placas = await api('/api/blacklist/plates');
   $('mLista').textContent = placas.length;
+  const ahora = Date.now();
   $('listaPlacas').innerHTML = placas.length
-    ? placas.map((p) => `
+    ? placas.map((p) => {
+        const vencida = p.expires_at && new Date(p.expires_at).getTime() < ahora;
+        const vigencia = !p.expires_at ? ''
+          : vencida ? '<span style="color:var(--critico);font-size:11px">vencida</span>'
+          : `<span style="color:var(--tenue);font-size:11px">hasta ${new Date(p.expires_at)
+              .toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>`;
+        return `
         <div class="fila">
           <strong class="mono">${escapar(p.plate)}</strong>
           <span class="crece" style="color:var(--tenue)">${escapar(p.reason)}</span>
+          ${vigencia}
           <button class="peligro" style="padding:3px 9px;font-size:12px"
-                  onclick="quitarPlaca(${p.id})"><i data-lucide="trash-2"></i>Quitar</button>
-        </div>`).join('')
+                  onclick="quitarPlaca(${Number(p.id)})"><i data-lucide="trash-2"></i>Quitar</button>
+        </div>`;
+      }).join('')
     : '<div class="vacio">La lista negra está vacía.</div>';
   lucide.createIcons();
 }
@@ -767,10 +931,12 @@ async function cargarPlacas() {
 $('formPlaca').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('errorPlaca').textContent = '';
+  const dias = parseInt($('vigencia').value, 10);
+  const vence = dias ? new Date(Date.now() + dias * 86400000).toISOString() : null;
   try {
     await api('/api/blacklist/plates', {
       method: 'POST',
-      body: JSON.stringify({ plate: $('nuevaPlaca').value, reason: $('motivo').value }),
+      body: JSON.stringify({ plate: $('nuevaPlaca').value, reason: $('motivo').value, expires_at: vence }),
     });
     $('nuevaPlaca').value = '';
     $('motivo').value = '';

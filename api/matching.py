@@ -21,6 +21,10 @@ distintas:
 from __future__ import annotations
 
 import logging
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -35,12 +39,98 @@ log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
-# Rostros
+# Lista negra en memoria
 # --------------------------------------------------------------------------
 
-def _a_vector(datos: bytes, dim: int = 512) -> np.ndarray:
-    return np.frombuffer(datos, dtype=np.float32, count=dim)
+@dataclass(frozen=True)
+class _Registro:
+    """Copia de solo lectura de una fila de lista negra, sin sesion de BD."""
 
+    id: int
+    valor: str          # placa o etiqueta de la persona
+    severity: str
+    reason: str
+    expires_at: Optional[datetime]
+
+    def vigente(self, ahora: datetime) -> bool:
+        if self.expires_at is None:
+            return True
+        vence = self.expires_at
+        if vence.tzinfo is None:
+            vence = vence.replace(tzinfo=timezone.utc)
+        return vence > ahora
+
+
+class ListaNegraEnMemoria:
+    """La lista negra se consultaba COMPLETA en cada evento: una consulta por
+    placa leida y otra por rostro, y la comparacion facial en un bucle de
+    Python registro por registro. Con la ingesta en rafaga eso era el costo
+    dominante de /api/events.
+
+    Aqui se carga una vez y se guarda ya lista para comparar: las placas como
+    tuplas y los rostros como una matriz normalizada, de modo que comparar un
+    rostro contra toda la lista es un solo producto matriz-vector.
+
+    Se invalida al dar de alta o de baja (ver routers de lista negra) y, como
+    red de seguridad para cambios hechos por fuera de la API, caduca sola a los
+    `ttl` segundos.
+    """
+
+    def __init__(self, ttl: float = 30.0) -> None:
+        self.ttl = ttl
+        self._lock = threading.Lock()
+        self._placas: Optional[list[_Registro]] = None
+        self._rostros: Optional[tuple[np.ndarray, list[_Registro]]] = None
+        self._placas_en = 0.0
+        self._rostros_en = 0.0
+
+    def invalidar(self) -> None:
+        with self._lock:
+            self._placas = None
+            self._rostros = None
+
+    def _caducado(self, cargado_en: float) -> bool:
+        return time.monotonic() - cargado_en > self.ttl
+
+    def placas(self, session: Session) -> list[_Registro]:
+        with self._lock:
+            if self._placas is None or self._caducado(self._placas_en):
+                filas = session.exec(select(BlacklistPlate).where(BlacklistPlate.active)).all()
+                self._placas = [_Registro(r.id, r.plate, r.severity, r.reason, r.expires_at)
+                                for r in filas]
+                self._placas_en = time.monotonic()
+            return self._placas
+
+    def rostros(self, session: Session) -> tuple[np.ndarray, list[_Registro]]:
+        with self._lock:
+            if self._rostros is None or self._caducado(self._rostros_en):
+                filas = session.exec(select(BlacklistFace).where(BlacklistFace.active)).all()
+                vectores, meta = [], []
+                for r in filas:
+                    v = np.frombuffer(r.vector, dtype=np.float32, count=r.dim)
+                    norma = float(np.linalg.norm(v))
+                    if norma == 0:
+                        continue
+                    vectores.append(v / norma)
+                    meta.append(_Registro(r.id, r.label, r.severity, r.reason, r.expires_at))
+                dim = vectores[0].shape[0] if vectores else 512
+                matriz = (np.vstack(vectores).astype(np.float32) if vectores
+                          else np.zeros((0, dim), dtype=np.float32))
+                self._rostros = (matriz, meta)
+                self._rostros_en = time.monotonic()
+            return self._rostros
+
+
+lista_negra = ListaNegraEnMemoria()
+
+
+def _ahora() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# --------------------------------------------------------------------------
+# Rostros
+# --------------------------------------------------------------------------
 
 def similitud_coseno(a: np.ndarray, b: np.ndarray) -> float:
     na, nb = np.linalg.norm(a), np.linalg.norm(b)
@@ -55,35 +145,38 @@ def _cruzar_rostro(evento: DetectionEvent, session: Session) -> MatchResult:
         return MatchResult(event_id=evento.event_id, severity=Severity.INFO,
                            reason="rostro sin embedding")
 
+    matriz, registros = lista_negra.rostros(session)
     consulta = np.asarray(evento.embedding, dtype=np.float32)
-    registros = session.exec(select(BlacklistFace).where(BlacklistFace.active)).all()
+    norma = float(np.linalg.norm(consulta))
+    if not registros or norma == 0 or consulta.shape[0] != matriz.shape[1]:
+        return MatchResult(event_id=evento.event_id, severity=Severity.INFO)
 
-    # Comparacion lineal contra toda la lista. Con menos de ~5.000 rostros esto
-    # tarda milisegundos y no justifica un indice vectorial. Si la lista crece
-    # mucho mas, el reemplazo natural es FAISS o sqlite-vec sin tocar el resto.
-    mejor: Optional[BlacklistFace] = None
-    # Se arranca en -1.0 y no en 0.0: la similitud coseno va de -1 a 1, y con
-    # 0.0 como piso los vectores de similitud negativa nunca se registran. Eso
-    # hacia que el evento llegara sin score y el operador perdiera el dato de
-    # "que tan lejos estuvo" al revisar un caso dudoso.
-    mejor_score = -1.0
-    for registro in registros:
-        score = similitud_coseno(consulta, _a_vector(registro.vector, registro.dim))
-        if score > mejor_score:
-            mejor_score, mejor = score, registro
+    # Similitud coseno contra toda la lista en una sola operacion. Con decenas
+    # de miles de rostros sigue siendo cuestion de milisegundos; mas alla, el
+    # reemplazo natural es FAISS o sqlite-vec sin tocar el resto.
+    similitudes = matriz @ (consulta / norma)
+    ahora = _ahora()
+    for i in np.argsort(similitudes)[::-1]:
+        mejor, mejor_score = registros[int(i)], float(similitudes[int(i)])
+        if mejor.vigente(ahora):
+            break
+    else:
+        return MatchResult(event_id=evento.event_id, severity=Severity.INFO)
 
-    if mejor is None or mejor_score < cfg.face_match_threshold:
+    if mejor_score < cfg.face_match_threshold:
+        # Se reporta el score aunque no alcance: al revisar un caso dudoso, el
+        # operador necesita saber que tan lejos estuvo.
         return MatchResult(event_id=evento.event_id, severity=Severity.INFO,
-                           score=round(mejor_score, 4) if mejor else None)
+                           score=round(mejor_score, 4))
 
     return MatchResult(
         event_id=evento.event_id,
         severity=Severity(mejor.severity),
         match_kind=MatchKind.BIOMETRIC,
         blacklist_id=mejor.id,
-        matched_value=mejor.label,
+        matched_value=mejor.valor,
         score=round(mejor_score, 4),
-        reason=f"Coincidencia biometrica con '{mejor.label}' ({mejor_score:.0%}): {mejor.reason}",
+        reason=f"Coincidencia biométrica con '{mejor.valor}' ({mejor_score:.0%}): {mejor.reason}",
     )
 
 
@@ -93,13 +186,17 @@ def _cruzar_rostro(evento: DetectionEvent, session: Session) -> MatchResult:
 
 def _cruzar_placa(evento: DetectionEvent, session: Session) -> MatchResult:
     cfg = get_config()
-    registros = session.exec(select(BlacklistPlate).where(BlacklistPlate.active)).all()
+    ahora = _ahora()
+    # Un registro vencido ya no alerta. Antes `expires_at` se guardaba pero
+    # nadie lo consultaba: una placa dada de alta "por 30 dias" seguia
+    # generando alertas criticas indefinidamente.
+    registros = [r for r in lista_negra.placas(session) if r.vigente(ahora)]
     if not registros:
         return MatchResult(event_id=evento.event_id, severity=Severity.INFO)
 
     coincidencia = buscar_coincidencia(
         evento.value,
-        [(r.plate, r.id) for r in registros],
+        [(r.valor, r.id) for r in registros],
         max_distancia=cfg.plate_fuzzy_max_dist,
     )
     if coincidencia is None:
@@ -111,7 +208,7 @@ def _cruzar_placa(evento: DetectionEvent, session: Session) -> MatchResult:
 
     if coincidencia.exacta:
         severidad = Severity(registro.severity)
-        motivo = f"Placa {registro.plate} en lista negra: {registro.reason}"
+        motivo = f"Placa {registro.valor} en lista negra: {registro.reason}"
     else:
         # Una coincidencia difusa es una LECTURA POSIBLE, no un hecho. Se
         # degrada a WARNING aunque el registro sea critico: la diferencia entre
@@ -119,8 +216,9 @@ def _cruzar_placa(evento: DetectionEvent, session: Session) -> MatchResult:
         # operador, porque implica verificar antes de actuar.
         severidad = Severity.WARNING
         motivo = (
-            f"Posible coincidencia con {registro.plate} "
-            f"(se leyo '{evento.value}', {coincidencia.distancia} caracter de diferencia): "
+            f"Posible coincidencia con {registro.valor} "
+            f"(se leyó '{evento.value}', {coincidencia.distancia} "
+            f"{'carácter' if coincidencia.distancia == 1 else 'caracteres'} de diferencia): "
             f"{registro.reason}"
         )
 
@@ -129,7 +227,7 @@ def _cruzar_placa(evento: DetectionEvent, session: Session) -> MatchResult:
         severity=severidad,
         match_kind=MatchKind.EXACT if coincidencia.exacta else MatchKind.FUZZY,
         blacklist_id=registro.id,
-        matched_value=registro.plate,
+        matched_value=registro.valor,
         score=round(coincidencia.score, 4),
         reason=motivo,
     )
@@ -166,14 +264,20 @@ def _cruzar_movimiento(evento: DetectionEvent) -> MatchResult:
     explicaciones inocentes -- se alerta como WARNING, no CRITICAL, para que
     el operador decida en vez de que salte una alarma automatica."""
     velocidad = evento.meta.get("velocidad_alturas_por_s")
-    detalle = f" ({velocidad:.1f}x el umbral normal)" if velocidad is not None else ""
+    umbral = evento.meta.get("umbral")
+    detalle = ""
+    if isinstance(velocidad, (int, float)):
+        detalle = f" ({velocidad:.1f} alturas de cuerpo/s"
+        if isinstance(umbral, (int, float)) and umbral > 0:
+            detalle += f", {velocidad / umbral:.1f} veces el umbral"
+        detalle += ")"
     return MatchResult(
         event_id=evento.event_id,
         severity=Severity.WARNING,
         match_kind=MatchKind.RULE,
         matched_value=evento.value,
         score=evento.confidence,
-        reason=f"Movimiento subito detectado{detalle}, {evento.observations} frames",
+        reason=f"Movimiento súbito detectado{detalle}, {evento.observations} frames",
     )
 
 

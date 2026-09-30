@@ -39,7 +39,7 @@ sys.path.insert(0, str(RAIZ))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from shared.plates import es_placa_valida, formatear, normalizar  # noqa: E402
+from shared.plates import es_placa_valida, normalizar  # noqa: E402
 
 # Dimensiones oficiales de la placa mexicana (NOM-001-SCT-2-2016).
 ANCHO_PLACA_M = 0.305

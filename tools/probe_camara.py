@@ -42,15 +42,15 @@ def cargar_env() -> None:
     alguien mas lee esa sesion se lleva la credencial de la camara. El .env
     esta en .gitignore, que es el lugar correcto para esto.
     """
+    from edge.config import parse_env_line
+
     archivo = RAIZ / ".env"
     if not archivo.exists():
         return
-    for linea in archivo.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
-            continue
-        clave, _, valor = linea.partition("=")
-        os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+    for linea in archivo.read_text(encoding="utf-8-sig").splitlines():
+        par = parse_env_line(linea)
+        if par is not None:
+            os.environ.setdefault(*par)
 
 # Rutas RTSP por fabricante. Hikvision primero porque es la camara del proyecto.
 RUTAS_CANDIDATAS = [
@@ -195,13 +195,30 @@ def construir_url(host: str, user: str, password: str, ruta: str, puerto: int = 
     return f"rtsp://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{puerto}{ruta}"
 
 
+def abrir_con_timeout(url: str, timeout: float) -> "cv2.VideoCapture":
+    """Abre un stream con limite de espera real para abrir y para leer.
+
+    La opcion `stimeout` de FFmpeg por variable de entorno no siempre se
+    respeta: una ruta que no existe tardaba ~30 s en fallar, y con 9 rutas
+    candidatas la prueba desde el dashboard pasaba de 4 minutos. Las
+    propiedades OPEN/READ_TIMEOUT de OpenCV si cortan a tiempo.
+    """
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+    ms = int(timeout * 1000)
+    try:
+        return cv2.VideoCapture(url, cv2.CAP_FFMPEG, [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, ms,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, ms,
+        ])
+    except (AttributeError, cv2.error, TypeError):
+        # OpenCV sin esas propiedades: queda el timeout de FFmpeg.
+        return cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+
+
 def probar_ruta(url: str, timeout: float = 8.0) -> dict | None:
     """Abre la URL y trata de leer un frame. Devuelve metricas o None."""
-    import os
-    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
-
     t0 = time.monotonic()
-    cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+    cap = abrir_con_timeout(url, timeout)
     if not cap.isOpened():
         cap.release()
         return None
@@ -258,7 +275,7 @@ def probar_camara(host: str, user: str, password: str, puerto: int, ver: bool) -
     print("RESULTADO")
     print("=" * 70)
     print(f"Rutas funcionales: {len(funcionales)}")
-    print(f"\nRecomendada para inferencia (la de menor resolucion):")
+    print("\nRecomendada para inferencia (la de menor resolucion):")
     print(f"   {mejor['ruta']}  ->  {mejor['ancho']}x{mejor['alto']} @ {mejor['fps']}fps")
 
     salida = RAIZ / "data" / "snapshots"
