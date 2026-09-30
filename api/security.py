@@ -38,12 +38,16 @@ def verificar_password(password: str, hash_guardado: str) -> bool:
         return False
 
 
-def crear_token(username: str, role: str) -> str:
+def crear_token(username: str, role: str, version: int = 0) -> str:
     cfg = get_config()
     ahora = datetime.now(timezone.utc)
     payload = {
         "sub": username,
         "role": role,
+        # Version de credenciales del usuario (Operator.token_version). Al
+        # cambiar contrasena o rol sube, y este token deja de valer aunque no
+        # haya caducado.
+        "ver": version,
         "iat": ahora,
         "exp": ahora + timedelta(hours=cfg.jwt_hours),
     }
@@ -107,3 +111,61 @@ class LimiteIntentos:
 
 
 limite_login = LimiteIntentos()
+
+
+# --------------------------------------------------------------------------
+# Cookie de sesion
+# --------------------------------------------------------------------------
+#
+# Un <img>, un <video> y el WebSocket del navegador no pueden mandar la
+# cabecera Authorization. Antes la solucion era poner el token en la URL
+# (?token=...), y la URL de una foto de evidencia o del video en vivo terminaba
+# en el historial del navegador, en logs de proxys y copiada en reportes.
+#
+# La cookie resuelve eso sin exponer el token:
+#   - HttpOnly: el JavaScript de la pagina no la puede leer (un XSS no la roba).
+#   - SameSite=Strict: el navegador no la manda en peticiones que se originan
+#     en otro sitio, asi que no sirve para CSRF.
+#   - Solo se acepta en peticiones de LECTURA (evidencia, video, WebSocket).
+#     Todo lo que cambia datos sigue exigiendo la cabecera Authorization, que
+#     otro sitio no puede poner.
+
+COOKIE_SESION = "goss_sesion"
+
+
+def poner_cookie_sesion(response, token: str, segura: bool) -> None:
+    response.set_cookie(
+        COOKIE_SESION,
+        token,
+        max_age=get_config().jwt_hours * 3600,
+        httponly=True,
+        samesite="strict",
+        secure=segura,
+        path="/",
+    )
+
+
+def borrar_cookie_sesion(response) -> None:
+    response.delete_cookie(COOKIE_SESION, path="/", samesite="strict", httponly=True)
+
+
+def es_https(request) -> bool:
+    """Si la peticion llego por HTTPS (directo o a traves de un proxy de
+    confianza que uvicorn ya resolvio con --proxy-headers)."""
+    return getattr(getattr(request, "url", None), "scheme", "") in {"https", "wss"}
+
+
+def validar_password_nueva(password: str) -> str | None:
+    """Motivo por el que una contrasena nueva no sirve, o None si sirve.
+
+    Largo minimo y nada mas: las reglas de "una mayuscula y un simbolo" llevan
+    a contrasenas previsibles (Password1!). Diez caracteres de una frase son
+    mas dificiles de adivinar y mas faciles de recordar.
+    """
+    if len(password) < 10:
+        return "La contraseña debe tener al menos 10 caracteres."
+    if len(password.encode("utf-8")) > _MAX_BYTES:
+        return f"La contraseña no puede pasar de {_MAX_BYTES} bytes."
+    if password.strip() != password:
+        return "La contraseña no puede empezar ni terminar con espacios."
+    return None

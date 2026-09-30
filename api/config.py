@@ -50,11 +50,15 @@ class ApiConfig:
     costa de perder coincidencias reales."""
 
     snapshot_dir: Path = BASE_DIR / "data" / "snapshots"
+    clips_dir: Path = BASE_DIR / "data" / "clips"
+    """Clips de video de las alertas (ver edge/clips.py). Carpeta aparte de las
+    fotos porque pesan 100 veces mas y conviene poder moverla a otro disco."""
     web_dir: Path = BASE_DIR / "web"
 
     def __post_init__(self) -> None:
         (BASE_DIR / "data").mkdir(parents=True, exist_ok=True)
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self.clips_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.jwt_secret:
             # Se genera y se persiste en disco en vez de usar un valor por

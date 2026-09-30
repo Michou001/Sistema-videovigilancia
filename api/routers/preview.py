@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import StreamingResponse
 
-from api.deps import OperadorActual, verificar_worker
+from api.deps import OperadorActual, OperadorLectura, verificar_worker
 from api.preview import MAX_BYTES_FRAME, buffer_preview
-from api.security import decodificar_token
+from shared.events import PATRON_CAMARA
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,8 @@ JPEG_SOI = b"\xff\xd8"
 
 
 @router.post("/{camera_id}", dependencies=[Depends(verificar_worker)])
-async def publicar_frame(camera_id: str, request: Request) -> dict:
+async def publicar_frame(request: Request,
+                         camera_id: str = Path(pattern=PATRON_CAMARA)) -> dict:
     """El worker sube el ultimo frame anotado, en crudo (image/jpeg).
 
     Va como cuerpo binario y no como base64 dentro de un JSON porque base64
@@ -68,16 +69,14 @@ def camaras_en_vivo(_: OperadorActual) -> list[dict]:
 
 
 @router.get("/{camera_id}/live.mjpg")
-async def flujo_en_vivo(camera_id: str, token: str = "") -> StreamingResponse:
+async def flujo_en_vivo(_: OperadorLectura,
+                        camera_id: str = Path(pattern=PATRON_CAMARA)) -> StreamingResponse:
     """Flujo MJPEG de una camara.
 
-    El token va por query string por la misma razon que en /ws/alerts: un <img>
-    no permite mandar cabeceras. Queda en el DOM y en el historial del
-    navegador, asi que es un token de sesion con caducidad (JWT_HOURS) y nunca
-    el token de ingesta del worker.
+    Un <img> no puede mandar la cabecera Authorization, asi que la sesion se
+    toma de la cookie HttpOnly que pone el login (ver api/security.py). Antes
+    iba como ?token= en la URL y quedaba en el historial del navegador.
     """
-    if not decodificar_token(token):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido o expirado")
 
     return StreamingResponse(
         buffer_preview.flujo_mjpeg(camera_id),

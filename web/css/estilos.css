@@ -1,0 +1,442 @@
+/* Estilos del dashboard de GOSS IP. */
+
+/* Paleta propia de "centro de monitoreo": grafito frio en vez del gris casi
+   negro generico, cian tecnico en vez del azul de SaaS/GitHub, verde y ambar
+   con la saturacion de un panel de radar. La idea es que se lea como
+   instrumentacion de vigilancia, no como plantilla de dashboard generica. */
+:root {
+  --fondo: #080b0f;
+  --fondo-alto: #0c1015;
+  --panel: #0f141b;
+  --panel2: #161d27;
+  --borde: #232d3a;
+  --borde-sutil: #1a222c;
+  --texto: #e9eef3;
+  --tenue: #7c8a99;
+  --acento: #2f6fed;
+  --acento-fuerte: #1747c9;
+  --critico: #ff4757;
+  --aviso: #f0a83a;
+  --ok: #34d399;
+  --fuente: "Segoe UI", -apple-system, system-ui, "Inter", sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { color-scheme: dark; }
+/* Lucide dibuja SVG de 24x24 por defecto; se escala al tamano de fuente del
+   contexto (como una fuente de iconos) en vez de fijar un tamano por sitio. */
+svg.lucide { width: 1em; height: 1em; vertical-align: -0.15em; stroke-width: 2.25; flex: none; }
+body {
+  background:
+    radial-gradient(1100px 620px at 12% -8%, rgba(47,111,237,.05), transparent 60%),
+    repeating-linear-gradient(180deg, rgba(255,255,255,.012) 0px, rgba(255,255,255,.012) 1px,
+                               transparent 1px, transparent 3px),
+    var(--fondo);
+  color: var(--texto);
+  font: 14px/1.5 var(--fuente);
+  min-height: 100vh;
+}
+button {
+  font: inherit; cursor: pointer; border: 1px solid transparent; border-radius: 4px;
+  padding: 8px 14px; background: var(--acento); color: #f2f6ff; font-weight: 600;
+  letter-spacing: .2px; display: inline-flex; align-items: center; gap: 7px;
+  transition: filter .15s ease, transform .15s ease, background-color .15s ease;
+}
+button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+button:active { filter: brightness(.95); transform: translateY(0); }
+button.sec { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde); font-weight: 500; }
+button.peligro { background: var(--critico); color: #2a0506; }
+input, select, textarea {
+  font: inherit; background: var(--fondo-alto); color: var(--texto);
+  border: 1px solid var(--borde); border-radius: 4px; padding: 9px 11px; width: 100%;
+}
+input:focus, textarea:focus { outline: 2px solid var(--acento-fuerte); outline-offset: -1px; }
+::selection { background: rgba(47,111,237,.3); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--acento-fuerte); }
+
+/* ---------- Login ---------- */
+#login {
+  display: grid; place-items: center; min-height: 100vh; padding: 20px;
+  background: radial-gradient(900px 500px at 50% 20%, rgba(47,111,237,.07), transparent 65%);
+}
+.marca { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; justify-content: center; }
+.marca .ojo {
+  width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center;
+  background: rgba(47,111,237,.12); border: 1px solid rgba(47,111,237,.35); flex: none;
+}
+.marca .ojo img { width: 24px; height: auto; display: block; }
+.marca .nombre { font-size: 12px; letter-spacing: 1.5px; color: var(--tenue); text-transform: uppercase; }
+.tarjeta {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--borde); border-radius: 10px;
+  padding: 32px; width: 100%; max-width: 380px;
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,.6);
+}
+.tarjeta h1 { font-size: 19px; margin-bottom: 4px; letter-spacing: .2px; }
+.logo-hero { display: block; width: 190px; max-width: 100%; height: auto; margin: 0 auto 10px; }
+.tarjeta p.sub { color: var(--tenue); margin-bottom: 24px; font-size: 13px; }
+.campo { margin-bottom: 14px; }
+.campo label {
+  display: block; font-size: 11px; color: var(--tenue); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: .6px; font-weight: 600;
+}
+.error { color: var(--critico); font-size: 13px; margin-top: 12px; min-height: 18px; }
+
+/* ---------- Layout ---------- */
+#app { display: none; }
+/* El banner critico y la cabecera viajan juntos en una barra pegada arriba.
+   Van en el mismo contenedor y en flujo normal -- no el banner flotando por
+   encima -- para que el banner EMPUJE la cabecera en vez de taparla. Taparla
+   dejaba al operador sin los botones de los apartados justo durante una
+   alerta critica, y compensarlo midiendo el alto del banner por JavaScript
+   se desincronizaba en cada reflujo: al rotar el movil el banner pasa de una
+   linea a tres y el hueco reservado ya no correspondia. Asi no hay nada que
+   medir ni que sincronizar. */
+#barra { position: sticky; top: 0; z-index: 30; }
+#barra::after {
+  content: ""; display: block; height: 2px;
+  background: linear-gradient(90deg, var(--acento-fuerte), transparent 55%);
+  opacity: .55;
+}
+header {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 13px 20px; background: var(--panel); border-bottom: 1px solid var(--borde);
+}
+header h1 {
+  font-size: 14px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 9px;
+}
+header h1 img { flex: none; filter: drop-shadow(0 0 6px rgba(47,111,237,.45)); }
+.estado { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--tenue);
+          font-family: var(--mono); }
+.punto { width: 7px; height: 7px; border-radius: 50%; background: var(--tenue); flex: none; }
+.punto.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: latido 2s ease-in-out infinite; }
+.punto.off { background: var(--critico); box-shadow: 0 0 8px var(--critico); }
+@keyframes latido { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+.crece { flex: 1; }
+
+/* ---------- Navegacion de los dos apartados ---------- */
+nav.apartados { display: flex; gap: 2px; background: var(--fondo);
+                border: 1px solid var(--borde); border-radius: 6px; padding: 3px; }
+nav.apartados button {
+  background: transparent; color: var(--tenue); padding: 6px 16px;
+  font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+  border-radius: 4px; display: flex; align-items: center; gap: 7px;
+  transition: background-color .15s ease, color .15s ease; transform: none;
+}
+nav.apartados button:hover { color: var(--texto); transform: none; }
+nav.apartados button.activo { background: var(--panel2); color: var(--acento); }
+nav.apartados .globo {
+  background: var(--critico); color: #2a0506; font-size: 10px; font-weight: 700;
+  border-radius: 3px; padding: 0 6px; min-width: 17px; text-align: center;
+  transition: transform .2s ease;
+}
+nav.apartados .globo:empty, nav.apartados .globo[hidden] { display: none; }
+
+.vista { display: none; }
+.vista.activa { display: block; }
+
+.metricas { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 20px 0; }
+.metrica {
+  position: relative; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+  padding: 12px 18px 12px 20px; min-width: 130px;
+  transition: border-color .2s ease, transform .2s ease;
+}
+.metrica:hover { border-color: var(--acento-fuerte); transform: translateY(-1px); }
+.metrica.critica:hover { border-color: var(--critico); }
+.metrica::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--acento-fuerte); opacity: .8;
+}
+.metrica .n { font-size: 25px; font-weight: 700; font-family: var(--mono); }
+.metrica .e { font-size: 10.5px; color: var(--tenue); text-transform: uppercase; letter-spacing: .8px; margin-top: 2px; }
+.metrica.critica::before { background: var(--critico); }
+.metrica.critica .n { color: var(--critico); }
+
+main { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px 20px 40px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+.panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; }
+.panel > h2 {
+  font-size: 11.5px; font-weight: 700; padding: 13px 16px;
+  text-transform: uppercase; letter-spacing: .7px;
+  border-bottom: 1px solid var(--borde); display: flex; align-items: center; gap: 8px;
+  color: var(--tenue);
+}
+.panel > h2 .crece { text-align: right; font-weight: 500; color: var(--tenue); font-size: 11px;
+                      text-transform: none; letter-spacing: 0; font-family: var(--mono); }
+.lista { max-height: 62vh; overflow-y: auto; }
+.vacio { padding: 32px 16px; text-align: center; color: var(--tenue); font-size: 13px; }
+
+/* ---------- Camaras en vivo ---------- */
+#rejilla {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 14px; padding: 14px;
+}
+/* Con una sola camara no se estira a lo ancho de todo el panel: a 1600 px un
+   recuadro unico quedaria enorme y con la imagen reescalada muy por encima de
+   los 640 px que manda el worker, que es peor que verla a su tamano. */
+#rejilla.una { grid-template-columns: minmax(330px, 760px); }
+
+.camara { border: 1px solid var(--borde); border-radius: 6px; overflow: hidden;
+          background: var(--fondo); transition: border-color .2s ease, box-shadow .2s ease; }
+.camara:hover { border-color: var(--acento-fuerte); }
+/* Se llama 'destacada' y no 'alerta' porque .alerta ya existe abajo para las
+   tarjetas del panel de alertas, con display:flex. Reutilizar ese nombre
+   convertia el recuadro de la camara en una fila y descuadraba el video. */
+.camara.destacada { border-color: var(--critico); box-shadow: 0 0 0 1px var(--critico); }
+.camara-cab { display: flex; align-items: center; gap: 8px; padding: 8px 11px;
+              background: var(--panel2); font-size: 12px; }
+.camara-cab .nom { font-weight: 700; letter-spacing: .2px; }
+.camara-cab .fps { color: var(--tenue); font-size: 10.5px; font-family: var(--mono); }
+
+.camara-video { position: relative; aspect-ratio: 16 / 9; background: #000;
+                display: grid; place-items: center; overflow: hidden; }
+.camara-video img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camara-video .sinsenal { color: var(--tenue); font-size: 12px; text-align: center;
+                          padding: 0 16px; line-height: 1.7; }
+.camara-video .sinsenal .icono { font-size: 26px; display: block; opacity: .5; }
+/* Esquinas de visor: motivo clasico de camara de seguridad. Es un pseudo-
+   elemento superpuesto (no un fondo, que la imagen taparia), asi que no hace
+   falta tocar el marcado que arma app.js. */
+.camara-video::after {
+  content: ""; position: absolute; inset: 7px; pointer-events: none;
+  background-image:
+    linear-gradient(var(--acento) 2px, transparent 2px),
+    linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+    linear-gradient(var(--acento) 2px, transparent 2px),
+    linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+    linear-gradient(var(--acento) 2px, transparent 2px),
+    linear-gradient(90deg, var(--acento) 2px, transparent 2px),
+    linear-gradient(var(--acento) 2px, transparent 2px),
+    linear-gradient(90deg, var(--acento) 2px, transparent 2px);
+  background-repeat: no-repeat;
+  background-size: 2px 13px, 13px 2px, 2px 13px, 13px 2px,
+                   2px 13px, 13px 2px, 2px 13px, 13px 2px;
+  background-position:
+    top left, top left,
+    top right, top right,
+    bottom left, bottom left,
+    bottom right, bottom right;
+  opacity: .55;
+}
+
+/* Ultima deteccion sobreimpresa: el operador ve la camara y lo que acaba de
+   encontrar sin mover los ojos a la otra columna. */
+.camara-video .ultima {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,.86) 55%);
+  padding: 22px 11px 8px; font-size: 12px;
+  display: flex; align-items: center; gap: 8px;
+  opacity: 0; transition: opacity .35s;
+}
+.camara-video .ultima.visible { opacity: 1; }
+.camara-video .ultima .v { font-weight: 700; font-family: var(--mono); }
+.camara-video .ultima .c { color: #b9c4cf; }
+
+/* ---------- Detecciones en vivo ---------- */
+.deteccion { display: flex; gap: 11px; padding: 10px 14px;
+             border-bottom: 1px solid var(--borde-sutil); border-left: 3px solid transparent;
+             transition: background-color .15s ease; }
+.deteccion:hover { background: var(--panel2); }
+.deteccion.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
+.deteccion.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
+.deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 4px;
+                 background: var(--panel2); flex: none; border: 1px solid var(--borde); }
+.deteccion .sinfoto { width: 66px; height: 44px; border-radius: 4px; flex: none;
+                      background: var(--panel2); display: grid; place-items: center;
+                      font-size: 19px; opacity: .5; border: 1px solid var(--borde); }
+.deteccion .v { font-weight: 700; font-size: 13px; font-family: var(--mono); }
+.deteccion .m { color: var(--tenue); font-size: 11px; margin-top: 3px; }
+.deteccion.nueva { animation: entra 1.2s ease-out; }
+
+/* ---------- Alertas ---------- */
+.alerta {
+  display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borde-sutil);
+  border-left: 3px solid transparent; transition: background-color .15s ease;
+}
+.alerta:hover { background: var(--panel2); }
+.alerta.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
+.alerta.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
+.alerta.resuelta { opacity: .4; }
+.alerta img { width: 78px; height: 52px; object-fit: cover; border-radius: 4px; background: var(--panel2);
+              border: 1px solid var(--borde); }
+.alerta .t { font-weight: 700; font-size: 13px; }
+.alerta .d { color: var(--tenue); font-size: 12px; margin-top: 2px; }
+.alerta .meta { color: var(--tenue); font-size: 11px; margin-top: 6px; font-family: var(--mono); }
+.alerta .acciones { display: flex; gap: 6px; margin-top: 8px; }
+.alerta .acciones button { padding: 4px 10px; font-size: 12px; }
+
+/* ---------- Eventos ---------- */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 10.5px; color: var(--tenue); text-transform: uppercase;
+     letter-spacing: .7px; font-weight: 700; padding: 9px 16px; border-bottom: 1px solid var(--borde); }
+td { padding: 9px 16px; border-bottom: 1px solid var(--borde-sutil); }
+tr.nuevo { animation: entra 1.2s ease-out; }
+@keyframes entra { from { background: rgba(47,111,237,.18); } to { background: transparent; } }
+.etiqueta { display: inline-block; padding: 2px 9px; border-radius: 3px; font-size: 10.5px;
+            font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+.etiqueta.critical { background: rgba(255,71,87,.16); color: var(--critico); }
+.etiqueta.warning  { background: rgba(240,168,58,.16); color: var(--aviso); }
+.etiqueta.info     { background: var(--panel2); color: var(--tenue); }
+.mono { font-family: var(--mono); }
+
+/* ---------- Banner critico ---------- */
+#banner {
+  display: none;
+  background: linear-gradient(90deg, #b91c2c, var(--critico));
+  color: #fff; padding: 14px 20px;
+  align-items: center; gap: 14px; box-shadow: 0 4px 24px rgba(255,71,87,.25);
+  animation: pulso 1.1s ease-in-out infinite;
+  border-bottom: 1px solid rgba(255,255,255,.15);
+}
+@keyframes pulso { 0%,100% { filter: brightness(1);} 50% { filter: brightness(1.2);} }
+#banner .t { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: .5px; }
+#banner .d { font-size: 13px; opacity: .92; }
+#banner button { background: rgba(0,0,0,.28); color: #fff; }
+
+/* ---------- Avisos (warning): notorios pero no tan alarmantes como el
+   banner critico. Flotan en una esquina y se autodescartan -- a diferencia
+   del banner, que exige "Entendido" porque un arma o un match de lista
+   negra si amerita bloquear al operador un segundo. Un movimiento subito
+   amerita que lo note, no que lo detenga. ---------- */
+#toasts {
+  position: fixed; right: 18px; bottom: 18px; z-index: 70;
+  display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 36px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--panel2); border: 1px solid var(--aviso);
+  border-left: 4px solid var(--aviso); border-radius: 6px;
+  padding: 11px 14px; box-shadow: 0 10px 30px -8px rgba(0,0,0,.6);
+  animation: toast-entra .25s ease-out;
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.toast .ico { font-size: 17px; line-height: 1; flex: none; margin-top: 1px; }
+.toast .t { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--aviso); }
+.toast .d { font-size: 12.5px; color: var(--texto); margin-top: 3px; }
+.toast .cerrar { background: none; border: none; color: var(--tenue); padding: 0 0 0 6px;
+                 font-size: 15px; line-height: 1; }
+.toast.saliendo { animation: toast-sale .25s ease-in forwards; }
+@keyframes toast-entra { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes toast-sale { to { opacity: 0; transform: translateY(-6px); } }
+
+/* ---------- Modal ---------- */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(3,5,8,.78);
+         backdrop-filter: blur(2px);
+         z-index: 60; place-items: center; padding: 20px; overflow-y: auto; }
+#modal .tarjeta { max-width: 460px; }
+#modalCamaras .tarjeta { max-width: 620px; }
+.fila { display: flex; gap: 10px; align-items: center; padding: 9px 0;
+        border-bottom: 1px solid var(--borde-sutil); font-size: 13px; }
+.pestanas { display: flex; gap: 6px; align-items: center; margin-bottom: 16px;
+            border-bottom: 1px solid var(--borde); padding-bottom: 10px; }
+.pest { background: transparent; color: var(--tenue); padding: 6px 12px; font-size: 12px;
+        font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-radius: 4px; }
+.pest.activa { background: var(--panel2); color: var(--acento); }
+
+/* ---------- Alta de camara ---------- */
+.dispositivos-lan { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 18px;
+                     max-height: 160px; overflow-y: auto; }
+.dispositivo {
+  display: flex; align-items: center; gap: 10px; padding: 8px 11px;
+  background: var(--panel2); border: 1px solid var(--borde); border-radius: 6px;
+  cursor: pointer; text-align: left; width: 100%; font: inherit; color: var(--texto);
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.dispositivo:hover { border-color: var(--acento-fuerte); background: var(--fondo-alto); }
+.dispositivo .host { font-family: var(--mono); font-weight: 600; }
+.dispositivo .puertos { color: var(--tenue); font-size: 11.5px; }
+.fila-doble { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.resultado-camara {
+  margin-top: 16px; padding: 14px; background: var(--panel2); border: 1px solid var(--acento-fuerte);
+  border-radius: 8px; display: flex; gap: 14px; align-items: flex-start;
+}
+.resultado-camara img { width: 160px; border-radius: 6px; border: 1px solid var(--borde); flex: none; }
+.resultado-camara .datos { font-size: 13px; }
+.resultado-camara .datos .ok { color: var(--ok); font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.resultado-camara .datos dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; color: var(--tenue); }
+.resultado-camara .datos dl dd { font-family: var(--mono); color: var(--texto); }
+.aviso-reinicio {
+  margin-top: 14px; padding: 10px 13px; background: var(--panel2); border-left: 3px solid var(--aviso);
+  border-radius: 4px; font-size: 12.5px; color: var(--tenue); display: flex; gap: 8px; align-items: flex-start;
+}
+.aviso-reinicio strong { color: var(--aviso); }
+.cargando { display: inline-flex; align-items: center; gap: 6px; color: var(--tenue); font-size: 12.5px; }
+.cargando svg.lucide { animation: girar 1s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* ---------- Busqueda en el registro ---------- */
+.filtros { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px;
+           border-bottom: 1px solid var(--borde); align-items: flex-end; }
+.filtros .campo { margin: 0; flex: 1 1 120px; min-width: 110px; }
+.filtros .campo.ancho { flex: 2 1 160px; }
+.filtros input, .filtros select { padding: 7px 9px; font-size: 13px; }
+.filtros button { padding: 7px 12px; font-size: 12.5px; }
+.filtro-activo { color: var(--aviso); font-size: 11px; font-family: var(--mono); }
+select { appearance: none; background-image: none; cursor: pointer; }
+select:focus { outline: 2px solid var(--acento-fuerte); outline-offset: -1px; }
+
+/* ---------- Evidencia ampliable ---------- */
+img.ampliable { cursor: zoom-in; }
+td .miniatura { width: 46px; height: 30px; object-fit: cover; border-radius: 3px;
+                border: 1px solid var(--borde); display: block; }
+#visor { display: none; position: fixed; inset: 0; z-index: 80; background: rgba(3,5,8,.9);
+         place-items: center; padding: 24px; cursor: zoom-out; }
+#visor figure { max-width: min(1200px, 100%); max-height: 100%; display: flex;
+                flex-direction: column; gap: 10px; align-items: center; }
+#visor img { max-width: 100%; max-height: calc(100vh - 110px); object-fit: contain;
+             border-radius: 6px; border: 1px solid var(--borde); background: #000; }
+#visor figcaption { color: var(--tenue); font-size: 13px; text-align: center; }
+
+.camara-cab .ubicacion { color: var(--tenue); font-size: 11px; overflow: hidden;
+                         text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.camara-cab .editar-cam { background: transparent; color: var(--tenue); padding: 2px 5px;
+                          font-size: 12px; transform: none; }
+.alerta .folio { color: var(--texto); font-weight: 600; }
+.alerta .nota { margin-top: 6px; font-size: 12px; color: var(--texto); padding: 6px 9px;
+                background: var(--panel2); border-left: 2px solid var(--acento); border-radius: 3px; }
+.alerta .atencion { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.alerta .atencion[hidden] { display: none; }
+.alerta .atencion textarea { font-size: 12.5px; resize: vertical; }
+.alerta .rapidas { display: flex; flex-wrap: wrap; gap: 5px; }
+.alerta .rapidas .chip { background: var(--panel2); color: var(--texto); border: 1px solid var(--borde);
+                         padding: 3px 8px; font-size: 11.5px; font-weight: 500; transform: none; }
+.camara-cab .salud { color: var(--tenue); font-size: 10.5px; font-family: var(--mono); }
+.campo .ayuda { color: var(--tenue); font-size: 11.5px; margin-top: 5px; }
+code.comando { display: block; margin-top: 6px; padding: 6px 9px; background: var(--fondo);
+               border: 1px solid var(--borde); border-radius: 4px; color: var(--texto);
+               font-family: var(--mono); font-size: 12px; user-select: all; }
+
+/* ---------- Agregados de la version 1.0 ---------- */
+.tenue { color: var(--tenue); }
+button.chico { padding: 3px 9px; font-size: 12px; }
+.camara-cab .icono-cam { background: transparent; color: var(--tenue); padding: 2px 5px;
+                         font-size: 12px; transform: none; }
+.camara-cab .icono-cam:hover { color: var(--texto); }
+.tarjeta.ancha { max-width: 920px; }
+#modalAdmin .tarjeta { max-width: 920px; }
+#modalEditarCamara .tarjeta, #modalPassword .tarjeta { max-width: 460px; }
+.alta-usuario { display: grid; grid-template-columns: 1fr 1.3fr .9fr 1.2fr auto; gap: 8px;
+                align-items: end; margin-top: 14px; }
+.alta-usuario .campo { margin: 0; }
+@media (max-width: 760px) { .alta-usuario { grid-template-columns: 1fr 1fr; } }
+tr.inactivo td { opacity: .45; }
+.acciones-fila { display: flex; gap: 6px; align-items: center; }
+td select { padding: 4px 8px; font-size: 12.5px; }
+.detalle-bitacora { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                    font-size: 12px; }
+.icono-fila { background: transparent; color: var(--tenue); padding: 3px 6px; transform: none; }
+.icono-fila:hover { color: var(--texto); }
+.corregida { font-size: 10px; color: var(--aviso); font-family: var(--fuente); font-weight: 600;
+             text-transform: uppercase; letter-spacing: .4px; margin-left: 4px; }
+.chip-clip { margin-top: 8px; padding: 4px 10px; font-size: 12px; }
+.toast.ok { border-color: var(--ok); border-left-color: var(--ok); }
+.toast.ok .t { color: var(--ok); }
+#visor video { max-width: 100%; max-height: calc(100vh - 110px); border-radius: 6px;
+               border: 1px solid var(--borde); background: #000; }

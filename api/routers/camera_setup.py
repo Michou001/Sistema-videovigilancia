@@ -24,10 +24,12 @@ import re
 from pathlib import Path
 
 import cv2
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
+from api.auditoria import registrar
 from api.config import BASE_DIR
+from api.database import engine
 from api.deps import Admin
 
 log = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ def _sin_control(valor: str) -> str:
 # --------------------------------------------------------------------------
 
 @router.post("/descubrir")
-def descubrir(admin: Admin) -> list[dict]:
+def descubrir(admin: Admin, request: Request) -> list[dict]:
     """Escanea la LAN /24 buscando dispositivos con puertos de camara abiertos.
 
     Es una funcion sincrona (no async def) A PROPOSITO: tarda ~20s recorriendo
@@ -66,6 +68,7 @@ def descubrir(admin: Admin) -> list[dict]:
     from tools.probe_camara import PUERTOS_INTERES, descubrir as _descubrir
 
     encontrados = _descubrir()
+    _auditar("camaras.descubrir", admin.username, request, detalle={"encontrados": len(encontrados)})
     return [
         {
             "host": ip,
@@ -121,7 +124,7 @@ def _primera_ruta_funcional(host: str, user: str, password: str, puerto: int) ->
 
 
 @router.post("/probar")
-def probar(datos: ProbarCamaraIn, admin: Admin) -> dict:
+def probar(datos: ProbarCamaraIn, admin: Admin, request: Request) -> dict:
     """Valida credenciales (un solo intento HTTP, para no gatillar el bloqueo
     de Hikvision tras varios fallidos) y despues prueba rutas RTSP conocidas
     hasta encontrar una que funcione. Devuelve una miniatura en base64 para
@@ -130,7 +133,10 @@ def probar(datos: ProbarCamaraIn, admin: Admin) -> dict:
     """
     from tools.probe_camara import identificar
 
-    if not identificar(datos.host, datos.user, datos.password):
+    ok_credenciales = identificar(datos.host, datos.user, datos.password)
+    _auditar("camaras.probar", admin.username, request, objetivo=datos.host,
+             detalle={"credenciales_validas": bool(ok_credenciales)})
+    if not ok_credenciales:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "La cámara rechazó usuario/contraseña. No se probaron las rutas de "
@@ -241,7 +247,7 @@ def _actualizar_env(ruta: Path, cambios: dict[str, str]) -> None:
 
 
 @router.post("/guardar")
-def guardar(datos: GuardarCamaraIn, admin: Admin) -> dict:
+def guardar(datos: GuardarCamaraIn, admin: Admin, request: Request) -> dict:
     """Escribe SOURCE (y CAMERA_HOST/USER/PASSWORD, por si se vuelve a correr
     tools/probe_camara.py mas adelante) en el archivo de entorno de la camara.
 
@@ -265,5 +271,20 @@ def guardar(datos: GuardarCamaraIn, admin: Admin) -> dict:
     })
     log.info("Camara '%s' (%s) guardada en %s por %s",
              datos.camera_id, datos.host, destino.name, admin.username)
+    # La contrasena de la camara NO va a la bitacora.
+    _auditar("camaras.guardar", admin.username, request, objetivo=datos.camera_id,
+             detalle={"host": datos.host, "ruta": datos.ruta, "archivo": destino.name})
     comando = "iniciar_worker.bat" if destino == ENV_PATH else f"iniciar_worker.bat --env {destino.name}"
     return {"archivo": destino.name, "comando": comando}
+
+
+def _auditar(accion: str, usuario: str, request: Request, **kwargs) -> None:
+    """Estos endpoints no usan sesion de BD (son sincronos y largos); la
+    bitacora abre la suya."""
+    from sqlmodel import Session
+
+    try:
+        with Session(engine) as session:
+            registrar(session, accion, usuario=usuario, request=request, confirmar=True, **kwargs)
+    except Exception as e:  # noqa: BLE001 - la auditoria no debe tumbar la operacion
+        log.error("No se pudo registrar %s en la bitacora: %s", accion, e)

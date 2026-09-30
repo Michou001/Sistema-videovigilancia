@@ -8,15 +8,20 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 from sqlmodel import col, func, select
 
-from api.deps import Admin, OperadorActual, SesionBD
+from api.auditoria import registrar
+from api.deps import Admin, Operador, OperadorActual, SesionBD
+from api.exportacion import celda
 from api.hub import hub
 from api.models import Alert, Camera, Event, FechasEnUtc
+from shared.events import PATRON_CAMARA
+from shared.fechas import a_utc
 from shared.plates import limpiar
 
 log = logging.getLogger(__name__)
@@ -24,13 +29,16 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["alertas"])
 
 
-def _utc_sin_zona(fecha: datetime) -> datetime:
-    """Las fechas se guardan en UTC y sin zona (SQLite no la conserva). Una
-    fecha con zona que llega del navegador se lleva a UTC antes de comparar;
-    sin esto, "desde las 00:00" en Mexico filtraba seis horas corrido."""
-    if fecha.tzinfo is not None:
-        fecha = fecha.astimezone(timezone.utc)
-    return fecha.replace(tzinfo=None)
+def _limite_utc(fecha: datetime) -> datetime:
+    """Limite de busqueda en UTC y CON zona.
+
+    Una fecha con zona que llega del navegador se lleva a UTC antes de
+    comparar; sin esto, "desde las 00:00" en Mexico filtraba seis horas
+    corrido. La zona NO se quita: SQLModel 0.0.45+ rechaza comparar una
+    columna de fecha contra un valor sin zona, y la busqueda respondia 500
+    en cualquier instalacion nueva (ver shared/fechas.py).
+    """
+    return a_utc(fecha)
 
 
 class AlertaLeida(FechasEnUtc, BaseModel):
@@ -89,7 +97,7 @@ class Resolucion(BaseModel):
 
 @router.post("/alerts/{alerta_id}/resolver", response_model=AlertaLeida)
 async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
-                   operador: OperadorActual):
+                   operador: Operador, request: Request):
     """Cerrar una alerta.
 
     `dismiss` con motivo 'falso positivo' es la senal mas valiosa del sistema:
@@ -102,11 +110,20 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "acción debe ser 'acknowledge' o 'dismiss'")
 
+    if alerta.status != "new":
+        # Dos operadores atendiendo la misma alerta a la vez: gana el primero y
+        # el segundo se entera, en vez de sobrescribir la nota del otro.
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"La alerta ya fue cerrada por {alerta.acknowledged_by or 'otro operador'}")
+
     alerta.status = "acknowledged" if datos.accion == "acknowledge" else "dismissed"
     alerta.acknowledged_by = operador.username
     alerta.acknowledged_at = datetime.now(timezone.utc)
     alerta.dismissed_reason = datos.motivo
     alerta.notes = (datos.nota or "").strip() or None
+    registrar(session, "alertas.atendida" if datos.accion == "acknowledge" else "alertas.descartada",
+              usuario=operador.username, objetivo=f"ALR-{alerta.id:06d}",
+              detalle={"motivo": datos.motivo, "nota": alerta.notes}, request=request)
     session.commit()
     session.refresh(alerta)
 
@@ -124,9 +141,9 @@ def _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta):
     if severidad:
         consulta = consulta.where(Event.severity == severidad)
     if desde:
-        consulta = consulta.where(col(Event.ts) >= _utc_sin_zona(desde))
+        consulta = consulta.where(col(Event.ts) >= _limite_utc(desde))
     if hasta:
-        consulta = consulta.where(col(Event.ts) <= _utc_sin_zona(hasta))
+        consulta = consulta.where(col(Event.ts) <= _limite_utc(hasta))
     if q:
         buscado = limpiar(q)
         if buscado:
@@ -161,7 +178,8 @@ def listar_eventos(
 @router.get("/events/export.csv")
 def exportar_eventos(
     session: SesionBD,
-    operador: OperadorActual,
+    operador: Operador,
+    request: Request,
     tipo: Optional[str] = None,
     camera_id: Optional[str] = None,
     q: Optional[str] = Query(None, max_length=20),
@@ -183,11 +201,15 @@ def exportar_eventos(
                        "confianza", "estado", "coincidencia", "frames", "evidencia"])
     for e in filas:
         ts = e.ts if e.ts.tzinfo else e.ts.replace(tzinfo=timezone.utc)
-        escritor.writerow([f"{ts.astimezone():%Y-%m-%d %H:%M:%S}", e.camera_id, e.type,
-                           e.value, e.meta.get("color_vehiculo") or "", f"{e.confidence:.2f}",
-                           e.severity, e.match_kind, e.observations,
+        escritor.writerow([f"{ts.astimezone():%Y-%m-%d %H:%M:%S}", celda(e.camera_id), e.type,
+                           celda(e.value), celda(e.meta.get("color_vehiculo")),
+                           f"{e.confidence:.2f}", e.severity, e.match_kind, e.observations,
                            Path(e.snapshot_path).name if e.snapshot_path else ""])
     log.info("Reporte CSV de %d eventos exportado por %s", len(filas), operador.username)
+    registrar(session, "reportes.csv", usuario=operador.username,
+              detalle={"filas": len(filas), "tipo": tipo, "camara": camera_id, "texto": q,
+                       "severidad": severidad, "desde": desde, "hasta": hasta},
+              request=request, confirmar=True)
     nombre = f"eventos-{datetime.now():%Y%m%d-%H%M}.csv"
     # Con BOM para que Excel abra bien los acentos.
     return Response("\ufeff" + salida.getvalue(), media_type="text/csv; charset=utf-8",
@@ -197,10 +219,13 @@ def exportar_eventos(
 class CamaraEdicion(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     location: Optional[str] = Field(default=None, max_length=160)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 @router.put("/cameras/{camera_id}")
-def editar_camara(camera_id: str, datos: CamaraEdicion, session: SesionBD, admin: Admin) -> dict:
+def editar_camara(camera_id: Annotated[str, PathParam(pattern=PATRON_CAMARA)], datos: CamaraEdicion, session: SesionBD, admin: Admin,
+                  request: Request) -> dict:
     """Nombre y ubicacion que ve el operador ("Acceso norte - Av. Juarez").
 
     Un identificador como "cam-02" no le dice al monitorista a donde mandar
@@ -211,9 +236,17 @@ def editar_camara(camera_id: str, datos: CamaraEdicion, session: SesionBD, admin
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa cámara")
     camara.name = datos.name.strip()
     camara.location = (datos.location or "").strip() or None
+    if (datos.lat is None) != (datos.lon is None):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Latitud y longitud van juntas (o ninguna de las dos)")
+    camara.lat, camara.lon = datos.lat, datos.lon
+    registrar(session, "camaras.edicion", usuario=admin.username, objetivo=camera_id,
+              detalle={"nombre": camara.name, "ubicacion": camara.location,
+                       "lat": camara.lat, "lon": camara.lon}, request=request)
     session.commit()
     log.info("Camara %s renombrada a '%s' por %s", camera_id, camara.name, admin.username)
-    return {"camera_id": camara.camera_id, "name": camara.name, "location": camara.location}
+    return {"camera_id": camara.camera_id, "name": camara.name, "location": camara.location,
+            "lat": camara.lat, "lon": camara.lon}
 
 
 @router.get("/stats")
@@ -247,6 +280,8 @@ def estadisticas(session: SesionBD, _: OperadorActual):
             "camera_id": c.camera_id,
             "name": c.name,
             "location": c.location,
+            "lat": c.lat,
+            "lon": c.lon,
             # El worker late cada 15 s; sin senal en 60 s se considera caida.
             # Que la fuente reporte connected=False tambien cuenta: el worker
             # sigue vivo pero la camara no entrega imagen.

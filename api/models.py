@@ -67,6 +67,8 @@ class Camera(EnUtc, table=True):
     camera_id: str = Field(index=True, unique=True, description="Slug, ej. 'cam-entrada'")
     name: str = Field(description="Nombre para el operador, ej. 'Acceso vehicular norte'")
     location: Optional[str] = None
+    lat: Optional[float] = Field(default=None, description="Para ubicarla en el mapa")
+    lon: Optional[float] = None
 
     source_spec: Optional[str] = Field(
         default=None,
@@ -100,6 +102,9 @@ class Event(EnUtc, table=True):
     __table_args__ = (
         Index("ix_events_camera_ts", "camera_id", "ts"),
         Index("ix_events_type_value", "type", "value"),
+        # Retencion ("eventos info anteriores a X") y re-escaneo por tipo y fecha.
+        Index("ix_events_severity_ts", "severity", "ts"),
+        Index("ix_events_type_ts", "type", "ts"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -273,3 +278,38 @@ class Operator(EnUtc, table=True):
     role: str = Field(default="viewer", description="viewer | operator | admin")
     active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=_utcnow)
+
+    token_version: int = Field(
+        default=0,
+        description="Va dentro de cada JWT. Cambiar contrasena, rol o desactivar "
+                    "al usuario la incrementa y todas sus sesiones abiertas "
+                    "dejan de valer en ese momento, no cuando caduquen.",
+    )
+    last_login: Optional[datetime] = None
+
+
+# --------------------------------------------------------------------------
+# Bitacora de auditoria
+# --------------------------------------------------------------------------
+
+class AuditLog(EnUtc, table=True):
+    """Quien hizo que, cuando y desde donde.
+
+    La LFPDPPP exige poder demostrar como se tratan los datos personales: quien
+    dio de alta a una persona en la lista negra, quien exporto un reporte con
+    placas, quien cerro una alerta. Antes eso solo quedaba en la consola de la
+    API, que se pierde al reiniciar. Esta tabla no se edita desde la API: solo
+    se agrega, y se purga por antiguedad (RETENCION_AUDITORIA_DIAS).
+    """
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_ts_accion", "ts", "accion"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime = Field(default_factory=_utcnow, index=True)
+    usuario: Optional[str] = Field(default=None, index=True,
+                                   description="None = el sistema o alguien sin sesion")
+    accion: str = Field(index=True, description="ej. 'lista_negra.alta_placa'")
+    objetivo: Optional[str] = Field(default=None, description="Sobre que: una placa, un folio...")
+    detalle: Optional[str] = None
+    ip: Optional[str] = None

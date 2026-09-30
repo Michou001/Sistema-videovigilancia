@@ -16,7 +16,15 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from shared.fechas import a_utc
+
+# Identificador de camara: letras, digitos, guion, guion bajo y punto. Se
+# valida en la frontera porque termina en rutas de URL, nombres de archivo
+# (.env.<camara>) y en el HTML del dashboard; un valor libre era una puerta
+# para inyectar codigo en la pagina del operador.
+PATRON_CAMARA = r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$"
 
 
 # --------------------------------------------------------------------------
@@ -106,8 +114,9 @@ class DetectionEvent(BaseModel):
     model_config = ConfigDict(use_enum_values=False)
 
     # --- Identidad ---------------------------------------------------------
-    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    camera_id: str = Field(description="Identificador logico de la camara, ej. 'cam-entrada'")
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=8, max_length=64)
+    camera_id: str = Field(pattern=PATRON_CAMARA,
+                           description="Identificador logico de la camara, ej. 'cam-entrada'")
     ts: datetime = Field(default_factory=_utcnow, description="Instante de la MEJOR observacion, en UTC")
 
     # --- Que se detecto ----------------------------------------------------
@@ -118,6 +127,7 @@ class DetectionEvent(BaseModel):
                     "None si el detector corrio sin tracking.",
     )
     value: str = Field(
+        min_length=1, max_length=120,
         description="Contenido segun el tipo: texto de la placa ('ABC-123'), "
                     "etiqueta del arma ('knife'/'pistol'), o 'face' para rostros "
                     "(la identidad vive en el embedding, no aqui).",
@@ -157,6 +167,13 @@ class DetectionEvent(BaseModel):
                     "vestimenta, lecturas OCR alternativas, etc.",
     )
 
+    @field_validator("ts", "first_seen", "last_seen")
+    @classmethod
+    def _fechas_en_utc(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # Un worker viejo o un reloj mal configurado pueden mandar la hora sin
+        # zona; se interpreta como UTC (ver shared/fechas.py).
+        return a_utc(v)
+
     def dedupe_key(self) -> str:
         """Clave de idempotencia. Si el borde reintenta por un fallo de red, la
         API debe reconocer que es el mismo evento y no duplicarlo."""
@@ -167,9 +184,14 @@ class EventBatch(BaseModel):
     """Envio agrupado. El borde acumula y manda en lotes para no abrir una
     conexion HTTP por deteccion."""
 
-    camera_id: str
+    camera_id: str = Field(pattern=PATRON_CAMARA)
     sent_at: datetime = Field(default_factory=_utcnow)
-    events: list[DetectionEvent]
+    events: list[DetectionEvent] = Field(max_length=500)
+
+    @field_validator("sent_at")
+    @classmethod
+    def _enviado_en_utc(cls, v: datetime) -> datetime:
+        return a_utc(v)
 
 
 # --------------------------------------------------------------------------
@@ -193,10 +215,22 @@ class MatchResult(BaseModel):
     reason: Optional[str] = Field(default=None, description="Explicacion legible para el operador")
 
 
+class EventoRechazado(BaseModel):
+    """Un evento del lote que la API no pudo aceptar, y por que."""
+
+    event_id: Optional[str] = None
+    motivo: str
+
+
 class IngestResponse(BaseModel):
     accepted: int
     duplicates: int = 0
     matches: list[MatchResult] = Field(default_factory=list)
+    rejected: list[EventoRechazado] = Field(
+        default_factory=list,
+        description="Eventos mal formados. El resto del lote SI se acepto: un "
+                    "evento malo no hace perder a los demas.",
+    )
 
 
 # --------------------------------------------------------------------------

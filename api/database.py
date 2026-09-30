@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 
-from sqlalchemy import event, text
-from sqlmodel import Session, SQLModel, create_engine
+from sqlalchemy import event, inspect, text
+from sqlmodel import Session, create_engine
 
 from api.config import get_config
 
@@ -47,45 +48,101 @@ if _es_sqlite:
         cur.close()
 
 
-# Indices que se agregaron despues de crear las primeras bases de datos.
-# create_all() solo crea tablas nuevas; sobre una tabla existente no agrega
-# indices, asi que se crean aqui con IF NOT EXISTS.
-_INDICES_EXTRA = [
-    # Retencion: "eventos info anteriores a X" y re-escaneo por tipo y fecha.
+# Ajustes que las versiones anteriores a Alembic aplicaban a mano en cada
+# arranque: create_all() no agrega columnas ni indices a una tabla que ya
+# existe. Solo se usan una vez, al pasar una base de datos vieja a Alembic,
+# para garantizar que coincide exactamente con la revision base (0001).
+_INDICES_LEGADO = [
     "CREATE INDEX IF NOT EXISTS ix_events_severity_ts ON events (severity, ts)",
     "CREATE INDEX IF NOT EXISTS ix_events_type_ts ON events (type, ts)",
 ]
-
-
-# Columnas agregadas despues de la primera version: create_all() no las agrega
-# a una tabla existente, asi que se agregan aqui si faltan.
-_COLUMNAS_EXTRA = [
+_COLUMNAS_LEGADO = [
     ("alerts", "notes", "TEXT"),
 ]
 
+_MIGRACIONES = Path(__file__).resolve().parent / "migraciones"
+REVISION_BASE = "0001"
+
+
+def _config_alembic(conexion):
+    from alembic.config import Config
+
+    config = Config()
+    config.set_main_option("script_location", str(_MIGRACIONES))
+    config.set_main_option("sqlalchemy.url", str(conexion.engine.url))
+    config.attributes["connection"] = conexion
+    return config
+
+
+def _preparar_base_legada(conexion) -> None:
+    for tabla, columna, tipo in _COLUMNAS_LEGADO:
+        existentes = {c["name"] for c in inspect(conexion).get_columns(tabla)}
+        if columna not in existentes:
+            conexion.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}"))
+            log.info("Columna %s.%s agregada", tabla, columna)
+    for sentencia in _INDICES_LEGADO:
+        conexion.execute(text(sentencia))
+
 
 def init_db() -> None:
-    """Crea las tablas si no existen. Importa los modelos primero para que
-    SQLModel los registre en su metadata."""
-    import api.models  # noqa: F401
+    """Crea o actualiza el esquema con las migraciones de Alembic.
 
-    SQLModel.metadata.create_all(engine)
+    Tres casos:
+      - Base de datos nueva: se aplican todas las migraciones desde cero.
+      - Base creada por una version anterior (sin Alembic): se completa a la
+        revision base, se marca como tal y se aplican solo las posteriores.
+        No se pierde ni se reescribe ningun dato.
+      - Base ya bajo Alembic: se aplican las migraciones pendientes, si hay.
+
+    Antes esto era create_all() mas una lista de ALTER TABLE a mano. Con
+    PostgreSQL y varias versiones del sistema en campo, eso no escala: cada
+    columna nueva era un parche mas en el arranque.
+    """
+    from alembic import command
+
+    import api.models  # noqa: F401 - registra las tablas en la metadata
+
+    # Alembic anuncia en INFO cada arranque ("Context impl SQLiteImpl..."): en
+    # la consola de la API solo interesa cuando aplica una migracion de verdad.
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+
+    with engine.begin() as conexion:
+        tablas = set(inspect(conexion).get_table_names())
+        config = _config_alembic(conexion)
+        if "alembic_version" not in tablas and {"events", "operators"} <= tablas:
+            log.info("Base de datos de una version anterior: se pasa a migraciones")
+            _preparar_base_legada(conexion)
+            command.stamp(config, REVISION_BASE)
+        antes = _revision_actual(conexion)
+        command.upgrade(config, "head")
+        despues = _revision_actual(conexion)
+        if antes != despues:
+            log.info("Esquema de base de datos actualizado: %s -> %s", antes or "vacio", despues)
 
     if _es_sqlite:
-        with engine.connect() as con:
-            for tabla, columna, tipo in _COLUMNAS_EXTRA:
-                existentes = {fila[1] for fila in con.execute(text(f"PRAGMA table_info({tabla})"))}
-                if columna not in existentes:
-                    con.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}"))
-                    log.info("Columna %s.%s agregada", tabla, columna)
-            for sentencia in _INDICES_EXTRA:
-                con.execute(text(sentencia))
+        with engine.connect() as conexion:
             # Estadisticas para el planificador de consultas: con ellas elige
             # el indice correcto en vez de recorrer la tabla.
-            con.execute(text("PRAGMA optimize"))
-            con.commit()
+            conexion.execute(text("PRAGMA optimize"))
+            conexion.commit()
 
-    log.info("Base de datos lista: %s", _cfg.database_url)
+    log.info("Base de datos lista: %s", _url_sin_clave(_cfg.database_url))
+
+
+def _revision_actual(conexion) -> str | None:
+    from alembic.migration import MigrationContext
+
+    return MigrationContext.configure(conexion).get_current_revision()
+
+
+def _url_sin_clave(url: str) -> str:
+    """La URL de PostgreSQL lleva la contrasena: no va a los logs."""
+    from sqlalchemy.engine import make_url
+
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:  # noqa: BLE001
+        return url.split("@")[-1]
 
 
 def get_session() -> Iterator[Session]:

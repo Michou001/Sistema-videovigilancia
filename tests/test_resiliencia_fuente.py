@@ -144,7 +144,7 @@ def test_cualquier_excepcion_reconecta():
         malo = _CapFalso([_frame(), averia], en_bucle=False)
         f = _FuenteDePrueba([malo, _CapFalso([_frame()])], max_backoff=0.1)
         try:
-            assert _esperar(lambda: f.status.reconnects >= 1), \
+            assert _esperar(lambda f=f: f.status.reconnects >= 1), \
                 f"{type(averia).__name__} mato al hilo"
             assert f._thread.is_alive()
         finally:

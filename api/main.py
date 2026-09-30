@@ -22,8 +22,20 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from api.config import get_config  # noqa: E402
 from api.database import init_db  # noqa: E402
 from api.hub import hub  # noqa: E402
-from api.routers import alerts, auth, blacklist, camera_setup, events, faces, preview  # noqa: E402
-from api.security import decodificar_token  # noqa: E402
+from api.deps import operador_de_websocket  # noqa: E402
+from api.routers import (  # noqa: E402
+    alerts,
+    auditoria,
+    auth,
+    blacklist,
+    camera_setup,
+    events,
+    faces,
+    media,
+    preview,
+    usuarios,
+)
+from api.seguridad_http import CabecerasSeguridad  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -112,31 +124,37 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Sistema de Videovigilancia",
-    description="Deteccion de placas, rostros y armas con cruce contra lista negra",
-    version="0.3.0",
+    title="GOSS IP - Sistema de Videovigilancia",
+    description="Deteccion de placas, rostros y movimiento con cruce contra lista negra",
+    version="1.0.0",
     lifespan=lifespan,
 )
+app.add_middleware(CabecerasSeguridad)
 
 app.include_router(auth.router)
+app.include_router(usuarios.router)
+app.include_router(auditoria.router)
 app.include_router(events.router)
 app.include_router(blacklist.router)
 app.include_router(faces.router)
 app.include_router(alerts.router)
 app.include_router(preview.router)
 app.include_router(camera_setup.router)
+app.include_router(media.router)
 
 
 @app.websocket("/ws/alerts")
-async def ws_alertas(websocket: WebSocket, token: str = "") -> None:
+async def ws_alertas(websocket: WebSocket) -> None:
     """Canal de alertas en vivo.
 
-    El token va por query string y no por cabecera porque la API WebSocket de
-    los navegadores no permite mandar cabeceras personalizadas en el handshake.
-    Se valida ANTES de aceptar la conexion.
+    La API WebSocket de los navegadores no permite cabeceras en el handshake,
+    asi que la sesion viaja en la cookie HttpOnly del login (o, para clientes
+    viejos, en ?token=). Se valida ANTES de aceptar la conexion.
     """
-    if not decodificar_token(token):
-        await websocket.close(code=4401, reason="Token invalido")
+    from fastapi.concurrency import run_in_threadpool
+
+    if await run_in_threadpool(operador_de_websocket, websocket) is None:
+        await websocket.close(code=4401, reason="Sesion invalida")
         return
 
     await hub.conectar(websocket)
@@ -158,13 +176,27 @@ def health() -> dict:
     return {"status": "ok", "dashboards": hub.conectados}
 
 
-# Capturas de evidencia. Van bajo /media y no como estatico general para que
-# quede claro que son datos personales y no recursos publicos de la web.
-app.mount("/media", StaticFiles(directory=cfg.snapshot_dir), name="media")
+# Las capturas de evidencia ya NO se montan como estaticos publicos: las sirve
+# api/routers/media.py, y solo a quien tiene sesion.
+
+class _EstaticosRevalidados(StaticFiles):
+    """Archivos del dashboard con `Cache-Control: no-cache`.
+
+    El navegador los guarda, pero pregunta en cada carga si cambiaron (ETag,
+    respuesta 304 de unos bytes). Sin esto, tras actualizar el sistema un
+    navegador podia seguir usando el JavaScript viejo durante horas contra una
+    API nueva.
+    """
+
+    def file_response(self, *args, **kwargs):
+        respuesta = super().file_response(*args, **kwargs)
+        respuesta.headers["Cache-Control"] = "no-cache"
+        return respuesta
+
 
 if cfg.web_dir.exists():
-    app.mount("/static", StaticFiles(directory=cfg.web_dir), name="static")
+    app.mount("/static", _EstaticosRevalidados(directory=cfg.web_dir), name="static")
 
     @app.get("/")
     def index() -> FileResponse:
-        return FileResponse(cfg.web_dir / "index.html")
+        return FileResponse(cfg.web_dir / "index.html", headers={"Cache-Control": "no-cache"})

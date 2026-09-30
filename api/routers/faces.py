@@ -17,11 +17,21 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import col, select
 
+from api.auditoria import registrar
 from api.config import get_config
 from api.deps import Admin, OperadorActual, SesionBD
 from api.matching import lista_negra
@@ -72,6 +82,7 @@ async def agregar(
     session: SesionBD,
     admin: Admin,
     tareas: BackgroundTasks,
+    request: Request,
     label: str = Form(..., min_length=2, max_length=120),
     reason: str = Form(..., min_length=3, max_length=300),
     legal_basis: str = Form(..., min_length=3, max_length=300),
@@ -122,6 +133,11 @@ async def agregar(
     ruta = carpeta / f"rostro-{registro.id}.jpg"
     cv2.imwrite(str(ruta), imagen)
     registro.photo_path = ruta.relative_to(cfg.snapshot_dir.parent.parent).as_posix()
+    # El fundamento legal va a la bitacora: es lo que se pide en una auditoria.
+    registrar(session, "lista_negra.alta_rostro", usuario=admin.username,
+              objetivo=f"{label} (#{registro.id})",
+              detalle={"motivo": reason, "fundamento": legal_basis, "severidad": severity},
+              request=request)
     session.commit()
     session.refresh(registro)
     lista_negra.invalidar()
@@ -137,12 +153,14 @@ async def agregar(
 
 
 @router.delete("/{registro_id}", status_code=status.HTTP_204_NO_CONTENT)
-def desactivar(registro_id: int, session: SesionBD, admin: Admin):
+def desactivar(registro_id: int, session: SesionBD, admin: Admin, request: Request):
     """Baja logica: los eventos historicos siguen apuntando a este registro."""
     registro = session.get(BlacklistFace, registro_id)
     if registro is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese registro")
     registro.active = False
+    registrar(session, "lista_negra.baja_rostro", usuario=admin.username,
+              objetivo=f"{registro.label} (#{registro.id})", request=request)
     session.commit()
     lista_negra.invalidar()
     log.info("Rostro '%s' desactivado por %s", registro.label, admin.username)

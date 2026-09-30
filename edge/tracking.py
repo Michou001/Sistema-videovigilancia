@@ -163,7 +163,7 @@ class IoUTracker:
         tracks_usados: set[int] = set()
         dets_usadas: set[int] = set()
 
-        for solape, ti, di in pares:
+        for _solape, ti, di in pares:
             if ti in tracks_usados or di in dets_usadas:
                 continue
             tracks_usados.add(ti)
