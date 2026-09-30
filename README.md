@@ -6,9 +6,9 @@ real en una plataforma web.
 
 | Módulo | Estado |
 |---|---|
-| Placas (YOLOv5 + EasyOCR) | Funcionando en cámara real |
+| Placas (YOLOv9 + OCR de placas, ONNX) | Funcionando; 35/35 lecturas en pruebas de ángulo ([ADR-001](docs/adr/ADR-001-lectura-de-placas.md)) |
 | Rostros (InsightFace, ArcFace 512-d) | Funcionando en cámara real; umbral pendiente de calibrar con personas |
-| Movimiento anómalo (YOLO11 + ByteTrack) | Funcionando; umbral pendiente de validar con un incidente real |
+| Movimiento anómalo y persona caída (YOLO11 + ByteTrack) | Funcionando; umbrales pendientes de validar con un incidente real |
 | Armas blancas (YOLO11-COCO) | Apagado por defecto: no detectó en prueba real (ver abajo) |
 | Plataforma web, lista negra, retención de datos | Funcionando |
 | Varias cámaras a la vez | Probado con 2 Hikvision reales |
@@ -166,6 +166,13 @@ detectores del `.env`) y responde con el comando para arrancar el worker.
   para responder *"¿pasó el coche ABC-123 el martes?"*.
 - Toda la evidencia se amplía con un clic (la foto puede ser la captura HD de
   3200 px).
+- Cada alerta tiene **folio** (`ALR-000123`) y se cierra con una **nota de
+  atención** (respuestas rápidas: "Se avisó a patrulla", "Verificado en
+  video"...). La nota y quién atendió quedan como bitácora del turno.
+- **Reporte CSV** de cualquier búsqueda, listo para entregar o abrir en Excel.
+- Cada cámara tiene **nombre y ubicación** editables (lápiz en el recuadro):
+  el operador ve "Acceso norte · Av. Juárez", no `cam-02`.
+- Las alertas de placa incluyen el **color aproximado del vehículo**.
 - Una alerta crítica muestra un banner y suena; un aviso aparece en una
   esquina y se retira solo.
 - La vista en vivo no cuesta nada mientras nadie mira: al salir de Monitoreo
@@ -199,37 +206,52 @@ API vuelve.
 
 ## Lectura de placas
 
-1. **Detección** con YOLOv5 (pesos propios en `models/plates_yolov5.pt`).
+1. **Detección** con YOLOv9 entrenado solo con placas
+   (`open-image-models`, ONNX, mAP50 0.966).
 2. **Seguimiento**: un vehículo = un `track_id` = un evento, emitido cuando
    sale de escena con la mejor evidencia acumulada.
-3. **OCR** con EasyOCR restringido a mayúsculas y dígitos, sobre el recorte
-   ampliado y con contraste ecualizado (CLAHE).
-4. **Unión de fragmentos**: EasyOCR suele partir la placa (`ABC` + `123`) y
-   leer el nombre del estado. Se descartan las leyendas y se unen los trozos
-   de la línea principal de izquierda a derecha.
-5. **Corrección por posición**: cada formato de placa mexicana dice qué
+3. **OCR** con `fast-plate-ocr`, un transformer compacto entrenado con placas
+   (no un OCR de texto general): lee la placa completa en menos de 1 ms, así
+   que cada vehículo se lee hasta 10 veces.
+4. **Corrección por posición**: cada formato de placa mexicana dice qué
    posiciones son letras y cuáles dígitos. `A8C-I23` se corrige a `ABC-123`
    (una lectura corregida pesa un poco menos que una limpia).
-6. **Consenso** entre hasta 6 lecturas del mismo vehículo, ponderado por
+5. **Consenso** entre las lecturas del mismo vehículo, ponderado por
    confianza, más un voto carácter por carácter que recupera la placa aunque
    ningún frame la haya leído completa.
+6. **Color aproximado del vehículo**, medido en la carrocería junto a la
+   placa, para que la alerta diga qué buscar.
+
+Comparación sobre fotos reales de placas mexicanas con el ángulo de cámara
+simulado ([ADR-001](docs/adr/ADR-001-lectura-de-placas.md)):
+
+| Condición | YOLOv5 + EasyOCR (anterior) | YOLOv9 + OCR de placas |
+|---|---|---|
+| De frente | 4/5 | 5/5 |
+| De lado 35° / 50° | 2/5 / 2/5 | 5/5 / 5/5 |
+| Desde arriba | 2/5 | 5/5 |
+| Rotada 15° | 3/5 | 5/5 |
+| Lejos | 3/5 | 5/5 |
+| Poca luz | 4/5 | 5/5 |
+| Tiempo por foto | 50–280 ms | 22–29 ms |
 
 Los duplicados se evitan en dos capas: el tracking (principal) y una ventana
 por valor de placa, `PLATE_DEDUPE_S`, para cuando el tracking se rompe.
 
 ### Alcance medido
 
-Hace falta que la placa mida **≥ 48 px de ancho** para leerla (medido sobre
-placas mexicanas reales con este modelo y este OCR). Con placa de frente:
+Hace falta que la placa mida **≥ 36 px de ancho** para leerla (antes 48 px;
+medido sobre placas mexicanas reales). Con placa de frente:
 
 | Lente | Sub-stream 1280 px | **Main 3200 px** |
 |---|---|---|
-| 2.8 mm (gran angular) | 3.1 m | **7.7 m** |
-| 4 mm (estándar) | 4.5 m | **11.3 m** |
-| 6 mm (teleobjetivo) | 8.0 m | **20.0 m** |
+| 2.8 mm (gran angular) | 4.1 m | **10.2 m** |
+| 4 mm (estándar) | 6.0 m | **15.1 m** |
+| 6 mm (teleobjetivo) | 10.6 m | **26.6 m** |
 
 En ángulo de 45° multiplica por 0.7, y para instalar conviene el doble de
-margen (~100 px). Reproducible con `python tools/calibrar_distancia.py`.
+margen (~100 px). Reproducible con `python tools/calibrar_distancia.py` y fotos propias en
+`imagenes-prueba/` (esa carpeta no se sube al repositorio).
 Conclusiones prácticas: **el lente manda más que el modelo** y **la cámara va
 apuntada al carril**, no al estacionamiento entero.
 
@@ -273,6 +295,10 @@ desplazamiento de su centro en ~1 s, normalizado por la altura de su caja.
 | `MOTION_SPEED_THRESHOLD` | Alturas de cuerpo por segundo que cuentan como súbitas. Caminar ronda 0.8–1.2; por defecto 2.5 |
 | `MOTION_CONFIRM_HITS` / `_WINDOW` | Confirmación temporal: 3 de 5 lecturas sobre el umbral |
 | `MOTION_COOLDOWN_S` | Tras alertar, la misma persona puede volver a alertar pasado este tiempo |
+
+**Persona caída:** si una persona seguida pasa de estar de pie (caja alta) a
+quedar tendida (caja ancha) en menos de 2 s y se mantiene así, sale un aviso
+"Posible persona caída". Sentarse, agacharse o acostarse despacio no cuentan.
 
 Los saltos que no puede hacer una persona (el tracker cambió de identidad
 entre dos personas cercanas, o una oclusión cortó la caja) se descartan en vez
@@ -356,7 +382,7 @@ Dos trampas encontradas midiendo, ambas silenciosas:
 python tests/correr_todas.py
 ```
 
-Nueve archivos, sin cámara ni GPU: tracking, confirmación temporal, lectura y
+96 pruebas en nueve archivos, sin cámara ni GPU: tracking, confirmación temporal, lectura y
 cruce de placas, calidad de rostros, filtro de saltos del tracker, envío con la
 API caída, resiliencia de la fuente, vista en vivo, fechas y la API completa
 contra una base de datos temporal.

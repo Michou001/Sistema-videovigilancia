@@ -312,7 +312,7 @@
         <text class="nodo-sub" x="334" y="80" text-anchor="middle">GPU · 8 fps de inferencia</text>
 
         <rect class="nodo-caja" x="242" y="94" width="184" height="30" rx="5"/>
-        <text class="nodo-texto" x="334" y="113" text-anchor="middle" style="font-weight:600">Placas — YOLOv5 + OCR</text>
+        <text class="nodo-texto" x="334" y="113" text-anchor="middle" style="font-weight:600">Placas — YOLOv9 + OCR</text>
 
         <rect class="nodo-caja" x="242" y="132" width="184" height="30" rx="5"/>
         <text class="nodo-texto" x="334" y="151" text-anchor="middle" style="font-weight:600">Rostros — InsightFace</text>
@@ -361,13 +361,14 @@
       <div class="tarjeta-modulo">
         <div class="cab"><h3>Placas</h3><span class="estado ok">funcionando</span></div>
         <div class="metricas">
-          <div class="metrica-mini"><div class="n">0.45</div><div class="e">confianza mín.</div></div>
-          <div class="metrica-mini"><div class="n">6</div><div class="e">lecturas OCR/track</div></div>
+          <div class="metrica-mini"><div class="n">35/35</div><div class="e">lecturas con ángulo</div></div>
+          <div class="metrica-mini"><div class="n">10</div><div class="e">lecturas OCR/track</div></div>
         </div>
         <div>
           <div class="etiqueta-lista">Ya funciona</div>
           <ul class="lista-mini hecho">
-            <li>YOLOv5 detecta + EasyOCR lee, con consenso de varias lecturas por vehículo</li>
+            <li>YOLOv9 detecta y un OCR entrenado solo con placas lee en menos de 1 ms, con consenso de varias lecturas por vehículo</li>
+            <li>35/35 lecturas correctas con la cámara de lado, desde arriba, lejos y con poca luz (antes 20/35)</li>
             <li>Une la placa cuando el OCR la parte en trozos y corrige por posición (<code>A8C-I23</code> → <code>ABC-123</code>)</li>
             <li>Voto carácter por carácter entre lecturas: recupera la placa aunque ningún frame la lea completa</li>
             <li>Re-escaneo retroactivo y vigencia en la lista negra</li>
@@ -378,7 +379,7 @@
           <div class="etiqueta-lista">Falta</div>
           <ul class="lista-mini falta">
             <li>Probar con la cámara apuntando a calle/cochera (hoy el encuadre es interior)</li>
-            <li>Migrar el modelo de YOLOv5 a YOLO11 nativo</li>
+            <li>Afinar el OCR con capturas de placas de la cámara real</li>
           </ul>
         </div>
       </div>
@@ -557,7 +558,7 @@ iniciar_worker.bat</pre>
     <div class="cuerpo" style="margin-top:32px;">
       <h3 style="font-size:16px; margin-bottom:10px;">La trampa que ya nos costó tiempo: CPU vs GPU</h3>
       <p>
-        Todo el stack (torch, ultralytics, easyocr...) se puede instalar dos veces sin darte
+        Todo el stack (torch, ultralytics, onnxruntime...) se puede instalar dos veces sin darte
         cuenta: una en el <code>venv</code> del proyecto con soporte CUDA, y otra en el Python
         global de Windows sin GPU, si alguna vez corriste <code>pip install</code> con una
         terminal donde el venv no estaba activado. Los tres detectores en CPU tardan 10-20x

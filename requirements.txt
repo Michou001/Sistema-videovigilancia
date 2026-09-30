@@ -25,8 +25,11 @@ opencv-python>=4.10
 numpy>=1.26
 pillow>=10.4
 
-# --- OCR de placas -----------------------------------------------------------
-easyocr>=1.7.2
+# --- Lectura de placas ------------------------------------------------------
+# Detector YOLOv9 (open-image-models) + OCR de placas (fast-plate-ocr), ambos
+# ONNX y MIT. Los modelos se descargan solos la primera vez (~30 MB).
+# Sin extras: usan el onnxruntime-gpu fijado mas abajo.
+fast-alpr==0.4.0
 
 # --- Contrato de datos (compartido entre borde y API) ------------------------
 pydantic>=2.9

@@ -228,6 +228,7 @@ async function refrescarCamaras() {
     const meta = camarasRegistradas.find((c) => c.camera_id === id);
 
     r.el.querySelector('.nom').textContent = (meta && meta.name) || id;
+    r.el.querySelector('.ubicacion').textContent = (meta && meta.location) || '';
     r.el.querySelector('.punto').className =
       'punto ' + (vivo ? 'on' : (meta && meta.online ? '' : 'off'));
     r.el.querySelector('.fps').textContent = vivo ? `${vivo.fps} fps video` : '';
@@ -262,6 +263,10 @@ function crearRecuadro(id) {
     <div class="camara-cab">
       <span class="punto"></span>
       <span class="nom">${escapar(id)}</span>
+      <span class="ubicacion"></span>
+      ${usuario && usuario.role === 'admin'
+        ? `<button class="editar-cam" title="Nombre y ubicación" onclick="editarCamara('${escapar(id)}')"><i data-lucide="pencil"></i></button>`
+        : ''}
       <span class="crece"></span>
       <span class="salud"></span>
       <span class="fps"></span>
@@ -337,7 +342,7 @@ function agregarDeteccion(ev, nueva = false) {
   div.innerHTML = `
     <div class="crece">
       <div class="v">${iconoTag(ev.type)} ${escapar(valorLegible(ev))}</div>
-      <div class="m">${hora(ev.ts)} · ${escapar(ev.camera_id)}
+      <div class="m">${hora(ev.ts)} · ${escapar(nombreCamara(ev.camera_id))}${colorTexto(ev)}
         ${ev.observations ? '· ' + ev.observations + ' frames' : ''}</div>
     </div>`;
 
@@ -436,8 +441,10 @@ const iconoTag = (tipo) => `<i data-lucide="${ICONOS[tipo] || 'circle-dot'}"></i
 
 /* El valor tal como lo lee el operador. En placas y armas es el dato mismo;
  * en rostros y movimiento el worker manda una etiqueta interna. */
-const VALORES = { movimiento_subito: 'Movimiento súbito', rostro: 'Rostro' };
+const VALORES = { movimiento_subito: 'Movimiento súbito', persona_caida: 'Persona caída', rostro: 'Rostro' };
 const valorLegible = (ev) => VALORES[ev.value] || ev.value;
+const colorTexto = (ev) => (ev.meta && ev.meta.color_vehiculo)
+  ? ` · vehículo ${escapar(ev.meta.color_vehiculo)}` : '';
 
 const ETIQUETAS_SEVERIDAD = { critical: 'crítico', warning: 'aviso', info: 'info' };
 
@@ -485,7 +492,7 @@ function agregarEvento(ev, nuevo = false) {
     <td class="mono" style="color:var(--tenue);white-space:nowrap">${fechaHora(ev.ts)}</td>
     <td>${iconoTag(ev.type)} ${NOMBRES[ev.type] || escapar(ev.type)}</td>
     <td class="mono"><strong>${escapar(valorLegible(ev))}</strong></td>
-    <td style="color:var(--tenue)">${escapar(ev.camera_id)}</td>
+    <td style="color:var(--tenue)">${escapar(nombreCamara(ev.camera_id))}${colorTexto(ev)}</td>
     <td><span class="etiqueta ${escapar(ev.severity)}">${ETIQUETAS_SEVERIDAD[ev.severity] || escapar(ev.severity)}</span></td>
     <td></td>`;
   if (ev.snapshot_path) {
@@ -539,6 +546,24 @@ $('formFiltros').addEventListener('submit', (e) => {
   e.preventDefault();
   cargarEventos().catch((err) => { $('contadorEventos').textContent = err.message; });
 });
+/* Descarga el resultado de la busqueda como CSV. Va por fetch (y no por un
+ * enlace) porque la peticion necesita el token de sesion en la cabecera. */
+$('btnExportar').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/events/export.csv?' + filtros().toString(),
+                          { headers: { Authorization: 'Bearer ' + token } });
+    if (!r.ok) throw new Error('Error ' + r.status);
+    const nombre = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = nombre ? nombre[1] : 'eventos.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (err) {
+    $('contadorEventos').textContent = err.message;
+  }
+});
+
 $('btnLimpiarFiltros').addEventListener('click', () => {
   $('formFiltros').reset();
   cargarEventos().catch(() => {});
@@ -558,12 +583,24 @@ function agregarAlerta(a, nuevo = false) {
   $('sinAlertas').style.display = 'none';
   const div = document.createElement('div');
   div.className = 'alerta ' + a.severity + (a.status && a.status !== 'new' ? ' resuelta' : '');
+  const id = Number(a.id);
   const acciones = (!a.status || a.status === 'new') && a.id
     ? `<div class="acciones">
-         <button onclick="resolver(${Number(a.id)},'acknowledge')"><i data-lucide="check"></i>Atendida</button>
-         <button class="sec" onclick="resolver(${Number(a.id)},'dismiss')"><i data-lucide="x"></i>Falso positivo</button>
+         <button onclick="abrirAtencion(${id})"><i data-lucide="check"></i>Atender</button>
+         <button class="sec" onclick="resolver(${id},'dismiss')"><i data-lucide="x"></i>Falso positivo</button>
+       </div>
+       <div class="atencion" id="atencion-${id}" hidden>
+         <div class="rapidas">
+           ${RESPUESTAS_RAPIDAS.map((r) => `<button type="button" class="chip" onclick="usarRapida(${id}, this.textContent)">${escapar(r)}</button>`).join('')}
+         </div>
+         <textarea id="nota-${id}" rows="2" maxlength="1000" placeholder="¿Qué se hizo? (a quién se avisó, qué se vio en el video)"></textarea>
+         <div class="acciones">
+           <button onclick="resolver(${id},'acknowledge')"><i data-lucide="save"></i>Cerrar alerta</button>
+           <button class="sec" onclick="abrirAtencion(${id})">Cancelar</button>
+         </div>
        </div>` : '';
-  const partes = [fechaHora(a.ts || a.created_at), escapar(a.camera_id)];
+  const partes = [`<span class="folio">${folio(a.id)}</span>`, fechaHora(a.ts || a.created_at),
+                  escapar(nombreCamara(a.camera_id))];
   if (a.match_kind && a.match_kind !== 'none') {
     let coincidencia = TIPOS_COINCIDENCIA[a.match_kind] || escapar(a.match_kind);
     if (a.match_score != null && a.match_kind !== 'rule') {
@@ -577,6 +614,7 @@ function agregarAlerta(a, nuevo = false) {
       <div class="t">${escapar(a.title)}</div>
       <div class="d">${escapar(a.detail || '')}</div>
       <div class="meta">${partes.join(' · ')}</div>
+      ${a.notes ? `<div class="nota">${escapar(a.notes)}${a.acknowledged_by ? ` — ${escapar(a.acknowledged_by)}` : ''}</div>` : ''}
       ${acciones}
     </div>`;
   if (a.snapshot_path) {
@@ -597,12 +635,67 @@ async function cargarAlertas() {
   $('sinAlertas').style.display = alertas.length ? 'none' : 'block';
 }
 
+/* Respuestas frecuentes de un centro de monitoreo. Un clic las escribe en la
+ * nota; el operador puede completarla. La nota queda como bitacora del turno. */
+const RESPUESTAS_RAPIDAS = [
+  'Se avisó a patrulla / seguridad',
+  'Verificado en video',
+  'Sin novedad al revisar',
+  'Se canalizó al 911',
+];
+
+/* Folio legible para referirse a una alerta por radio o en un reporte. */
+/* Nombre que ve el operador: el que se le puso a la camara, o su id. */
+function nombreCamara(id) {
+  const c = camarasRegistradas.find((x) => x.camera_id === id);
+  return (c && c.name && c.name !== id) ? c.name : id;
+}
+
+async function editarCamara(id) {
+  const c = camarasRegistradas.find((x) => x.camera_id === id) || {};
+  const nombre = prompt('Nombre de la cámara (lo que ve el operador):', c.name || id);
+  if (nombre === null || !nombre.trim()) return;
+  const ubicacion = prompt('Ubicación (calle, acceso, referencia):', c.location || '');
+  if (ubicacion === null) return;
+  try {
+    await api('/api/cameras/' + encodeURIComponent(id), {
+      method: 'PUT', body: JSON.stringify({ name: nombre.trim(), location: ubicacion.trim() || null }),
+    });
+    await refrescarStats();
+    refrescarCamaras();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+const folio = (id) => id ? 'ALR-' + String(id).padStart(6, '0') : '';
+
+function abrirAtencion(id) {
+  const caja = $('atencion-' + id);
+  if (!caja) return;
+  caja.hidden = !caja.hidden;
+  if (!caja.hidden) $('nota-' + id).focus();
+}
+
+function usarRapida(id, texto) {
+  const campo = $('nota-' + id);
+  campo.value = campo.value ? campo.value.trim() + '. ' + texto : texto;
+  campo.focus();
+}
+
 async function resolver(id, accion) {
   const motivo = accion === 'dismiss' ? 'falso positivo' : null;
-  await api(`/api/alerts/${id}/resolver`, {
-    method: 'POST',
-    body: JSON.stringify({ accion, motivo }),
-  });
+  const campo = $('nota-' + id);
+  const nota = campo ? campo.value.trim() : '';
+  try {
+    await api(`/api/alerts/${id}/resolver`, {
+      method: 'POST',
+      body: JSON.stringify({ accion, motivo, nota: nota || null }),
+    });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
   await Promise.all([cargarAlertas(), refrescarStats()]);
 }
 

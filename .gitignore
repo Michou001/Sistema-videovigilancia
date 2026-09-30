@@ -50,3 +50,6 @@ models/yolo11*.pt
 # Copias del .env: contienen credenciales de la camara
 .env.*
 !.env.example
+
+# Fotos propias para tools/calibrar_distancia.py (no se versionan)
+imagenes-prueba/

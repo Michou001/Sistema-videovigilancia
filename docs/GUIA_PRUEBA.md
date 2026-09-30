@@ -172,7 +172,7 @@ Iniciar sesión con el usuario y contraseña generados en el paso 5.
 
 | Detector | Estado | Qué hace |
 |---|---|---|
-| **Placas** (YOLOv5 + OCR) | Activo | Lee placas vehiculares y las compara contra la lista negra |
+| **Placas** (YOLOv9 + OCR de placas) | Activo | Lee placas vehiculares, estima el color del vehículo y las compara contra la lista negra. La primera vez descarga los modelos (~30 MB) |
 | **Rostros** (InsightFace) | Activo | Compara rostros contra la lista negra biométrica. La primera vez descarga el modelo (~280 MB) |
 | **Movimiento anómalo** (YOLO11) | Activo | Detecta movimientos bruscos/corridas por velocidad relativa de una persona |
 | **Armas blancas** | Apagado (`ENABLE_WEAPONS=false`) | Probado contra cámara real y no detectó de forma confiable; el `README.md` explica por qué |

@@ -30,8 +30,6 @@ import sys
 import warnings
 
 warnings.filterwarnings("ignore")
-if sys.platform == "win32":  # ver nota en edge/detectors/plates.py
-    pathlib.PosixPath = pathlib.WindowsPath
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -64,83 +62,55 @@ def distancia_para(plate_px: float, ancho_imagen_px: int, fov_grados: float) -> 
 
 
 class Calibrador:
-    def __init__(self, umbral_deteccion: float = 0.35, umbral_ocr: float = 0.30) -> None:
-        import torch
+    """Usa el MISMO detector y OCR que el worker (edge/detectors/plates.py),
+    para que el umbral medido aqui sea el que se obtiene en operacion."""
 
-        print("Cargando modelo de placas...")
-        self.model = torch.hub.load(
-            str(RAIZ / "yolov5"), "custom",
-            path=str(RAIZ / "models" / "plates_yolov5.pt"),
-            source="local", force_reload=False, verbose=False,
-        )
+    def __init__(self, umbral_deteccion: float = 0.30) -> None:
+        from edge.config import load_config
+        from edge.detectors.faces import configurar_onnx_gpu
+
+        configurar_onnx_gpu()
+        from fast_plate_ocr import LicensePlateRecognizer
+        from open_image_models import LicensePlateDetector
+
+        cfg = load_config()
+        self.device = cfg.resolve_device()
+        proveedores = (["CUDAExecutionProvider", "CPUExecutionProvider"]
+                       if self.device == "cuda" else ["CPUExecutionProvider"])
+        print("Cargando modelos de placas...")
         # Umbral mas bajo que en produccion: aqui interesa saber DONDE deja de
         # detectar, no filtrar. Con el umbral normal no se veria la degradacion.
-        self.model.conf = umbral_deteccion
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
-
-        print("Cargando EasyOCR...")
-        import easyocr
-
-        self.reader = easyocr.Reader(["es", "en"], gpu=(self.device == "cuda"), verbose=False)
-        self.umbral_ocr = umbral_ocr
+        self.detector = LicensePlateDetector(detection_model=cfg.plate_detector_model,
+                                             conf_thresh=umbral_deteccion, providers=proveedores)
+        self.ocr = LicensePlateRecognizer(cfg.plate_ocr_model, providers=proveedores)
         print(f"Listo (device={self.device})\n")
 
     def analizar(self, img: np.ndarray) -> dict:
         """Detecta la placa y trata de leerla. Devuelve metricas."""
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        res = self.model(rgb, size=640)
-        cajas = res.xyxy[0].cpu().numpy()
-
-        if len(cajas) == 0:
+        cajas = self.detector.predict(img)
+        if not cajas:
             return {"detecta": False, "plate_px": 0, "texto": None, "conf_ocr": 0.0}
 
-        mejor = max(cajas, key=lambda c: (c[2] - c[0]) * (c[3] - c[1]))
-        x1, y1, x2, y2 = (int(v) for v in mejor[:4])
-        plate_px = x2 - x1
-
+        mejor = max(cajas, key=lambda r: r.bounding_box.width * r.bounding_box.height)
+        b = mejor.bounding_box
         h, w = img.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        recorte = img[y1:y2, x1:x2]
-
-        salida = {"detecta": True, "plate_px": plate_px, "conf_det": float(mejor[4]),
+        x1, y1, x2, y2 = max(0, b.x1), max(0, b.y1), min(w, b.x2), min(h, b.y2)
+        salida = {"detecta": True, "plate_px": x2 - x1, "conf_det": float(mejor.confidence),
                   "texto": None, "conf_ocr": 0.0, "es_placa": False}
+        recorte = img[y1:y2, x1:x2]
         if recorte.size == 0:
             return salida
 
-        # Mismo preprocesado que el detector en produccion, para que el numero
-        # medido aqui sea el que se va a obtener de verdad.
-        alto = recorte.shape[0]
-        if alto < 64:
-            escala = min(4.0, 64 / max(alto, 1))
-            recorte = cv2.resize(recorte, None, fx=escala, fy=escala,
-                                 interpolation=cv2.INTER_CUBIC)
-        lab = cv2.cvtColor(recorte, cv2.COLOR_BGR2LAB)
-        lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
-        recorte = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
-        try:
-            lecturas = [(t, float(c)) for _, t, c in self.reader.readtext(recorte)]
-        except Exception:  # noqa: BLE001
-            lecturas = []
-
-        # Quedarse con el texto de mayor confianza NO funciona aqui: una placa
-        # mexicana lleva impreso el estado ("EDOMEX") y a veces un lema
-        # ("COMPROMISO"), y esos se leen MEJOR que el numero porque usan letras
-        # mas grandes y limpias. Hay que preferir lo que tenga forma de placa.
-        # Es la misma logica que shared.plates.elegir_mejor_lectura usa en
-        # produccion; sin ella, esta calibracion mediria la legibilidad del
-        # nombre del estado en vez de la de la matricula.
-        validas = [(t, c) for t, c in lecturas if es_placa_valida(t)[0]]
-        if validas:
-            salida["texto"], salida["conf_ocr"] = max(validas, key=lambda x: x[1])
-            salida["es_placa"] = True
-        elif lecturas:
-            # Sin candidata valida se guarda la mejor cruda, solo para ver en la
-            # tabla como se degrada. No cuenta como lectura correcta.
-            salida["texto"], salida["conf_ocr"] = max(lecturas, key=lambda x: x[1])
-            salida["es_placa"] = False
+        color = self.ocr.config.image_color_mode
+        if color == "grayscale":
+            recorte = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+        elif color == "rgb":
+            recorte = cv2.cvtColor(recorte, cv2.COLOR_BGR2RGB)
+        pred = self.ocr.run_one(recorte, return_confidence=True)
+        texto = (pred.plate or "").replace("_", "")
+        conf = float(np.mean(pred.char_probs[:max(1, len(texto))])) if pred.char_probs is not None else 0.0
+        salida["texto"], salida["conf_ocr"] = texto, conf
+        salida["es_placa"] = es_placa_valida(texto)[0]
         return salida
 
 
@@ -237,7 +207,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--carpeta", default="imagenes-prueba",
-                   help="Carpeta con fotos de placas (default: imagenes-prueba)")
+                   help="Carpeta con fotos propias de placas, de frente y de cerca "
+                        "(default: imagenes-prueba, no se sube al repositorio)")
     p.add_argument("--esperado", help="Texto real de la placa, si todas las fotos son la misma")
     args = p.parse_args()
 

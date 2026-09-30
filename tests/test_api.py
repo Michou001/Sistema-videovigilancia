@@ -197,6 +197,49 @@ def test_latido_marca_la_camara_en_linea():
     assert not cam["online"], "worker vivo pero sin imagen de la camara = caida"
 
 
+def test_nota_de_atencion_y_color_en_alerta():
+    c, h = _cliente()
+    c.post("/api/blacklist/plates", headers=h, json={"plate": "NTA-404", "reason": "robo"})
+    _ingerir(c, _evento(valor="NTA-404", meta={"color_vehiculo": "rojo"}))
+    alerta = next(a for a in c.get("/api/alerts", headers=h).json() if "NTA-404" in a["title"])
+    assert "Vehículo rojo" in alerta["detail"]
+    r = c.post(f"/api/alerts/{alerta['id']}/resolver", headers=h,
+               json={"accion": "acknowledge", "nota": "Se avisó a patrulla"})
+    assert r.status_code == 200, r.text
+    assert r.json()["notes"] == "Se avisó a patrulla" and r.json()["status"] == "acknowledged"
+
+
+def test_reporte_csv():
+    c, h = _cliente()
+    _ingerir(c, _evento(valor="CSV-777", meta={"color_vehiculo": "gris"}))
+    r = c.get("/api/events/export.csv", params={"q": "csv777"}, headers=h)
+    assert r.status_code == 200 and "text/csv" in r.headers["content-type"]
+    lineas = r.text.lstrip("\ufeff").strip().splitlines()
+    assert lineas[0].startswith("fecha_hora_local,camara,tipo,valor,color_vehiculo")
+    assert len(lineas) == 2 and "CSV-777" in lineas[1] and "gris" in lineas[1]
+    assert c.get("/api/events/export.csv").status_code == 401
+
+
+def test_nombre_y_ubicacion_de_camara():
+    c, h = _cliente()
+    _ingerir(c, _evento(valor="UBI-100"))
+    r = c.put("/api/cameras/cam-prueba", headers=h,
+              json={"name": "Acceso norte", "location": "Av. Juárez esq. Hidalgo"})
+    assert r.status_code == 200, r.text
+    cam = next(x for x in c.get("/api/stats", headers=h).json()["camaras"]
+               if x["camera_id"] == "cam-prueba")
+    assert cam["name"] == "Acceso norte" and cam["location"] == "Av. Juárez esq. Hidalgo"
+
+
+def test_alerta_de_persona_caida():
+    c, h = _cliente()
+    m = _ingerir(c, _evento("anomaly", "persona_caida"))["matches"][0]
+    assert m["severity"] == "warning"
+    alerta = next(a for a in c.get("/api/alerts", headers=h).json() if a["type"] == "anomaly"
+                  and a["title"] == "Posible persona caída")
+    assert "tendida" in alerta["detail"]
+
+
 # --------------------------------------------------------------------------
 
 def main() -> int:

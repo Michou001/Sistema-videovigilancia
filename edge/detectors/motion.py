@@ -46,6 +46,15 @@ log = logging.getLogger(__name__)
 CLASE_PERSONA = 0  # id de 'person' en COCO
 
 VALOR_EVENTO = "movimiento_subito"
+VALOR_CAIDA = "persona_caida"
+
+# Proporcion alto/ancho de la caja de una persona. De pie ronda 2.5-3; tendida
+# en el piso baja de 1. Se exige pasar de claramente de pie a claramente
+# tendida, para que agacharse o sentarse (que quedan en medio) no cuenten.
+DE_PIE = 1.4
+TENDIDA = 0.9
+FRAMES_TENDIDA = 3          # sostenido: un frame raro de la caja no es una caida
+SEGUNDOS_TRANSICION = 2.0   # caerse es subito; acostarse despacio no alerta
 
 # Velocidad (alturas de cuerpo por segundo) entre dos muestras consecutivas
 # por encima de la cual el salto no es de la persona sino del tracker: cambio
@@ -96,6 +105,10 @@ class MotionAnomalyDetector(Detector):
         self._ultima_deteccion: dict[int, dict] = {}
         self._hd_futures: dict[int, Future] = {}
         self._alertado_en: dict[int, float] = {}
+        # Proporcion alto/ancho reciente de cada persona, para detectar caidas.
+        self._posturas: dict[int, deque[tuple[float, float]]] = {}
+        self._caida_en: dict[int, float] = {}
+        self._caidas_emitidas = 0
 
         self._frame_idx = 0
         self._eventos_emitidos = 0
@@ -147,6 +160,11 @@ class MotionAnomalyDetector(Detector):
                 historial.append((frame.ts, cx, cy, alto))
                 velocidad = self._velocidad(historial)
 
+                posturas = self._posturas.setdefault(
+                    tid, deque(maxlen=max(8, round(self.cfg.infer_fps * 4)))
+                )
+                posturas.append((frame.ts, alto / max(1.0, x2 - x1)))
+
                 self._ultima_deteccion[tid] = {
                     "bbox": (x1, y1, x2, y2),
                     "velocidad": velocidad,
@@ -174,8 +192,20 @@ class MotionAnomalyDetector(Detector):
                     self._ultima_deteccion.pop(tid, None)
                     self._hd_futures.pop(tid, None)
                     self._alertado_en.pop(tid, None)
+                    self._posturas.pop(tid, None)
+                    self._caida_en.pop(tid, None)
 
         eventos = []
+        for tid in vistos_ahora:
+            ultima = self._caida_en.get(tid)
+            if ultima is not None and frame.ts - ultima < self.cfg.motion_cooldown_s:
+                continue
+            if es_caida(list(self._posturas.get(tid, ()))):
+                evento = self._construir_evento(tid, frame, caida=True)
+                if evento is not None:
+                    eventos.append(evento)
+                    self._caida_en[tid] = frame.ts
+
         for tid in vistos_ahora:
             if self.confirmador.ya_alertado(tid):
                 # Pasado el enfriamiento y con la persona ya calmada, se
@@ -251,7 +281,8 @@ class MotionAnomalyDetector(Detector):
         self._hd_usados += 1
         return frame_hd.copy(), x1, y1, x2, y2
 
-    def _construir_evento(self, tid: int, frame: FrameInfo) -> Optional[DetectionEvent]:
+    def _construir_evento(self, tid: int, frame: FrameInfo,
+                          caida: bool = False) -> Optional[DetectionEvent]:
         datos = self._ultima_deteccion.get(tid)
         if datos is None:
             return None
@@ -260,38 +291,52 @@ class MotionAnomalyDetector(Detector):
         x1, y1, x2, y2 = (int(v) for v in datos["bbox"])
         velocidad = datos["velocidad"]
 
-        # No es una probabilidad de clasificacion (no hay clase que clasificar
-        # aqui): se usa como una lectura acotada de "cuanto se paso del
-        # umbral", para que el operador tenga una senal de magnitud.
-        confianza = min(1.0, velocidad / (self.cfg.motion_speed_threshold * 2))
+        if caida:
+            proporcion = (y2 - y1) / max(1, x2 - x1)
+            valor, confianza = VALOR_CAIDA, 0.8
+            observaciones = FRAMES_TENDIDA
+            meta = {"proporcion_alto_ancho": round(proporcion, 2),
+                    "velocidad_alturas_por_s": round(velocidad, 2)}
+            texto = "POSIBLE PERSONA CAIDA"
+        else:
+            # No es una probabilidad de clasificacion (no hay clase que
+            # clasificar aqui): se usa como una lectura acotada de "cuanto se
+            # paso del umbral", para que el operador tenga una senal de magnitud.
+            valor = VALOR_EVENTO
+            confianza = min(1.0, velocidad / (self.cfg.motion_speed_threshold * 2))
+            observaciones = aciertos
+            meta = {"velocidad_alturas_por_s": round(velocidad, 2),
+                    "umbral": self.cfg.motion_speed_threshold,
+                    "confirmacion": f"{aciertos}/{total} frames"}
+            texto = f"MOVIMIENTO SUBITO {velocidad:.1f} alt/s"
 
         evento = DetectionEvent(
             camera_id=self.cfg.camera_id,
             type=EventType.ANOMALY,
             track_id=tid,
-            value=VALOR_EVENTO,
+            value=valor,
             confidence=round(confianza, 4),
             bbox=BBox(x1=x1, y1=y1, x2=x2, y2=y2),
-            observations=aciertos,
+            observations=max(1, observaciones),
             ts=_a_utc(datos["ts"]),
-            meta={
-                "velocidad_alturas_por_s": round(velocidad, 2),
-                "umbral": self.cfg.motion_speed_threshold,
-                "confirmacion": f"{aciertos}/{total} frames",
-            },
+            meta=meta,
         )
 
         vista, ex1, ey1, ex2, ey2 = self._frame_evidencia(tid, frame, (x1, y1, x2, y2))
         cv2.rectangle(vista, (ex1, ey1), (ex2, ey2), (0, 140, 255), 3)
-        cv2.putText(vista, f"MOVIMIENTO SUBITO {velocidad:.1f} alt/s", (ex1, max(20, ey1 - 8)),
+        cv2.putText(vista, texto, (ex1, max(20, ey1 - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 140, 255), 2)
         ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
         cv2.imwrite(str(ruta), vista)
         evento.snapshot_path = ruta.relative_to(BASE_DIR).as_posix()
 
         self._eventos_emitidos += 1
-        log.warning("MOVIMIENTO SUBITO: %.1f alturas/s (umbral %.1f, %d/%d frames, track=%d)",
-                    velocidad, self.cfg.motion_speed_threshold, aciertos, total, tid)
+        if caida:
+            self._caidas_emitidas += 1
+            log.warning("POSIBLE PERSONA CAIDA (track=%d)", tid)
+        else:
+            log.warning("MOVIMIENTO SUBITO: %.1f alturas/s (umbral %.1f, %d/%d frames, track=%d)",
+                        velocidad, self.cfg.motion_speed_threshold, aciertos, total, tid)
         return evento
 
     def anotar(self, frame: np.ndarray) -> np.ndarray:
@@ -329,6 +374,7 @@ class MotionAnomalyDetector(Detector):
             "eventos_emitidos": self._eventos_emitidos,
             "descartados_sin_confirmar": self.confirmador.descartados_sin_confirmar,
             "saltos_de_tracker_descartados": self._saltos_descartados,
+            "caidas": self._caidas_emitidas,
             "ms_inferencia_promedio": round(self._ms_inferencia / n, 1),
         }
 
@@ -336,6 +382,29 @@ class MotionAnomalyDetector(Detector):
     def resumen(self) -> str:
         s = self.stats
         return f"{s['tracks_activos']} personas, {s['ms_inferencia_promedio']}ms"
+
+
+def es_caida(posturas: list[tuple[float, float]]) -> bool:
+    """Si la secuencia (ts, alto/ancho) de una persona muestra una caida.
+
+    Hace falta que los ultimos FRAMES_TENDIDA frames la muestren tendida y que
+    poco antes (SEGUNDOS_TRANSICION) haya estado claramente de pie. Asi no
+    alerta alguien que ya estaba acostado cuando empezo a verse, ni alguien que
+    se acuesta despacio en una banca.
+    """
+    if len(posturas) < FRAMES_TENDIDA + 1:
+        return False
+    recientes = posturas[-FRAMES_TENDIDA:]
+    if any(r > TENDIDA for _, r in recientes):
+        return False
+    primera_tendida = recientes[0][0]
+    for ts, r in reversed(posturas[:-FRAMES_TENDIDA]):
+        if r >= DE_PIE:
+            return primera_tendida - ts <= SEGUNDOS_TRANSICION
+        if r > TENDIDA:
+            continue   # en transicion: se sigue buscando cuando estaba de pie
+        return False   # ya estaba tendida antes: no es una caida nueva
+    return False
 
 
 def _a_utc(epoch: float):

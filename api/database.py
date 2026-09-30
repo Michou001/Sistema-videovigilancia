@@ -57,6 +57,13 @@ _INDICES_EXTRA = [
 ]
 
 
+# Columnas agregadas despues de la primera version: create_all() no las agrega
+# a una tabla existente, asi que se agregan aqui si faltan.
+_COLUMNAS_EXTRA = [
+    ("alerts", "notes", "TEXT"),
+]
+
+
 def init_db() -> None:
     """Crea las tablas si no existen. Importa los modelos primero para que
     SQLModel los registre en su metadata."""
@@ -66,6 +73,11 @@ def init_db() -> None:
 
     if _es_sqlite:
         with engine.connect() as con:
+            for tabla, columna, tipo in _COLUMNAS_EXTRA:
+                existentes = {fila[1] for fila in con.execute(text(f"PRAGMA table_info({tabla})"))}
+                if columna not in existentes:
+                    con.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}"))
+                    log.info("Columna %s.%s agregada", tabla, columna)
             for sentencia in _INDICES_EXTRA:
                 con.execute(text(sentencia))
             # Estadisticas para el planificador de consultas: con ellas elige
