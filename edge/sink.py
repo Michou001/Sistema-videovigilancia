@@ -92,6 +92,11 @@ class MultiSink(Sink):
     def __init__(self, *sinks: Sink) -> None:
         self.sinks = list(sinks)
 
+    @property
+    def http(self) -> Optional["HttpSink"]:
+        """El destino que habla con la API, si lo hay."""
+        return next((s for s in self.sinks if isinstance(s, HttpSink)), None)
+
     def enviar(self, evento: DetectionEvent) -> None:
         for s in self.sinks:
             try:
@@ -359,18 +364,46 @@ def _api_es_local(url: str) -> bool:
     return host in {"localhost", "127.0.0.1", "::1", ""}
 
 
+def adoptar_spool_legado(raiz: Path, destino: Path, camera_id: str) -> int:
+    """Mueve a la carpeta de esta camara los lotes pendientes que versiones
+    anteriores dejaban sueltos en data/spool/. Solo los de ESTA camara: con
+    varias camaras en un proceso, cada una reenvia lo suyo."""
+    movidos = 0
+    if raiz == destino or not raiz.is_dir():
+        return 0
+    for archivo in sorted(raiz.glob("*.json")):
+        try:
+            if json.loads(archivo.read_text(encoding="utf-8")).get("camera_id") != camera_id:
+                continue
+            destino.mkdir(parents=True, exist_ok=True)
+            archivo.replace(destino / archivo.name)
+            movidos += 1
+        except (OSError, ValueError):
+            continue
+    if movidos:
+        log.info("%d lotes pendientes de una version anterior pasan a %s", movidos, destino)
+    return movidos
+
+
 def crear_sink(cfg) -> Sink:
-    """Destino por defecto del worker."""
+    """Destino por defecto del worker.
+
+    Todo lo que se escribe a disco va por camara (spool y JSONL): con varias
+    camaras en un proceso, dos hilos no deben escribir el mismo archivo ni
+    reenviar cada uno los pendientes del otro.
+    """
     from edge.config import BASE_DIR
 
     sinks: list[Sink] = [
         ConsoleSink(),
-        JsonlSink(cfg.offline_dir.parent),
+        JsonlSink(cfg.offline_dir.parent, prefijo=f"eventos-{cfg.camera_id}"),
     ]
     if cfg.api_url and cfg.api_token:
         modo = str(cfg.send_snapshot_b64).lower()
         adjuntar = (not _api_es_local(cfg.api_url)) if modo == "auto" else modo == "true"
-        sinks.append(HttpSink(cfg.api_url, cfg.api_token, cfg.offline_dir,
+        spool = cfg.offline_dir / cfg.camera_id
+        adoptar_spool_legado(cfg.offline_dir, spool, cfg.camera_id)
+        sinks.append(HttpSink(cfg.api_url, cfg.api_token, spool,
                               camera_id=cfg.camera_id, adjuntar_fotos=adjuntar,
                               base_fotos=BASE_DIR))
         log.info("Enviando eventos a %s%s", cfg.api_url,

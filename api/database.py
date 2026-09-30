@@ -23,8 +23,17 @@ if _es_sqlite:
     _conectar_args["check_same_thread"] = False
     _conectar_args["timeout"] = 10
 
+_opciones_pool: dict = {}
+if not _es_sqlite:
+    # PostgreSQL (recomendado desde 2-3 camaras: SQLite serializa todas las
+    # escrituras). La ingesta, la vista en vivo y los dashboards piden
+    # conexiones a la vez; pool_recycle evita usar conexiones que un firewall
+    # o el propio servidor cerraron por inactividad.
+    _opciones_pool = {"pool_size": 10, "max_overflow": 20, "pool_recycle": 1800,
+                      "pool_pre_ping": True}
+
 engine = create_engine(_cfg.database_url, echo=False, connect_args=_conectar_args,
-                       pool_pre_ping=not _es_sqlite)
+                       **_opciones_pool)
 
 
 if _es_sqlite:
@@ -69,7 +78,11 @@ def _config_alembic(conexion):
 
     config = Config()
     config.set_main_option("script_location", str(_MIGRACIONES))
-    config.set_main_option("sqlalchemy.url", str(conexion.engine.url))
+    # Alembic guarda las opciones en un ConfigParser, que interpreta "%": una
+    # contrasena con "%" o una URL con caracteres codificados (host=%2Ftmp)
+    # rompia el arranque con "invalid interpolation syntax".
+    url = conexion.engine.url.render_as_string(hide_password=False)
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     config.attributes["connection"] = conexion
     return config
 

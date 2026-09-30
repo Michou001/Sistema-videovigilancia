@@ -23,7 +23,10 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 _TMP = Path(tempfile.mkdtemp())
-os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'placas.db').as_posix()}"
+from bd_prueba import borrar as _borrar_bd  # noqa: E402
+from bd_prueba import url_temporal  # noqa: E402
+
+os.environ["DATABASE_URL"] = url_temporal(_TMP, "placas")
 os.environ["API_TOKEN"] = "token-de-prueba-del-worker"
 
 import warnings  # noqa: E402
@@ -203,6 +206,25 @@ def test_retencion_conserva_las_corregidas():
     assert corregida["event_id"] in ids, "una lectura corregida vive RETENCION_CORREGIDOS_DIAS"
 
 
+def test_retencion_borra_alertas_viejas_con_su_evento():
+    """Alerta y evento se borran en el orden que exige la llave foranea
+    (PostgreSQL la revisa; SQLite no)."""
+    from api.models import Alert
+
+    c, h = _cliente()
+    c.post("/api/blacklist/plates", json={"plate": "PLD-123-A", "reason": "viejo"}, headers=h)
+    ev = _evento("PLD-123-A")
+    _ingerir(c, ev)
+    with Session(engine) as s:
+        alerta = s.exec(select(Alert).where(Alert.event_id == ev["event_id"])).one()
+        alerta.created_at = datetime.now(timezone.utc) - timedelta(days=400)
+        s.commit()
+        cuenta = purgar(s, Politica())
+        assert cuenta["alertas"] >= 1
+        assert s.exec(select(Alert).where(Alert.event_id == ev["event_id"])).first() is None
+        assert s.exec(select(Event).where(Event.event_id == ev["event_id"])).first() is None
+
+
 def test_meta_del_evento_llega_al_dashboard():
     c, h = _cliente()
     with c.websocket_connect("/ws/alerts") as ws:
@@ -235,6 +257,7 @@ def main() -> int:
         for f in _archivos:
             f.unlink(missing_ok=True)
         engine.dispose()
+        _borrar_bd(os.environ["DATABASE_URL"])
         shutil.rmtree(_TMP, ignore_errors=True)
     print(f"\n{len(pruebas) - fallos}/{len(pruebas)} pruebas pasan")
     return 1 if fallos else 0

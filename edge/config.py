@@ -7,6 +7,7 @@ Nada de credenciales en el codigo. Copia `.env.example` a `.env` y editalo;
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -96,6 +97,21 @@ class EdgeConfig:
         default_factory=lambda: Path(os.getenv("WEAPON_MODEL", "models/weapons.pt"))
     )
     face_model: str = field(default_factory=lambda: os.getenv("FACE_MODEL", "buffalo_l"))
+    motion_model: Path = field(
+        default_factory=lambda: Path(os.getenv("MOTION_MODEL", "models/yolo11s.pt"))
+    )
+    """Modelo de personas para movimiento anomalo: .pt, o .engine/.onnx
+    exportado con tools/optimizar_modelos.py (TensorRT es lo mas rapido)."""
+
+    # --- Aceleracion (ver edge/aceleracion.py) ------------------------------
+    yolo_half: str = field(default_factory=lambda: os.getenv("YOLO_HALF", "auto"))
+    """auto | true | false. Media precision (FP16) en YOLO cuando hay CUDA."""
+    ort_tensorrt: str = field(default_factory=lambda: os.getenv("ORT_TENSORRT", "false"))
+    """true: onnxruntime usa TensorRT (FP16) para placas y rostros. La primera
+    vez construye los motores (minutos); quedan en models/trt_cache."""
+    hw_decode: str = field(default_factory=lambda: os.getenv("HW_DECODE", "off"))
+    """off | auto | d3d11 | vaapi | qsv: decodificar el video en la GPU.
+    Con varias camaras, el CPU se va en decodificar H.264."""
 
     # --- Umbrales ----------------------------------------------------------
     plate_conf: float = field(default_factory=lambda: _env_float("PLATE_CONF", 0.45))
@@ -235,6 +251,8 @@ class EdgeConfig:
         # Rutas de modelo relativas se resuelven contra la raiz del proyecto
         if not self.weapon_model.is_absolute():
             self.weapon_model = BASE_DIR / self.weapon_model
+        if not self.motion_model.is_absolute():
+            self.motion_model = BASE_DIR / self.motion_model
         if self.send_snapshot_b64 in {"1", "yes", "si", "on"}:
             self.send_snapshot_b64 = "true"
         elif self.send_snapshot_b64 not in {"auto", "true"}:
@@ -302,22 +320,71 @@ def parse_env_line(line: str) -> "tuple[str, str] | None":
     return key.strip(), value
 
 
-def load_config(env_file: "str | os.PathLike | None" = None) -> EdgeConfig:
-    """Carga un archivo de entorno (sin dependencia dura de python-dotenv) y arma la config.
-
-    Por que un parametro y no solo `.env` fijo: dos camaras necesitan dos
-    procesos de worker, y cada uno necesita su PROPIO CAMERA_ID/SOURCE. Con un
-    unico `.env` fijo, el segundo worker pisaria la config del primero. La
-    resolucion es, en orden: el argumento explicito (--env del CLI) > la
-    variable EDGE_ENV_FILE (por si se prefiere fijarla en el .bat de arranque
-    en vez de pasarla por linea de comandos) > `.env` de siempre.
-    """
+def ruta_env(env_file: "str | os.PathLike | None" = None) -> Path:
+    """Archivo de entorno a usar: el argumento explicito (--env del CLI) > la
+    variable EDGE_ENV_FILE (por si se prefiere fijarla en el .bat de arranque)
+    > `.env` de siempre."""
     ruta = Path(env_file) if env_file else Path(os.getenv("EDGE_ENV_FILE", "") or (BASE_DIR / ".env"))
-    if not ruta.is_absolute():
-        ruta = BASE_DIR / ruta
+    return ruta if ruta.is_absolute() else BASE_DIR / ruta
+
+
+def leer_env(ruta: Path) -> dict[str, str]:
+    valores: dict[str, str] = {}
     if ruta.exists():
         for line in ruta.read_text(encoding="utf-8-sig").splitlines():
             par = parse_env_line(line)
             if par is not None:
-                os.environ.setdefault(*par)
-    return EdgeConfig()
+                valores[par[0]] = par[1]
+    return valores
+
+
+@contextmanager
+def _entorno_superpuesto(valores: dict[str, str]):
+    """Pone `valores` en el entorno solo mientras se arma una config.
+
+    Mismo criterio que setdefault: una variable que ya existe en el entorno
+    real gana sobre el archivo. Al salir, el entorno queda como estaba.
+    """
+    agregadas = [k for k in valores if k not in os.environ]
+    for k in agregadas:
+        os.environ[k] = valores[k]
+    try:
+        yield
+    finally:
+        for k in agregadas:
+            os.environ.pop(k, None)
+
+
+def load_config(env_file: "str | os.PathLike | None" = None, *,
+                aplicar_entorno: bool = True) -> EdgeConfig:
+    """Carga un archivo de entorno (sin dependencia dura de python-dotenv) y arma la config.
+
+    Por que un parametro y no solo `.env` fijo: cada camara necesita su PROPIO
+    CAMERA_ID/SOURCE, y con un unico `.env` fijo la segunda pisaria la config
+    de la primera.
+
+    `aplicar_entorno=True` (lo de siempre) deja los valores en os.environ: la
+    API lee de ahi su configuracion. Con varias camaras en un proceso se usa
+    False: cada archivo se aplica solo mientras se arma SU config, y el de una
+    camara no contamina a la siguiente.
+    """
+    valores = leer_env(ruta_env(env_file))
+    if aplicar_entorno:
+        for clave, valor in valores.items():
+            os.environ.setdefault(clave, valor)
+        return EdgeConfig()
+    with _entorno_superpuesto(valores):
+        return EdgeConfig()
+
+
+def cargar_configuraciones(archivos: list[str]) -> list[EdgeConfig]:
+    """Una config por archivo de entorno, para correr varias camaras en un
+    solo proceso. Los identificadores de camara no pueden repetirse."""
+    if len(archivos) <= 1:
+        return [load_config(archivos[0] if archivos else None)]
+    configs = [load_config(a, aplicar_entorno=False) for a in archivos]
+    ids = [c.camera_id for c in configs]
+    repetidos = {i for i in ids if ids.count(i) > 1}
+    if repetidos:
+        raise ValueError(f"CAMERA_ID repetido en varios archivos: {', '.join(sorted(repetidos))}")
+    return configs

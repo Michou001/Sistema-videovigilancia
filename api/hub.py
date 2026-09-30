@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import WebSocket
 
@@ -32,11 +32,37 @@ class Hub:
     worker de borde. Por eso cada envio va con su propio try y los clientes
     muertos se retiran en silencio. Los envios van en paralelo: el mensaje
     tarda lo que el cliente mas lento, no la suma de todos.
+
+    Con REDIS_URL (varios procesos de API, ver api/redis_compartido.py), el
+    mensaje se publica en Redis y CADA proceso lo entrega a sus dashboards:
+    la alerta llega aunque el dashboard este conectado a otro proceso.
     """
 
     def __init__(self) -> None:
         self._clientes: set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        self._canal = None
+        self._total_global = 0
+
+    # -- Redis (opcional) ------------------------------------------------
+
+    def usar_redis(self, canal) -> None:
+        self._canal = canal
+
+    @property
+    def distribuido(self) -> bool:
+        return self._canal is not None
+
+    async def refrescar_total(self) -> None:
+        if self._canal is None:
+            return
+        try:
+            await self._canal.anunciar_dashboards(len(self._clientes))
+            self._total_global = await self._canal.total_dashboards()
+        except Exception as e:  # noqa: BLE001
+            log.debug("No se pudo refrescar el conteo global de dashboards: %s", e)
+
+    # -- Conexiones -------------------------------------------------------
 
     async def conectar(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -59,6 +85,19 @@ class Hub:
     async def difundir(self, tipo: str, datos: dict) -> None:
         mensaje = json.dumps({"type": tipo, "data": datos}, default=_serializar,
                              ensure_ascii=False)
+        if self._canal is not None:
+            from api.redis_compartido import CANAL_WS
+
+            try:
+                await self._canal.publicar(CANAL_WS, mensaje)
+                return
+            except Exception as e:  # noqa: BLE001
+                # Sin Redis, al menos los dashboards de este proceso se enteran.
+                log.error("No se pudo publicar en Redis (%s); se entrega solo localmente", e)
+        await self.entregar(mensaje)
+
+    async def entregar(self, mensaje: str) -> None:
+        """Envia un mensaje ya serializado a los dashboards de ESTE proceso."""
         async with self._lock:
             clientes = list(self._clientes)
         if not clientes:
@@ -73,7 +112,16 @@ class Hub:
 
     @property
     def conectados(self) -> int:
+        """Dashboards conectados a este proceso."""
         return len(self._clientes)
+
+    @property
+    def conectados_total(self) -> int:
+        """Dashboards conectados a todos los procesos (con Redis) o a este."""
+        if self._canal is None:
+            return len(self._clientes)
+        return max(self._total_global, len(self._clientes))
 
 
 hub = Hub()
+_canal_global: Optional[Any] = None

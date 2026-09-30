@@ -83,11 +83,19 @@ class ListaNegraEnMemoria:
         self._rostros: Optional[tuple[np.ndarray, list[_Registro]]] = None
         self._placas_en = 0.0
         self._rostros_en = 0.0
+        self.al_invalidar = None
+        """Con varios procesos de API (Redis), avisa a los demas que tambien
+        invaliden: dar de alta una placa debe valer en todos al instante."""
 
-    def invalidar(self) -> None:
+    def invalidar(self, difundir: bool = True) -> None:
         with self._lock:
             self._placas = None
             self._rostros = None
+        if difundir and self.al_invalidar is not None:
+            try:
+                self.al_invalidar()
+            except Exception as e:  # noqa: BLE001
+                log.error("No se pudo avisar la invalidacion a los demas procesos: %s", e)
 
     def _caducado(self, cargado_en: float) -> bool:
         return time.monotonic() - cargado_en > self.ttl

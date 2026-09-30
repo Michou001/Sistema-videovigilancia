@@ -146,6 +146,14 @@ class BufferPreview:
         canal = self._canales.get(camera_id)
         return canal.espectadores if canal else 0
 
+    # Misma interfaz asincrona que api.redis_compartido.PreviewRedis, para que
+    # el router no tenga que saber cual de los dos esta en uso.
+    async def apublicar(self, camera_id: str, jpeg: bytes) -> int:
+        return self.publicar(camera_id, jpeg)
+
+    async def acamaras(self) -> list[dict]:
+        return self.camaras()
+
     def camaras(self) -> list[dict]:
         """Camaras que estan mandando video ahora mismo."""
         self._olvidar_muertas()
@@ -207,3 +215,14 @@ class BufferPreview:
 
 
 buffer_preview = BufferPreview()
+_activo = buffer_preview
+
+
+def obtener_preview():
+    """El buffer en uso: en memoria (un proceso) o en Redis (varios)."""
+    return _activo
+
+
+def usar_preview(implementacion) -> None:
+    global _activo
+    _activo = implementacion

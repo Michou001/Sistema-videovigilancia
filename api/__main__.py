@@ -15,9 +15,14 @@ Por que HTTPS aunque sea una red interna: por esa conexion pasan contrasenas,
 fotos de personas y video en vivo. En una LAN compartida (una escuela, un
 edificio de oficinas) cualquiera en la misma red puede capturar HTTP en claro.
 
-Es UN solo proceso a proposito (sin --workers): el buffer del video en vivo,
-el canal de alertas y el limite de intentos de login viven en memoria. Para
-varios procesos hace falta REDIS_URL (ver api/hub.py y api/preview.py).
+Por defecto es UN solo proceso: el buffer del video en vivo, el canal de
+alertas y el limite de intentos de login viven en memoria. Para varios
+procesos (muchos dashboards o muchas camaras):
+
+    REDIS_URL=redis://localhost:6379/0
+    API_WORKERS=4
+
+(ver api/redis_compartido.py).
 """
 
 from __future__ import annotations
@@ -58,7 +63,17 @@ def main() -> int:
                 return 1
         opciones.update(ssl_certfile=cert, ssl_keyfile=llave)
 
-    esquema = "https" if opciones else "http"
+    procesos = int(os.getenv("API_WORKERS", "1") or 1)
+    if procesos > 1:
+        if not os.getenv("REDIS_URL", "").strip():
+            # Sin Redis cada proceso tendria su propio canal de alertas, su
+            # propio video en vivo y su propio limite de intentos de login.
+            print("[x] API_WORKERS > 1 requiere REDIS_URL (ver api/redis_compartido.py).",
+                  file=sys.stderr)
+            return 1
+        opciones["workers"] = procesos
+
+    esquema = "https" if "ssl_certfile" in opciones else "http"
     print(f"  Dashboard en {esquema}://{'localhost' if host in ('0.0.0.0', '::') else host}:{puerto}")
     uvicorn.run(
         "api.main:app",

@@ -36,6 +36,7 @@ from api.routers import (  # noqa: E402
     preview,
     usuarios,
 )
+from api.redis_compartido import url_redis  # noqa: E402
 from api.seguridad_http import CabecerasSeguridad  # noqa: E402
 
 logging.basicConfig(
@@ -94,6 +95,10 @@ async def _purga_periodica() -> None:
             # A dormir primero: al arrancar la API conviene atender peticiones,
             # no bloquearse purgando.
             await asyncio.sleep(24 * 3600)
+            # Con varios procesos (Redis) purga UNO solo por dia.
+            if _canal is not None and not await _canal.tomar_turno("purga", 23 * 3600):
+                continue
+
             # La purga toca el disco y la BD; en un hilo aparte para no frenar
             # el bucle de eventos mientras corre.
             def _tarea():
@@ -117,11 +122,53 @@ async def lifespan(app: FastAPI):
              cfg.ingest_token[:6], cfg.ingest_token[-4:])
     log.info("Dashboard en http://localhost:8000")
 
-    tarea = asyncio.create_task(_purga_periodica())
+    tareas = [asyncio.create_task(_purga_periodica())]
+    if url_redis():
+        tareas.append(asyncio.create_task(_conectar_redis(url_redis())))
     try:
         yield
     finally:
-        tarea.cancel()
+        for t in tareas:
+            t.cancel()
+        if _canal is not None:
+            await _canal.cerrar()
+
+
+_canal = None
+
+
+async def _conectar_redis(url: str) -> None:
+    """Varios procesos de API: alertas, video en vivo, login y cache de lista
+    negra compartidos por Redis (ver api/redis_compartido.py)."""
+    import asyncio
+
+    from api.matching import lista_negra
+    from api.preview import usar_preview
+    from api.redis_compartido import (
+        CANAL_INVALIDAR,
+        CANAL_WS,
+        PROCESO,
+        CanalRedis,
+        PreviewRedis,
+    )
+
+    global _canal
+    _canal = CanalRedis(url)
+    hub.usar_redis(_canal)
+    usar_preview(PreviewRedis(_canal.r))
+    lista_negra.al_invalidar = lambda: _canal.publicar_sync(CANAL_INVALIDAR, "lista_negra")
+
+    async def _al_mensaje(canal: str, datos: str) -> None:
+        if canal == CANAL_WS:
+            await hub.entregar(datos)
+        elif canal == CANAL_INVALIDAR and datos == "lista_negra":
+            lista_negra.invalidar(difundir=False)
+
+    _canal.escuchar(_al_mensaje)
+    log.info("Modo multi-proceso con Redis activo (proceso %s)", PROCESO)
+    while True:
+        await hub.refrescar_total()
+        await asyncio.sleep(5)
 
 
 app = FastAPI(
@@ -175,7 +222,8 @@ async def ws_alertas(websocket: WebSocket) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "dashboards": hub.conectados}
+    return {"status": "ok", "dashboards": hub.conectados_total,
+            "multiproceso": hub.distribuido}
 
 
 # Las capturas de evidencia ya NO se montan como estaticos publicos: las sirve

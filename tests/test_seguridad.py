@@ -21,7 +21,10 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 _TMP = Path(tempfile.mkdtemp())
-os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'seguridad.db').as_posix()}"
+from bd_prueba import borrar as _borrar_bd  # noqa: E402
+from bd_prueba import url_temporal  # noqa: E402
+
+os.environ["DATABASE_URL"] = url_temporal(_TMP, "seguridad")
 os.environ["API_TOKEN"] = "token-de-prueba-del-worker"
 
 import warnings  # noqa: E402
@@ -418,6 +421,7 @@ def main() -> int:
         for f in _archivos:
             f.unlink(missing_ok=True)
         engine.dispose()
+        _borrar_bd(os.environ["DATABASE_URL"])
         shutil.rmtree(_TMP, ignore_errors=True)
 
     print(f"\n{len(pruebas) - fallos}/{len(pruebas)} pruebas pasan")

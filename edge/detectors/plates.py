@@ -120,19 +120,25 @@ class PlateDetector(Detector):
         from fast_plate_ocr import LicensePlateRecognizer
         from open_image_models import LicensePlateDetector
 
-        proveedores = (["CUDAExecutionProvider", "CPUExecutionProvider"]
-                       if self.device == "cuda" else ["CPUExecutionProvider"])
+        from edge.aceleracion import nombre_proveedor, proveedores_onnx
+        from edge.modelos import compartido
+
+        proveedores = proveedores_onnx(self.device, cfg.ort_tensorrt)
+        clave_prov = tuple(nombre_proveedor(p) for p in proveedores)
 
         t0 = time.perf_counter()
-        self.detector = LicensePlateDetector(
-            detection_model=cfg.plate_detector_model,
-            conf_thresh=cfg.plate_conf,
-            providers=proveedores,
-        )
-        self.ocr = LicensePlateRecognizer(cfg.plate_ocr_model, providers=proveedores)
+        # Compartidos entre camaras del mismo proceso (ver edge/modelos.py):
+        # las sesiones de onnxruntime admiten llamadas concurrentes.
+        self.detector = compartido(
+            ("placas-detector", cfg.plate_detector_model, cfg.plate_conf, clave_prov),
+            lambda: LicensePlateDetector(detection_model=cfg.plate_detector_model,
+                                         conf_thresh=cfg.plate_conf, providers=proveedores))
+        self.ocr = compartido(
+            ("placas-ocr", cfg.plate_ocr_model, clave_prov),
+            lambda: LicensePlateRecognizer(cfg.plate_ocr_model, providers=proveedores))
         self._ocr_color = self.ocr.config.image_color_mode
         log.info("Placas listas en %.1fs (%s + %s, %s)", time.perf_counter() - t0,
-                 cfg.plate_detector_model, cfg.plate_ocr_model, proveedores[0])
+                 cfg.plate_detector_model, cfg.plate_ocr_model, clave_prov[0])
 
         self.tracker = IoUTracker(iou_min=0.25, max_age=16, min_hits=3)
         self.snapshot_hd = (SnapshotHD(cfg.source, canal=cfg.snapshot_hd_channel)
