@@ -22,6 +22,7 @@ TITULOS = {
 TITULOS_POR_VALOR = {
     "persona_caida": "Posible persona caída",
     "manos_arriba": "Posible asalto: persona con las manos arriba",
+    "posible_agresion": "Posible agresión entre personas",
 }
 
 

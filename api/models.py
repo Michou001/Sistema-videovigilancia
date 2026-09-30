@@ -92,6 +92,47 @@ class Camera(EnUtc, table=True):
 
 
 # --------------------------------------------------------------------------
+# Zonas y reglas
+# --------------------------------------------------------------------------
+
+class Zone(EnUtc, table=True):
+    """Una regla sobre una zona de la imagen de una camara (ver shared/zonas.py).
+
+    El borde recibe las zonas de su camara (GET /api/zonas/borde) y reporta lo
+    que pasa en ellas; la API decide, con el horario de la regla, si es alerta.
+    """
+
+    __tablename__ = "zones"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    camera_id: str = Field(index=True, foreign_key="cameras.camera_id")
+    nombre: str = Field(max_length=80)
+    tipo: str = Field(description="intrusion | linea | merodeo | conteo")
+    puntos_json: str = Field(description="[[x, y], ...] normalizados 0..1")
+    clases: str = Field(default="persona", description="persona,vehiculo")
+    direccion: str = Field(default="ambas", description="linea/conteo: ambas | entrada | salida")
+    segundos: Optional[int] = Field(default=None, description="merodeo: permanencia minima")
+    horario_json: Optional[str] = Field(default=None, description="franjas; None = siempre")
+    severidad: str = Field(default="warning", description="warning | critical")
+    activa: bool = Field(default=True)
+    creada_por: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+    @property
+    def puntos(self) -> list[list[float]]:
+        return json.loads(self.puntos_json)
+
+    @property
+    def horario(self) -> list[dict]:
+        return json.loads(self.horario_json) if self.horario_json else []
+
+    @property
+    def lista_clases(self) -> list[str]:
+        return [c for c in (self.clases or "").split(",") if c]
+
+
+# --------------------------------------------------------------------------
 # Eventos (lo que el borde vio)
 # --------------------------------------------------------------------------
 
@@ -121,7 +162,7 @@ class Event(EnUtc, table=True):
     ts: datetime = Field(index=True)
     received_at: datetime = Field(default_factory=_utcnow)
 
-    type: str = Field(index=True, description="plate | face | weapon | anomaly")
+    type: str = Field(index=True, description="plate | face | weapon | anomaly | zone | camera")
     track_id: Optional[int] = None
     value: str = Field(index=True)
     confidence: float

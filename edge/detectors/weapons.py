@@ -39,6 +39,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from edge.aceleracion import precision
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector
 from edge.detectors.confirmacion import ConfirmacionTemporal
@@ -132,8 +133,8 @@ class WeaponDetector(Detector):
             imgsz=self.cfg.weapon_imgsz,
             classes=sorted(self.clases_arma) or None,
             device=self.device,
-            half=self.half,
             tracker="bytetrack.yaml",
+            **precision(self.half),
         )
         self._ms_inferencia += (time.perf_counter() - t0) * 1000
 

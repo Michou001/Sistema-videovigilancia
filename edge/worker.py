@@ -194,6 +194,17 @@ def construir_detectores(cfg: EdgeConfig) -> list:
         from edge.detectors.weapons import WeaponDetector
 
         detectores.append(WeaponDetector(cfg))
+    if cfg.enable_pose:
+        # Antes que movimiento: si la pose no carga (sin internet para bajar
+        # el modelo, p.ej.), movimiento vuelve a estimar caidas por la caja.
+        try:
+            from edge.detectors.pose import PoseDetector
+
+            detectores.append(PoseDetector(cfg))
+        except Exception as e:  # noqa: BLE001
+            log.error("[%s] No se pudo cargar el detector de pose (%s): las caidas se estiman "
+                      "por la forma de la caja", cfg.camera_id, e)
+            cfg.enable_pose = False
     if cfg.enable_motion:
         from edge.detectors.motion import MotionAnomalyDetector
 
@@ -280,9 +291,14 @@ class Camara:
             for evento in eventos:
                 self.emitir(evento)
 
+        # Lo que siguen los detectores (personas, vehiculos), para las piezas
+        # que razonan sobre objetos sin correr su propio modelo (zonas).
+        pistas = [p for det in self.detectores for p in det.pistas()]
         for c in self.complementos:
             try:
                 c.al_frame(frame)
+                if hasattr(c, "al_pistas"):
+                    c.al_pistas(frame, pistas)
                 for evento in c.eventos():
                     self.emitir(evento)
             except Exception as e:  # noqa: BLE001
@@ -295,6 +311,12 @@ class Camara:
                 vista = det.anotar(vista)
             except Exception as e:  # noqa: BLE001
                 log.debug("No se pudo anotar %s: %s", det.name, e)
+        for c in self.complementos:
+            if hasattr(c, "anotar"):
+                try:
+                    vista = c.anotar(vista)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("No se pudo anotar %s: %s", type(c).__name__, e)
         return vista
 
     def correr(self, segundos: Optional[float] = None, ventana: bool = False) -> int:
@@ -391,6 +413,14 @@ def _complementos(camara: Camara) -> None:
         grabador = crear_grabador(camara.cfg, camara.sink)
         if grabador is not None:
             camara.complementos.append(grabador)
+    except ImportError:
+        pass
+    try:
+        from edge.zonas import crear_motor_zonas
+
+        motor = crear_motor_zonas(camara.cfg)
+        if motor is not None:
+            camara.complementos.append(motor)
     except ImportError:
         pass
     try:

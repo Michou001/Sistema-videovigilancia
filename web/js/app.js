@@ -29,6 +29,7 @@ import './camaras.js';
 import './admin.js';
 import './evidencia.js';
 import './placas.js';
+import './zonas.js';
 
 iconos();
 

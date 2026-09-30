@@ -34,8 +34,9 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from edge.aceleracion import precision
 from edge.config import BASE_DIR, EdgeConfig
-from edge.detectors.base import Detector
+from edge.detectors.base import Detector, Pista
 from edge.detectors.confirmacion import ConfirmacionTemporal
 from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
@@ -44,6 +45,10 @@ from shared.events import BBox, DetectionEvent, EventType
 log = logging.getLogger(__name__)
 
 CLASE_PERSONA = 0  # id de 'person' en COCO
+# Vehiculos de COCO, para las reglas de zona (conteo de autos, intrusion de
+# un vehiculo en el acceso peatonal). Salen del MISMO paso del modelo: no
+# cuesta otra inferencia.
+CLASES_VEHICULO = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 
 VALOR_EVENTO = "movimiento_subito"
 VALOR_CAIDA = "persona_caida"
@@ -87,6 +92,12 @@ class MotionAnomalyDetector(Detector):
         log.info("Modelo de movimiento %s listo en %.1fs (device=%s, fp16=%s)",
                  ruta.name, time.perf_counter() - t0, self.device, self.half)
 
+        self.clases = [CLASE_PERSONA] + (sorted(CLASES_VEHICULO) if getattr(cfg, "enable_zonas", False) else [])
+        # Con el detector de pose activo, la caida se juzga por el angulo del
+        # torso (mucho mas fiable que la forma de la caja): aqui ya no.
+        self.caida_por_caja = not getattr(cfg, "enable_pose", False)
+        self._pistas: list[Pista] = []
+
         self.confirmador = ConfirmacionTemporal(
             cfg.motion_confirm_hits, cfg.motion_confirm_window
         )
@@ -129,23 +140,35 @@ class MotionAnomalyDetector(Detector):
             verbose=False,
             conf=self.cfg.motion_conf,
             imgsz=self.cfg.imgsz,
-            classes=[CLASE_PERSONA],
+            classes=self.clases,
             device=self.device,
-            half=self.half,
             tracker="bytetrack.yaml",
+            **precision(self.half),
         )
         self._ms_inferencia += (time.perf_counter() - t0) * 1000
 
         vistos_ahora: set[int] = set()
+        self._pistas = []
         r = resultados[0]
         if r.boxes is not None and r.boxes.id is not None:
-            for caja, tid in zip(
+            n = len(r.boxes.id)
+            clases = (r.boxes.cls.cpu().numpy().astype(int) if getattr(r.boxes, "cls", None) is not None
+                      else np.zeros(n, dtype=int))
+            confianzas = (r.boxes.conf.cpu().numpy() if getattr(r.boxes, "conf", None) is not None
+                          else np.ones(n))
+            for caja, tid, clase, conf in zip(
                 r.boxes.xyxy.cpu().numpy(),
                 r.boxes.id.cpu().numpy().astype(int),
+                clases, confianzas,
             ):
                 tid = int(tid)
-                vistos_ahora.add(tid)
                 x1, y1, x2, y2 = (float(v) for v in caja)
+                if int(clase) != CLASE_PERSONA:
+                    self._pistas.append(Pista(tid, "vehiculo", (x1, y1, x2, y2), float(conf),
+                                              CLASES_VEHICULO.get(int(clase), "")))
+                    continue
+                self._pistas.append(Pista(tid, "persona", (x1, y1, x2, y2), float(conf), "person"))
+                vistos_ahora.add(tid)
                 cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
                 alto = max(1.0, y2 - y1)
 
@@ -196,7 +219,7 @@ class MotionAnomalyDetector(Detector):
                     self._caida_en.pop(tid, None)
 
         eventos = []
-        for tid in vistos_ahora:
+        for tid in (vistos_ahora if self.caida_por_caja else ()):
             ultima = self._caida_en.get(tid)
             if ultima is not None and frame.ts - ultima < self.cfg.motion_cooldown_s:
                 continue
@@ -223,6 +246,9 @@ class MotionAnomalyDetector(Detector):
                     self.confirmador.registrar_alerta(tid)
                     self._alertado_en[tid] = frame.ts
         return eventos
+
+    def pistas(self) -> list[Pista]:
+        return list(self._pistas)
 
     @staticmethod
     def _salto_del_tracker(previa: tuple, actual: tuple) -> bool:

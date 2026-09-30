@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import cv2
 import numpy as np
@@ -63,8 +63,10 @@ class SnapshotHD:
             partes = urlparse(source)
             if partes.hostname and partes.username:
                 self._url = f"http://{partes.hostname}/ISAPI/Streaming/channels/{canal}/picture"
-                self._usuario = partes.username
-                self._clave = partes.password or ""
+                # En la URL van codificados (una "@" en la contrasena viaja
+                # como %40); la camara espera el texto real.
+                self._usuario = unquote(partes.username)
+                self._clave = unquote(partes.password or "")
 
         # Un solo hilo: no hace falta paralelismo para esto, y con un pool mas
         # grande dos peticiones simultaneas (dos tracks nuevos en el mismo

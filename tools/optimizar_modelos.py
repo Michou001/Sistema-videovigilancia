@@ -5,8 +5,9 @@
     python tools/optimizar_modelos.py --onnx-trt   # ademas, motores TensorRT de placas y rostros
 
 Que hace:
-  1. Mide el YOLO de movimiento tal cual (FP32) y en media precision (FP16).
-  2. Lo exporta a un motor de TensorRT (.engine, FP16) y lo mide.
+  1. Mide los YOLO de movimiento y de pose tal cual (FP32) y en media
+     precision (FP16).
+  2. Los exporta a motores de TensorRT (.engine, FP16) y los mide.
   3. Con --onnx-trt, construye los motores de TensorRT para los modelos ONNX
      de placas y rostros (quedan en models/trt_cache) y los mide.
   4. Imprime las lineas del .env para usar lo mas rapido.
@@ -47,11 +48,11 @@ def _frame(ancho: int = 1280, alto: int = 720) -> np.ndarray:
 
 
 def medir_yolo(ruta: Path, imgsz: int, half: bool) -> float:
-    from edge.aceleracion import cargar_yolo
+    from edge.aceleracion import cargar_yolo, precision
 
     modelo = cargar_yolo(ruta, "cuda")
     frame = _frame()
-    return _medir(lambda: modelo.predict(frame, imgsz=imgsz, half=half, verbose=False, device=0))
+    return _medir(lambda: modelo.predict(frame, imgsz=imgsz, verbose=False, device=0, **precision(half)))
 
 
 def exportar_engine(ruta: Path, imgsz: int) -> Path:
@@ -87,26 +88,31 @@ def main() -> int:
     print(f"  GPU: {torch.cuda.get_device_name(0)}")
 
     lineas_env: list[str] = []
-    modelo = cfg.motion_model
-    if modelo.suffix != ".pt":
-        print(f"  MOTION_MODEL ya es {modelo.name}; se mide tal cual.")
-        print(f"    {modelo.name}: {medir_yolo(modelo, cfg.imgsz, True):.1f} ms/frame")
-    else:
+    modelos = [("MOTION_MODEL", cfg.motion_model)]
+    if cfg.enable_pose:
+        modelos.append(("POSE_MODEL", cfg.pose_model))
+    for variable, modelo in modelos:
+        if modelo.suffix != ".pt":
+            print(f"  {variable} ya es {modelo.name}; se mide tal cual.")
+            print(f"    {modelo.name}: {medir_yolo(modelo, cfg.imgsz, True):.1f} ms/frame")
+            continue
         fp32 = medir_yolo(modelo, cfg.imgsz, False)
         fp16 = medir_yolo(modelo, cfg.imgsz, True)
         print(f"  {modelo.name}  FP32: {fp32:.1f} ms/frame   FP16: {fp16:.1f} ms/frame")
-        lineas_env.append("YOLO_HALF=true")
-        if not args.solo_medir:
-            try:
-                import tensorrt  # noqa: F401
-            except ImportError:
-                print("  [!] Sin el paquete tensorrt no se puede exportar a .engine: pip install tensorrt")
-            else:
-                engine = exportar_engine(modelo, cfg.imgsz)
-                trt = medir_yolo(engine, cfg.imgsz, True)
-                print(f"  {engine.name}  TensorRT FP16: {trt:.1f} ms/frame  "
-                      f"({fp32 / max(trt, 1e-6):.1f}x frente a FP32)")
-                lineas_env.append(f"MOTION_MODEL={engine.relative_to(RAIZ).as_posix()}")
+        if "YOLO_HALF=true" not in lineas_env:
+            lineas_env.append("YOLO_HALF=true")
+        if args.solo_medir:
+            continue
+        try:
+            import tensorrt  # noqa: F401
+        except ImportError:
+            print("  [!] Sin el paquete tensorrt no se puede exportar a .engine: pip install tensorrt")
+            continue
+        engine = exportar_engine(modelo, cfg.imgsz)
+        trt = medir_yolo(engine, cfg.imgsz, True)
+        print(f"  {engine.name}  TensorRT FP16: {trt:.1f} ms/frame  "
+              f"({fp32 / max(trt, 1e-6):.1f}x frente a FP32)")
+        lineas_env.append(f"{variable}={engine.relative_to(RAIZ).as_posix()}")
 
     if args.onnx_trt:
         from edge.aceleracion import proveedores_disponibles
