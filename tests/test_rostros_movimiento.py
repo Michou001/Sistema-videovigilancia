@@ -133,6 +133,16 @@ def test_color_de_vehiculo():
     assert color_vehiculo(lienzo, (250, 120, 350, 170)) == "negro"
 
 
+def test_detector_base_conserva_su_interfaz():
+    """REGRESION: unas funciones auxiliares quedaron pegadas a mitad de la
+    clase Detector y le quitaron anotar/stats/resumen. El worker se caia en
+    su primer reporte periodico con AttributeError."""
+    from edge.detectors.base import Detector
+
+    for metodo in ("procesar", "vaciar", "cerrar", "anotar", "stats", "resumen", "cajas"):
+        assert hasattr(Detector, metodo), metodo
+
+
 # --------------------------------------------------------------------------
 
 def main() -> int:

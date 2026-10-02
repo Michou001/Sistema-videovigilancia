@@ -63,14 +63,6 @@ class Detector(ABC):
                 for p in self.pistas()]
 
 
-NOMBRES_OBJETO = {"person": "persona", "car": "auto", "truck": "camión", "bus": "autobús",
-                  "motorcycle": "moto"}
-
-
-def caja(bbox, texto: str, color: str, tipo: str, **extra) -> dict:
-    """Una caja para el navegador: coordenadas del frame procesado."""
-    return {"b": [int(round(v)) for v in bbox], "t": texto, "c": color, "k": tipo, **extra}
-
     def anotar(self, frame):
         """Dibuja el estado actual sobre el frame, para la ventana de depuracion.
 
@@ -94,3 +86,12 @@ def caja(bbox, texto: str, color: str, tipo: str, **extra) -> dict:
         """
         s = self.stats
         return f"{s.get('tracks_activos', 0)} tracks, {s.get('ms_inferencia_promedio', 0)}ms"
+
+
+NOMBRES_OBJETO = {"person": "persona", "car": "auto", "truck": "camión", "bus": "autobús",
+                  "motorcycle": "moto"}
+
+
+def caja(bbox, texto: str, color: str, tipo: str, **extra) -> dict:
+    """Una caja para el navegador: coordenadas del frame procesado."""
+    return {"b": [int(round(v)) for v in bbox], "t": texto, "c": color, "k": tipo, **extra}
