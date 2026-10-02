@@ -121,7 +121,7 @@ class IndiceSemantico:
         self._eventos: list[str] = []
         self._matriz = np.zeros((0, 0), dtype=np.float32)
         self._ultimo_id = 0
-        self._reconstruida = 0.0
+        self._reconstruida: float | None = None  # None: aun no se reconstruye
         self.indexados_sesion = 0
 
     # -- modelo ------------------------------------------------------------
@@ -206,7 +206,7 @@ class IndiceSemantico:
         """Trae a memoria los vectores nuevos; cada 10 min reconstruye todo
         para soltar los que borro la retencion."""
         with self._candado:
-            completo = time.monotonic() - self._reconstruida > 600
+            completo = self._reconstruida is None or time.monotonic() - self._reconstruida > 600
             desde = 0 if completo else self._ultimo_id
             with Session(self.engine) as s:
                 filas = s.exec(select(SemanticEmbedding.id, SemanticEmbedding.event_id, SemanticEmbedding.vector,
