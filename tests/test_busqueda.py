@@ -215,7 +215,7 @@ def test_el_vector_se_va_con_la_foto():
         assert s.exec(select(SemanticEmbedding).where(SemanticEmbedding.event_id == viejo)).first() is None
         assert s.exec(select(SemanticEmbedding).where(SemanticEmbedding.event_id == nuevo)).first() is not None
         assert s.exec(select(Event).where(Event.event_id == viejo)).one().snapshot_path is None
-    idx._reconstruida = 0            # la reconstruccion periodica suelta lo borrado
+    idx._reconstruida = None            # la reconstruccion periodica suelta lo borrado
     ids = [x.event_id for x in idx.buscar("verde", limite=500)]
     assert viejo not in ids and nuevo in ids
     # Y con el evento entero (30 dias) tambien.
