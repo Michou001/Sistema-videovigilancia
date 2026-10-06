@@ -3,6 +3,10 @@
 Guía para pasar el proyecto de tu laptop a la máquina que van a usar los
 monitoristas.
 
+Para red física, VLAN, switches PoE, fibra entre edificios, alturas de cámara,
+ancho de banda y escalamiento por campus, ver
+**[arquitectura-campus-uaemex.md](arquitectura-campus-uaemex.md)**.
+
 ---
 
 ## ¿Corre en otra máquina? Sí, con estas condiciones
@@ -256,6 +260,11 @@ como datos y el navegador las dibuja encima.
 ---
 
 ## Antes de considerarlo en producción
+
+La puesta en producción exige además un levantamiento físico por cámara y una
+validación de campo. Para el caso InnovaTICs se usa
+**[validacion-innovatics.md](validacion-innovatics.md)**.
+
 
 - [ ] Cambiar la contraseña de `admin` (la de demo no sirve)
 - [ ] Crear un usuario de cámara con rol **Operador**, no usar `admin` en el `.env`
