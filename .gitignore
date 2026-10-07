@@ -56,3 +56,6 @@ models/yolo11*.pt
 
 # Fotos propias para tools/calibrar_distancia.py (no se versionan)
 imagenes-prueba/
+
+# Respaldos locales (tools/respaldo.py): llevan .env y la base de datos
+respaldos/
