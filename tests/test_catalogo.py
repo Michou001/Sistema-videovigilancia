@@ -559,6 +559,34 @@ def test_api_alta_de_red_y_credenciales_fuera_de_la_ficha():
     assert r.status_code == 422
 
 
+def test_camara_que_cambio_de_ip_se_reconoce_por_su_serie():
+    """Con DHCP la IP de la camara cambia sola. La ficha guarda serie y MAC:
+    al diagnosticarla en la IP nueva se reconoce y se propone actualizarla."""
+    c, h = _cliente()
+    _proyecto_temporal()
+    r = c.post("/api/cameras/register", headers=h, json={
+        "modo": "red", "host": "192.168.1.70", "password": "x", "ruta": "/Streaming/Channels/102",
+        "camera_id": "cam-05", "nombre": "Acceso norte", "isapi": True, "canal_principal": "101",
+        "ficha": {"estado": "identificada",
+                  "serie": {"valor": "DS-2CD2143G2-I20240101AAWRF12345", "fuente": "ISAPI"}}})
+    assert r.status_code == 201, r.text
+    cam = CamaraSimulada()
+    original = cat.abrir_stream
+    cat.abrir_stream = _abrir_falso
+    try:
+        r = c.post("/api/cameras/probe", headers=h, json={
+            "modo": "red", "host": "127.0.0.1", "user": USUARIO, "password": CLAVE,
+            "puerto_rtsp": cam.puerto_rtsp, "puerto_http": cam.puerto_http})
+        d = r.json()
+        assert r.status_code == 200, r.text
+        assert d["registrada"] == "cam-05" and d["ip_anterior"] == "192.168.1.70"
+        assert d["id_sugerido"] == "cam-05"
+        assert "otra IP" in d["advertencias"][0]
+    finally:
+        cat.abrir_stream = original
+        cam.cerrar()
+
+
 def test_api_worker_respeta_el_permiso():
     c, h = _cliente()
     _proyecto_temporal()

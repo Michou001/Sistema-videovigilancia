@@ -94,6 +94,43 @@ def camaras_en_entorno() -> dict[str, dict]:
     return salida
 
 
+def _normalizar_mac(mac: Optional[str]) -> Optional[str]:
+    if not mac:
+        return None
+    limpia = re.sub(r"[^0-9a-f]", "", mac.lower())
+    return limpia if len(limpia) == 12 else None
+
+
+def huellas_registradas() -> dict[str, dict]:
+    """camera_id -> {serie, mac, host} de las camaras con ficha. Con DHCP la
+    IP de una camara cambia sola (le paso dos veces a la camara del equipo);
+    la serie y la MAC no."""
+    salida = {}
+    entorno = camaras_en_entorno()
+    with Session(engine) as s:
+        for c in s.exec(select(Camera)).all():
+            ficha = _ficha(c)
+            serie = (ficha.get("serie") or {}).get("valor")
+            mac = _normalizar_mac((ficha.get("mac") or {}).get("valor"))
+            if serie or mac:
+                salida[c.camera_id] = {"serie": serie, "mac": mac,
+                                       "host": (entorno.get(c.camera_id) or {}).get("host")}
+    return salida
+
+
+def reconocer(host: Optional[str], serie: Optional[str], mac: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(camera_id, ip_anterior) si el equipo ya esta registrado: por IP, o por
+    serie/MAC aunque la IP haya cambiado (ip_anterior = la del .env)."""
+    for cid, d in camaras_en_entorno().items():
+        if host and d["host"] == host:
+            return cid, None
+    mac = _normalizar_mac(mac)
+    for cid, h in huellas_registradas().items():
+        if (serie and h["serie"] == serie) or (mac and h["mac"] == mac):
+            return cid, h["host"] if h["host"] != host else None
+    return None, None
+
+
 def siguiente_id(usados: set[str]) -> str:
     n = 1
     while f"cam-{n:02d}" in usados:
@@ -124,6 +161,17 @@ def descubrir(admin: Admin, request: Request) -> dict:
         resultado = catalogo.descubrir(registradas=registradas)
     except (RuntimeError, ValueError) as e:
         raise HTTPException(422, str(e)) from None
+    # Una camara registrada que cambio de IP se reconoce por su MAC.
+    por_mac = {h["mac"]: (cid, h["host"]) for cid, h in huellas_registradas().items() if h["mac"]}
+    for d in resultado["dispositivos"]:
+        conocida = por_mac.get(_normalizar_mac(d.get("mac")))
+        if conocida and d["estado"] != "registrada":
+            cid, anterior = conocida
+            d["estado"], d["registrada"], d["es_camara"] = "registrada", cid, True
+            d["motivo"] = (f"Es {cid}: cambió de IP ({anterior} → {d['host']}). Diagnostícala y "
+                           "dala de alta con el mismo identificador para actualizarla."
+                           if anterior else f"Ya está dada de alta como {cid}.")
+            d["ip_anterior"] = anterior
     with Session(engine) as s:
         resultado["id_sugerido"] = siguiente_id(_ids_en_uso(s))
     camaras = sum(1 for d in resultado["dispositivos"] if d["es_camara"])
@@ -204,11 +252,18 @@ def diagnosticar(datos: DiagnosticoIn, admin: Admin, request: Request) -> dict:
         resultado["fuente"] = datos.fuente
         objetivo = catalogo_fuente_censurada(datos.fuente)
 
-    registradas = camaras_en_entorno()
-    resultado["registrada"] = next((cid for cid, d in registradas.items()
-                                    if d["host"] and d["host"] == resultado.get("host")), None)
+    disp = resultado.get("dispositivo") or {}
+    cid, anterior = reconocer(resultado.get("host"), (disp.get("serie") or {}).get("valor"),
+                              (disp.get("mac") or {}).get("valor") or catalogo.tabla_arp().get(
+                                  resultado.get("host") or ""))
+    resultado["registrada"], resultado["ip_anterior"] = cid, anterior
+    if cid and anterior:
+        resultado["advertencias"].insert(0, (
+            f"Es la cámara {cid} (misma serie/MAC) con otra IP: antes {anterior}, ahora "
+            f"{resultado['host']}. Dala de alta como {cid} para actualizar su configuración. "
+            "Para que no vuelva a pasar, reserva su IP en el router (DHCP) o fíjala en la cámara."))
     with Session(engine) as s:
-        resultado["id_sugerido"] = resultado["registrada"] or siguiente_id(_ids_en_uso(s))
+        resultado["id_sugerido"] = cid or siguiente_id(_ids_en_uso(s))
     # La contrasena no va a la bitacora; el resultado si (sin la miniatura).
     _auditar("camaras.diagnosticar", admin.username, request, objetivo=objetivo,
              detalle={"estado": resultado["estado"], "credenciales": resultado.get("credenciales"),

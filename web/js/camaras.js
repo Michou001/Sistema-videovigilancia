@@ -189,7 +189,7 @@ function filaDispositivo(d) {
     `<span class="proto ${d.protocolos[p] ? 'si' : ''}">${p.toUpperCase()}</span>`).join('');
   const identidad = [d.fabricante && fuente(d.fabricante), d.modelo && fuente(d.modelo)].filter(Boolean).join(' · ')
     || '<span class="tenue">Marca y modelo desconocidos</span>';
-  const boton = d.estado === 'registrada' || !d.es_camara ? ''
+  const boton = (d.estado === 'registrada' && !d.ip_anterior) || !d.es_camara ? ''
     : `<button class="chico" data-accion="catalogo-elegir" data-host="${escapar(d.host)}"
          data-xaddr="${escapar(d.onvif_xaddr || '')}"><i data-lucide="stethoscope"></i>Diagnosticar</button>`;
   return `<div class="equipo-lan">
@@ -347,7 +347,8 @@ function pintarDiagnostico() {
       ${(d.advertencias || []).length ? `<ul class="advertencias">${d.advertencias.map((a) =>
         `<li><i data-lucide="triangle-alert"></i>${escapar(a)}</li>`).join('')}</ul>` : ''}
       ${d.registrada ? `<div class="aviso-reinicio"><i data-lucide="info"></i><span>Esta cámara ya está dada de alta como
-        <strong>${escapar(d.registrada)}</strong>; continuar actualiza su configuración.</span></div>` : ''}
+        <strong>${escapar(d.registrada)}</strong>${d.ip_anterior ? ` (antes en ${escapar(d.ip_anterior)})` : ''};
+        continuar actualiza su configuración.</span></div>` : ''}
       <div class="botonera">
         <button type="button" data-accion="catalogo-paso" data-paso="3" ${listo ? '' : 'disabled'}>
           Siguiente: recomendación<i data-lucide="arrow-right"></i></button>
@@ -444,7 +445,13 @@ accion('catalogo-usar-recomendacion', () => irAPaso(4));
 function prepararAlta() {
   $('errorAlta').textContent = '';
   $('resultadoAlta').innerHTML = '';
-  if (!$('altaId').value || (diagnostico && diagnostico.id_sugerido && !$('altaId').dataset.tocado)) {
+  if (diagnostico && diagnostico.registrada) {
+    // Ya registrada (por IP, serie o MAC): se actualiza la misma, no una nueva.
+    $('altaId').value = diagnostico.registrada;
+    const c = catalogo && catalogo.camaras.find((x) => x.camera_id === diagnostico.registrada);
+    if (c && !$('altaNombre').value) $('altaNombre').value = c.name;
+    if (c && c.location && !$('altaUbicacion').value) $('altaUbicacion').value = c.location;
+  } else if (!$('altaId').value || (diagnostico && diagnostico.id_sugerido && !$('altaId').dataset.tocado)) {
     $('altaId').value = (diagnostico && diagnostico.id_sugerido) || 'cam-01';
   }
   const detectores = recomendacion ? recomendacion.detectores : (funcionActual() || {}).detectores || {};
