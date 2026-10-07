@@ -121,6 +121,8 @@ def test_cabeceras_de_seguridad():
     assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
     assert "script-src 'self'" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
     assert "strict-transport-security" not in r.headers, "HSTS solo por HTTPS"
+    # La pantalla de acceso lee esto sin sesion: solo sitio y version.
+    assert set(r.json()) == {"status", "dashboards", "multiproceso", "version", "sitio"}
 
 
 def test_websocket_con_cookie_y_sin_sesion():

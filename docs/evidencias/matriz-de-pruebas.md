@@ -22,7 +22,7 @@ Leyenda: ✅ probado y funciona · ⏳ pendiente · ❌ falla.
 | 12 | Video como cámara (plan B) | ✅ | ✅ | — | 4 videos en bucle y a velocidad real durante la medición de rendimiento, sin cortes. |
 | 13 | Rendimiento y capacidad | — | ✅ | ⏳ | [README de evidencias](README.md): 1 cámara ~17 fps; 4 procesos 18 fps. |
 | 14 | Respaldo | — | ✅ | — | `tools/respaldo.py`: la base de datos copiada tiene los mismos conteos y pasa `integrity_check`. |
-| 15 | Restaurar desde el respaldo | — | ⏳ | — | Probar en la segunda laptop: `git clone repo.bundle`. |
+| 15 | Restaurar desde el respaldo | — | ✅ | — | 7 oct 00:16, desde la copia en OneDrive (`--nube`, sin `.env` ni secretos): huellas SHA-256 del manifiesto correctas, `git clone repo.bundle` en el commit 343f9d7, base con `integrity_check` ok y los mismos conteos que la original (236 eventos, 24 alertas, 65 de bitácora); `test_api` y `test_rostros_movimiento` pasan sobre el código restaurado. Tiempo: 2 s más la instalación. |
 | 16 | Placa de prueba impresa | — | ✅ | ⏳ | OCR siempre correcto cuando se detecta; el detector la acepta en ~50 % de escenas generadas. |
 | 17 | Las pruebas no tocan la evidencia real | ✅ | ✅ | — | `test_retencion_huerfanas`; `data/` sin cambios después de correr las 269 pruebas. |
 

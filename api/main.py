@@ -9,6 +9,7 @@ La documentacion interactiva de la API en http://localhost:8000/docs
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -267,8 +268,11 @@ async def ws_alertas(websocket: WebSocket) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
+    # Publico: lo usa la pantalla de acceso. Nombre del sitio y version ya se
+    # muestran ahi; nada de camaras, usuarios ni eventos.
     return {"status": "ok", "dashboards": hub.conectados_total,
-            "multiproceso": hub.distribuido}
+            "multiproceso": hub.distribuido, "version": app.version,
+            "sitio": os.getenv("SITIO_NOMBRE", "").strip()}
 
 
 # Las capturas de evidencia ya NO se montan como estaticos publicos: las sirve
