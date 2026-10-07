@@ -82,7 +82,7 @@ class CabecerasSeguridad:
                 poner("X-Frame-Options", "DENY")
                 poner("Referrer-Policy", "no-referrer")
                 poner("Permissions-Policy",
-                      "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+                      "camera=(), microphone=(), geolocation=(self), payment=(), usb=()")
                 poner("Cross-Origin-Opener-Policy", "same-origin")
                 poner("Content-Security-Policy", politica_csp(host, self.extra_connect))
                 if https:

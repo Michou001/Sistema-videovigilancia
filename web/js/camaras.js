@@ -555,6 +555,7 @@ escuchar('editar-camara', (id) => {
   const c = estado.camaras.find((x) => x.camera_id === id) || { camera_id: id };
   $('edCamId').textContent = id;
   $('edCamNombre').value = c.name || id;
+  $('edCamFuncion').value = c.funcion || '';
   $('edCamUbicacion').value = c.location || '';
   $('edCamLat').value = c.lat ?? '';
   $('edCamLon').value = c.lon ?? '';
@@ -574,6 +575,7 @@ $('formEditarCamara').addEventListener('submit', async (e) => {
       method: 'PUT',
       body: JSON.stringify({
         name: $('edCamNombre').value.trim(),
+        funcion: $('edCamFuncion').value || null,
         location: $('edCamUbicacion').value.trim() || null,
         lat: numero($('edCamLat').value),
         lon: numero($('edCamLon').value),

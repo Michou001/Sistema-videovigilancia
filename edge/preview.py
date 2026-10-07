@@ -72,6 +72,7 @@ class PreviewPublisher:
         self._enviados = 0
         self._descartados = 0
         self._fallos = 0
+        self._hilo_fuente = None
 
         # daemon: si el worker muere de forma abrupta, este hilo no debe
         # mantener el proceso vivo esperando una respuesta HTTP.
@@ -80,6 +81,28 @@ class PreviewPublisher:
         self._hilo.start()
 
     # ----------------------------------------------------------------------
+
+    def conectar_fuente(self, fuente) -> None:
+        """Publica captura reciente sin esperar inferencia ni abrir otro RTSP.
+
+        Las anotaciones viajan por pistas; el navegador las superpone al video.
+        La cola de envio sigue limitada a un cuadro.
+        """
+        if self._hilo_fuente is not None:
+            return
+
+        def alimentar():
+            ultimo = -1
+            while not self._parar.wait(0.005):
+                if not self.quiere_frame():
+                    continue
+                frame = fuente.ultimo_frame(ultimo)
+                if frame is not None:
+                    ultimo = frame.index
+                    self.publicar(frame.frame)
+
+        self._hilo_fuente = threading.Thread(target=alimentar, name=f"video-{self.camera_id}", daemon=True)
+        self._hilo_fuente.start()
 
     def quiere_frame(self) -> bool:
         """Si hace falta un frame AHORA. Barato: el worker lo llama por frame.
@@ -95,7 +118,10 @@ class PreviewPublisher:
             return (ahora - self._ultimo_tomado) >= SONDEO_SIN_ESPECTADORES
         # Limite de fps del preview, independiente del de inferencia: el worker
         # puede detectar a 8 fps y mandar 6 al dashboard.
-        return not self.intervalo or (ahora - self._ultimo_tomado) >= self.intervalo
+        # La captura y este sondeo no tienen el mismo reloj. Un margen de
+        # 5 ms evita perder uno de cada dos cuadros al pedir 20 de una fuente
+        # de 20 fps; no crea ni repite frames.
+        return not self.intervalo or (ahora - self._ultimo_tomado) >= max(0, self.intervalo - 0.005)
 
     def publicar(self, frame: np.ndarray) -> None:
         """Ofrece un frame anotado. Vuelve de inmediato.
@@ -136,6 +162,8 @@ class PreviewPublisher:
     def cerrar(self) -> None:
         self._parar.set()
         self._hay_frame.set()
+        if self._hilo_fuente is not None:
+            self._hilo_fuente.join(timeout=1.0)
         self._hilo.join(timeout=3.0)
         self._cliente.close()
 

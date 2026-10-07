@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Icono de pestana: el ojo de GOSS IP simplificado para 16-32 px. -->
+  <defs>
+    <linearGradient id="ojo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4fb3fa"/>
+      <stop offset="1" stop-color="#1f56c6"/>
+    </linearGradient>
+  </defs>
+  <path d="M1 32 Q32 -6 63 32 Q32 70 1 32 Z" fill="url(#ojo)"/>
+  <circle cx="32" cy="32" r="13.5" fill="#ffffff"/>
+  <circle cx="32" cy="32" r="10" fill="#0a2380"/>
+  <circle cx="32" cy="32" r="4.5" fill="#5cc4ff"/>
+  <circle cx="36.5" cy="27.5" r="2.6" fill="#ffffff"/>
+</svg>

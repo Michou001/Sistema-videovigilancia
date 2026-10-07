@@ -34,6 +34,7 @@ import './evidencia.js';
 import './placas.js';
 import './zonas.js';
 import './mapa.js';
+import './titulos.js';
 
 iconos();
 
@@ -75,6 +76,7 @@ function limpiarSesion() {
   clearInterval(temporizadorStats);
   temporizadorStats = null;
   desconectarWs();
+  emitir('fin-sesion');
   detenerCamaras();
   $('app').style.display = 'none';
   $('login').style.display = 'grid';
@@ -147,6 +149,7 @@ function mostrarVista(nombre) {
 }
 
 accion('vista', (el) => mostrarVista(el.dataset.vista));
+escuchar('ir-a-vista', mostrarVista);
 
 /* Desde el mapa: "Ver en vivo" lleva al recuadro de esa camara. */
 escuchar('ir-a-camara', (id) => {

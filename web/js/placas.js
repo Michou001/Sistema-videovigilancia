@@ -4,6 +4,7 @@
 
 import { $, accion, api, descargar, emitir, modal } from './nucleo.js';
 import { confirmar } from './avisos.js';
+import { urlEvidencia } from './evidencia.js';
 
 /* Validacion mientras se escribe: dice que tipo de placa es y de donde, o
  * sugiere la correccion ("¿Quisiste decir PDW-123-A?"). Con espera de 300 ms
@@ -46,12 +47,29 @@ accion('corregir-placa', (el) => {
   $('corOriginal').textContent = el.dataset.valor;
   $('corValor').value = el.dataset.valor;
   $('corExtranjera').checked = false;
+  $('corFoto').hidden = !el.dataset.foto;
+  if (el.dataset.foto) $('corFoto').src = urlEvidencia(el.dataset.foto);
+  else $('corFoto').removeAttribute('src');
   $('errorCorreccion').textContent = '';
   modal('modalCorreccion', true);
   $('corValor').select();
   revisarCorreccion();
 });
 accion('cerrar-correccion', () => modal('modalCorreccion', false));
+
+accion('revisar-placa', async el => {
+  el.disabled = true;
+  try {
+    await api(`/api/events/${encodeURIComponent($('corEvento').value)}/revision-placa`, {
+      method: 'POST', body: JSON.stringify({ resultado: el.dataset.resultado }),
+    });
+    modal('modalCorreccion', false);
+    confirmar(el.dataset.resultado === 'no_es_placa'
+      ? 'Marcada como falso positivo. Se excluye del OCR.' : 'Revisión guardada.');
+    emitir('lectura-corregida', {});
+  } catch (err) { $('errorCorreccion').textContent = err.message; }
+  finally { el.disabled = false; }
+});
 
 $('formCorreccion').addEventListener('submit', async (e) => {
   e.preventDefault();

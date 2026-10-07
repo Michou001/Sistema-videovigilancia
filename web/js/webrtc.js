@@ -102,8 +102,8 @@ export class Superposicion {
   area() {
     const w = this.lienzo.clientWidth;
     const h = this.lienzo.clientHeight;
-    const vw = this.video.videoWidth || 16;
-    const vh = this.video.videoHeight || 9;
+    const vw = this.video.videoWidth || this.video.naturalWidth || 16;
+    const vh = this.video.videoHeight || this.video.naturalHeight || 9;
     const escala = Math.min(w / vw, h / vh);
     return { x: (w - vw * escala) / 2, y: (h - vh * escala) / 2, w: vw * escala, h: vh * escala };
   }

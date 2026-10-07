@@ -37,6 +37,7 @@ ACCIONES = {
     "alertas.atendida": "Alerta atendida",
     "alertas.descartada": "Alerta descartada",
     "eventos.correccion": "Corrección de lectura",
+    "eventos.revision_placa": "Revisión de detección de placa",
     "reportes.csv": "Exportación de reporte",
     "reportes.dataset": "Exportación de dataset",
     "camaras.edicion": "Edición de cámara",

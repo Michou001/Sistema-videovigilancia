@@ -385,6 +385,19 @@ class PlateDetector(Detector):
         if info is None:
             return None
 
+        # Una etiqueta comercial no se convierte en placa por reconocer un
+        # pais. Pedimos evidencia repetida en pasadas independientes de OCR.
+        # 'crudas' contiene como maximo una lectura por pasada, no variantes
+        # sinteticas de correccion de caracteres.
+        votos = track.state.get("crudas", [])
+        minimo_conf = max(self.cfg.ocr_conf, 0.90 if pais and not valida else 0.75)
+        apoyo = sum(1 for t, c in votos
+                    if c >= minimo_conf and normalizar(t) == normalizar(limpio))
+        if (track.confidence < self.cfg.plate_conf or conf_ocr < minimo_conf
+                or apoyo < max(2, self.cfg.plate_min_readings)
+                or (not valida and not 4 <= len(limpio) <= 10)):
+            return None
+
         # Red de seguridad contra duplicados por track roto (ver plate_dedupe_s).
         # Se compara la forma NORMALIZADA para que dos lecturas del mismo coche
         # con errores distintos de OCR ("ABC-123" y "A8C-I23") cuenten como una.
@@ -416,6 +429,7 @@ class PlateDetector(Detector):
                 "formato": info.tipo,
                 **info.como_meta(),
                 "conf_deteccion": round(track.confidence, 4),
+                "lecturas_coincidentes": apoyo,
                 "lecturas_ocr": [[t, round(c, 3)] for t, c in lecturas][:20],
                 "texto_crudo": texto,
                 "color_vehiculo": track.state.get("color"),
@@ -440,12 +454,27 @@ class PlateDetector(Detector):
 
     # ----------------------------------------------------------------------
 
+    def _lectura_visible(self, track):
+        mejor = elegir_mejor_lectura(track.state.get("lecturas", []))
+        if not mejor or track.confidence < self.cfg.plate_conf:
+            return None
+        texto, conf = mejor
+        valida = es_placa_valida(texto)[0]
+        minimo = max(self.cfg.ocr_conf, 0.75 if valida else 0.90)
+        if not valida:
+            pais = nombre_pais(pais_por_votos(track.state.get("regiones", []), minimo=0.75))
+            if not pais or pais == "México" or not 4 <= len(limpiar(texto)) <= 10:
+                return None
+        apoyo = sum(1 for t, c in track.state.get("crudas", [])
+                    if c >= minimo and normalizar(t) == normalizar(texto))
+        return mejor if conf >= minimo and apoyo >= max(2, self.cfg.plate_min_readings) else None
+
     def anotar(self, frame: np.ndarray) -> np.ndarray:
         """Dibuja los tracks activos y su lectura acumulada."""
         for track in self.tracker.tracks_confirmados():
             x1, y1, x2, y2 = (int(v) for v in track.bbox)
             lecturas = track.state.get("lecturas", [])
-            mejor = elegir_mejor_lectura(lecturas) if lecturas else None
+            mejor = self._lectura_visible(track)
 
             # Verde si ya se leyo, ambar si aun se esta intentando.
             color = (0, 220, 0) if mejor else (0, 180, 255)
@@ -466,8 +495,8 @@ class PlateDetector(Detector):
         salida = []
         for track in self.tracker.tracks_confirmados():
             lecturas = track.state.get("lecturas", [])
-            mejor = elegir_mejor_lectura(lecturas) if lecturas else None
-            texto = f"{formatear(mejor[0])} ({mejor[1]:.2f})" if mejor else f"placa #{track.track_id}"
+            mejor = self._lectura_visible(track)
+            texto = f"{formatear(mejor[0])} ({mejor[1]:.2f})" if mejor else "Candidato sin validar"
             salida.append(caja(track.bbox, texto, "#22c55e" if mejor else "#f59e0b", "placa"))
         return salida
 

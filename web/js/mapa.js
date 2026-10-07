@@ -12,12 +12,15 @@
 
 import { $, accion, api, emitir, escapar, escuchar, estado, iconos, nombreCamara, puede } from './nucleo.js';
 import { confirmar } from './avisos.js';
+import { obtenerUbicacion } from './ubicacion.js';
 
 const CENTRO_MX = [19.4326, -99.1332];   // CDMX, si ninguna camara tiene coordenadas
 let mapa = null;
 let ubicando = null;                       // camera_id que se esta colocando
 const marcadores = new Map();              // camera_id -> circleMarker
 const destacadas = new Map();              // camera_id -> temporizador
+let posicionStand = null;
+let circuloPrecision = null;
 
 escuchar('vista', (v) => { if (v === 'mapa') abrir(); });
 escuchar('stats', () => { if (mapa) actualizar(false); });
@@ -78,8 +81,10 @@ function actualizar(encuadrar) {
     }
     m.setLatLng([c.lat, c.lon]);
     m.setStyle({ color: '#0b0f14', fillColor: color(c) });
-    m.bindPopup(contenido(c));
-    m.bindTooltip(escapar(nombreCamara(c.camera_id)), { direction: 'top', offset: [0, -8] });
+    const juntas = conUbicacion.filter(x => x.lat === c.lat && x.lon === c.lon);
+    m.bindPopup(juntas.map(contenido).join('<hr>'));
+    m.bindTooltip(juntas.length > 1 ? `${juntas.length} cámaras · misma ubicación` : escapar(nombreCamara(c.camera_id)),
+      { direction: 'top', offset: [0, -8] });
   }
   for (const [id, m] of marcadores) {
     if (!vistos.has(id)) { m.remove(); marcadores.delete(id); }
@@ -161,4 +166,61 @@ document.addEventListener('keydown', (e) => {
 
 accion('mapa-ver-camara', (el) => {
   emitir('ir-a-camara', el.dataset.camara);
+});
+
+accion('mapa-dispositivo', async el => {
+  el.disabled = true;
+  posicionStand = null;
+  $('mapaAplicar').hidden = true;
+  $('mapaElegirCamaras').replaceChildren();
+  $('mapaPrecision').textContent = 'Localizando este equipo…';
+  try {
+    posicionStand = await obtenerUbicacion();
+    const p = posicionStand;
+    circuloPrecision?.remove();
+    circuloPrecision = window.L.circle([p.lat, p.lon], { radius: p.precision,
+      color: '#60cfff', weight: 1, fillOpacity: 0.12 }).addTo(mapa);
+    mapa.fitBounds(circuloPrecision.getBounds(), { maxZoom: 18 });
+    $('mapaPrecision').textContent = `Ubicación del equipo · precisión estimada ±${Math.ceil(p.precision)} m.` +
+      (p.precision > 100 ? ' Es una ubicación aproximada; el círculo muestra su margen de error. Puedes ajustar cada cámara manualmente.' : '');
+    $('mapaElegirCamaras').innerHTML = estado.camaras.map(c =>
+      `<label class="casilla"><input type="checkbox" value="${escapar(c.camera_id)}" checked> ${escapar(nombreCamara(c.camera_id))}</label>`).join('');
+    $('mapaAplicar').hidden = !estado.camaras.length;
+  } catch (err) { $('mapaPrecision').textContent = err.message; }
+  finally { el.disabled = false; }
+});
+
+accion('mapa-aplicar-stand', async el => {
+  if (!posicionStand) return;
+  if (Date.now() - posicionStand.fecha > 120000) {
+    $('mapaPrecision').textContent = 'La ubicación caducó. Obtén una nueva antes de guardarla.';
+    el.hidden = true; return;
+  }
+  const ids = [...$('mapaElegirCamaras').querySelectorAll('input:checked')].map(x => x.value);
+  if (!ids.length) { $('mapaPrecision').textContent = 'Selecciona al menos una cámara.'; return; }
+  el.disabled = true;
+  const guardadas = [], fallidas = [];
+  for (const id of ids) {
+    const c = estado.camaras.find(x => x.camera_id === id);
+    if (!c) continue;
+    try {
+      await api('/api/cameras/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({
+        name: c.name || id, location: `Stand · dispositivo (±${Math.ceil(posicionStand.precision)} m)`,
+        lat: posicionStand.lat, lon: posicionStand.lon,
+      }) });
+      guardadas.push(id);
+    } catch { fallidas.push(id); }
+  }
+  emitir('pedir-stats');
+  $('mapaPrecision').textContent = `${guardadas.length} cámaras ubicadas en el stand.` +
+    (fallidas.length ? ` No se guardaron: ${fallidas.join(', ')}. Puedes reintentar.` : ` Precisión ±${Math.ceil(posicionStand.precision)} m.`);
+  el.disabled = false;
+});
+
+escuchar('fin-sesion', () => {
+  posicionStand = null;
+  circuloPrecision?.remove(); circuloPrecision = null;
+  $('mapaAplicar').hidden = true;
+  $('mapaElegirCamaras').replaceChildren();
+  $('mapaPrecision').textContent = '';
 });

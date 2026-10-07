@@ -7,7 +7,7 @@ import json
 import logging
 import tempfile
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -68,6 +68,29 @@ class Correccion(BaseModel):
     extranjera: bool = False
 
 
+class RevisionPlaca(BaseModel):
+    resultado: Literal["confirmada", "no_es_placa", "pendiente"]
+
+
+@router.post("/events/{event_id}/revision-placa")
+def revisar_placa(event_id: str, datos: RevisionPlaca, operador: Operador,
+                  request: Request, session: SesionBD) -> dict:
+    evento = session.exec(select(Event).where(Event.event_id == event_id)).first()
+    if evento is None:
+        raise HTTPException(404, "No existe ese evento")
+    if evento.type != EventType.PLATE.value:
+        raise HTTPException(422, "Solo se revisan lecturas de placa")
+    meta = evento.meta
+    anterior = meta.get("revision_placa", "pendiente")
+    meta.update(revision_placa=datos.resultado, revisado_por=operador.username,
+                revisado_en=datetime.now(timezone.utc).isoformat())
+    evento.meta_json = json.dumps(meta, ensure_ascii=False)
+    registrar(session, "eventos.revision_placa", usuario=operador.username, objetivo=event_id,
+              detalle={"antes": anterior, "despues": datos.resultado}, request=request)
+    session.commit()
+    return {"event_id": event_id, "revision_placa": datos.resultado}
+
+
 def mensaje_invalida(texto: str, info: InfoPlacaLeida) -> str:
     base = f"'{texto}' no tiene formato de placa mexicana."
     if info.sugerencia:
@@ -103,6 +126,7 @@ async def corregir(event_id: str, datos: Correccion, operador: Operador, request
         raise HTTPException(422, "La lectura ya es esa")
 
     meta = evento.meta
+    meta["revision_placa"] = "confirmada"
     meta.setdefault("lectura_original", anterior)
     meta.update({"corregido_por": operador.username,
                  "corregido_en": datetime.now(timezone.utc).isoformat()})

@@ -239,6 +239,31 @@ def test_meta_del_evento_llega_al_dashboard():
 
 # --------------------------------------------------------------------------
 
+def test_revision_excluye_negativo_del_ocr_y_conserva_evidencia():
+    c, h = _cliente()
+    ev = _evento('JHK-123-A', snapshot_path=_foto('negativa-' + uuid.uuid4().hex), observations=10)
+    _ingerir(c, ev)
+    ruta = f"/api/events/{ev['event_id']}/revision-placa"
+    assert c.post(ruta, json={'resultado': 'no_es_placa'}).status_code == 401
+    assert c.post(ruta, headers=h, json={'resultado': 'incorrecto'}).status_code == 422
+    assert c.post(ruta, headers=h, json={'resultado': 'no_es_placa'}).status_code == 200
+    from api.dataset import exportar
+    buf = io.BytesIO()
+    with Session(engine) as s:
+        resumen = exportar(s, buf, incluir_automaticas=True)
+    with zipfile.ZipFile(buf) as z:
+        assert Path(ev['snapshot_path']).stem not in z.read('anotaciones.csv').decode()
+        assert ev['event_id'] in z.read('negativas.jsonl').decode()
+    assert resumen.negativas >= 1
+    assert (RAIZ / ev['snapshot_path']).is_file()
+    assert c.post(ruta, headers=h, json={'resultado': 'confirmada'}).status_code == 200
+    buf = io.BytesIO()
+    with Session(engine) as s: exportar(s, buf)
+    with zipfile.ZipFile(buf) as z:
+        assert Path(ev['snapshot_path']).stem in z.read('anotaciones.csv').decode()
+        assert ev['event_id'] not in z.read('negativas.jsonl').decode()
+
+
 def main() -> int:
     pruebas = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     fallos = 0
