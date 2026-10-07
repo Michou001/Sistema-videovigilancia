@@ -76,13 +76,15 @@
       <button id="navMapa" data-accion="vista" data-vista="mapa">
         Mapa
       </button>
+      <button id="navCamaras" data-accion="vista" data-vista="camaras" data-rol="admin">
+        Cámaras
+      </button>
     </nav>
 
     <div class="estado"><span class="punto" id="puntoWs"></span><span id="textoWs">conectando…</span></div>
     <div class="estado" id="estadoCamaras"></div>
     <div class="crece"></div>
     <span style="font-size:13px;color:var(--tenue)" id="quien"></span>
-    <button class="sec" data-accion="abrir-camaras" data-rol="admin" title="Cámaras"><i data-lucide="scan-search"></i>Cámaras</button>
     <button class="sec" data-accion="abrir-lista-negra" data-rol="admin" title="Lista negra"><i data-lucide="ban"></i>Lista negra</button>
     <button class="sec" data-accion="abrir-admin" data-rol="admin" title="Administración"><i data-lucide="users"></i>Administración</button>
     <button class="sec" data-accion="abrir-password" title="Cambiar mi contraseña"><i data-lucide="key-round"></i></button>
@@ -207,6 +209,179 @@
       </div>
     </main>
   </div>
+
+  <!-- ---------- APARTADO 4: CAMARAS (catalogo y alta, solo administradores) ---------- -->
+  <div class="vista" id="vistaCamaras">
+    <div class="catalogo">
+      <div class="panel">
+        <h2>Cámaras registradas <span class="crece" id="contadorCatalogo"></span>
+          <button class="sec chico" type="button" data-accion="catalogo-recargar" title="Actualizar"><i data-lucide="refresh-cw"></i></button></h2>
+        <div class="lista">
+          <table>
+            <thead><tr><th></th><th>Cámara</th><th>Función</th><th>Equipo</th><th>Stream</th><th>Configuración</th><th></th></tr></thead>
+            <tbody id="tablaCatalogo"></tbody>
+          </table>
+          <div class="vacio" id="sinCatalogo" hidden>Todavía no hay cámaras. Agrega la primera abajo.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Agregar cámara</h2>
+        <ol class="pasos" id="pasosAlta">
+          <li data-paso="1" class="activo"><span>1</span>Buscar</li>
+          <li data-paso="2"><span>2</span>Diagnóstico</li>
+          <li data-paso="3"><span>3</span>Recomendación</li>
+          <li data-paso="4"><span>4</span>Alta</li>
+        </ol>
+
+        <!-- Paso 1: buscar en la red o capturar a mano -->
+        <section class="paso" id="paso1">
+          <div class="botonera">
+            <button type="button" data-accion="catalogo-buscar"><i data-lucide="radar"></i>Buscar dispositivos en la red</button>
+            <button type="button" class="sec" data-accion="catalogo-manual"><i data-lucide="keyboard"></i>Agregar manualmente</button>
+          </div>
+          <div class="tenue pequeno" id="estadoDescubrimiento">
+            Busca por ONVIF y por puertos de cámara en la red local. No manda contraseñas.
+          </div>
+          <div id="resultadosDescubrimiento"></div>
+
+          <form id="formManual" class="bloque" hidden>
+            <div class="fila-doble">
+              <div class="campo">
+                <label for="manTipo">Tipo de fuente</label>
+                <select id="manTipo">
+                  <option value="ip">Cámara IP (IP, usuario y contraseña)</option>
+                  <option value="rtsp">URL RTSP completa</option>
+                  <option value="webcam">Webcam de este equipo</option>
+                  <option value="archivo">Video de demostración</option>
+                </select>
+              </div>
+              <div class="campo">
+                <label for="manValor" id="etiquetaManValor">IP de la cámara</label>
+                <input id="manValor" placeholder="192.168.1.64" autocomplete="off">
+                <select id="manVideo" hidden></select>
+              </div>
+            </div>
+            <button type="submit"><i data-lucide="arrow-right"></i>Continuar</button>
+          </form>
+        </section>
+
+        <!-- Paso 2: diagnostico con credenciales -->
+        <section class="paso" id="paso2" hidden>
+          <form id="formDiagnostico">
+            <div class="fila-triple">
+              <div class="campo">
+                <label for="diagHost">IP</label>
+                <input id="diagHost" required autocomplete="off">
+              </div>
+              <div class="campo">
+                <label for="diagUser">Usuario</label>
+                <input id="diagUser" value="admin" required autocomplete="off">
+              </div>
+              <div class="campo">
+                <label for="diagPassword">Contraseña</label>
+                <input id="diagPassword" type="password" required autocomplete="off">
+              </div>
+            </div>
+            <details class="avanzado">
+              <summary>Puertos</summary>
+              <div class="fila-doble">
+                <div class="campo"><label for="diagRtsp">RTSP</label><input id="diagRtsp" type="number" value="554" min="1" max="65535"></div>
+                <div class="campo"><label for="diagHttp">Web / ISAPI</label><input id="diagHttp" type="number" value="80" min="1" max="65535"></div>
+              </div>
+            </details>
+            <div class="botonera">
+              <button type="submit" id="btnDiagnosticar"><i data-lucide="stethoscope"></i>Diagnosticar</button>
+              <button type="button" class="sec" data-accion="catalogo-paso" data-paso="1"><i data-lucide="arrow-left"></i>Volver</button>
+            </div>
+            <div class="ayuda tenue">La contraseña se prueba una sola vez antes de tocar el video:
+              las Hikvision bloquean la IP tras ~5 intentos fallidos.</div>
+          </form>
+          <div class="error" id="errorDiagnostico"></div>
+          <div id="resultadoDiagnostico"></div>
+        </section>
+
+        <!-- Paso 3: recomendacion de instalacion -->
+        <section class="paso" id="paso3" hidden>
+          <form id="formRecomendacion">
+            <div class="fila-triple">
+              <div class="campo">
+                <label for="recFuncion">Función</label>
+                <select id="recFuncion"></select>
+              </div>
+              <div class="campo">
+                <label for="recAltura">Altura de montaje (m)</label>
+                <input id="recAltura" type="number" step="0.1" min="0.3" max="30" value="3" required>
+              </div>
+              <div class="campo">
+                <label for="recDistancia">Distancia al objetivo (m)</label>
+                <input id="recDistancia" type="number" step="0.1" min="0.5" max="200" value="6" required>
+              </div>
+            </div>
+            <div class="fila-triple">
+              <div class="campo">
+                <label for="recLente">Lente</label>
+                <select id="recLente"></select>
+                <input id="recHfov" type="number" step="0.5" min="10" max="180" placeholder="Campo de visión horizontal (°)" hidden>
+              </div>
+              <div class="campo">
+                <label for="recAngulo">Ángulo de lado (°)</label>
+                <input id="recAngulo" type="number" step="1" min="0" max="80" value="0">
+              </div>
+              <div class="campo">
+                <label for="recAncho">Resolución de análisis (px)</label>
+                <input id="recAncho" type="number" min="160" max="8192" value="1280" required>
+              </div>
+            </div>
+            <div class="tenue pequeno" id="notaFuncion"></div>
+            <div class="botonera">
+              <button type="submit"><i data-lucide="ruler"></i>Calcular</button>
+              <button type="button" class="sec" data-accion="catalogo-paso" data-paso="4">Omitir<i data-lucide="arrow-right"></i></button>
+              <button type="button" class="sec" data-accion="catalogo-paso" data-paso="2"><i data-lucide="arrow-left"></i>Volver</button>
+            </div>
+          </form>
+          <div class="error" id="errorRecomendacion"></div>
+          <div id="resultadoRecomendacion"></div>
+        </section>
+
+        <!-- Paso 4: alta -->
+        <section class="paso" id="paso4" hidden>
+          <form id="formAlta">
+            <div class="fila-triple">
+              <div class="campo">
+                <label for="altaId">Identificador</label>
+                <input id="altaId" required pattern="[A-Za-z0-9_\-]{2,64}" autocomplete="off">
+              </div>
+              <div class="campo">
+                <label for="altaNombre">Nombre (lo que ve el operador)</label>
+                <input id="altaNombre" maxlength="80" required placeholder="Acceso vehicular norte">
+              </div>
+              <div class="campo">
+                <label for="altaUbicacion">Ubicación</label>
+                <input id="altaUbicacion" maxlength="160" placeholder="Av. Juárez esq. Hidalgo">
+              </div>
+            </div>
+            <span class="rotulo">Detectores</span>
+            <div class="detectores" id="altaDetectores">
+              <label class="casilla"><input type="checkbox" value="ENABLE_PLATES"> Placas</label>
+              <label class="casilla"><input type="checkbox" value="ENABLE_MOTION"> Movimiento</label>
+              <label class="casilla"><input type="checkbox" value="ENABLE_POSE"> Caída y posturas</label>
+              <label class="casilla"><input type="checkbox" value="ENABLE_ZONAS"> Zonas y reglas</label>
+              <label class="casilla"><input type="checkbox" value="ENABLE_FACES"> Rostros
+                <span class="tenue">(exige aviso de privacidad y fundamento legal)</span></label>
+            </div>
+            <div id="resumenAlta" class="resumen-alta"></div>
+            <div class="botonera">
+              <button type="submit"><i data-lucide="circle-plus"></i>Dar de alta</button>
+              <button type="button" class="sec" data-accion="catalogo-paso" data-paso="3"><i data-lucide="arrow-left"></i>Volver</button>
+            </div>
+          </form>
+          <div class="error" id="errorAlta"></div>
+          <div id="resultadoAlta"></div>
+        </section>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ============ MODAL LISTA NEGRA ============ -->
@@ -277,60 +452,6 @@
       </form>
       <div style="margin-top:16px;max-height:200px;overflow-y:auto" id="listaRostros"></div>
     </div>
-  </div>
-</div>
-
-<!-- ============ MODAL ALTA DE CAMARA ============ -->
-<div id="modalCamaras" class="modal-overlay">
-  <div class="tarjeta">
-    <div class="pestanas">
-      <span style="font-weight:700;display:flex;align-items:center;gap:8px">
-        <i data-lucide="scan-search"></i>Agregar cámara
-      </span>
-      <span class="crece"></span>
-      <button class="sec" type="button" data-accion="cerrar-camaras"><i data-lucide="x"></i>Cerrar</button>
-    </div>
-
-    <p class="sub">
-      Busca la cámara en tu red, confírmala con una prueba en vivo y guárdala.
-      Funciona con cámaras Hikvision (u otra marca compatible con RTSP/ISAPI).
-    </p>
-
-    <button class="sec" type="button" data-accion="buscar-camaras" style="width:100%;justify-content:center;margin-bottom:6px">
-      <i data-lucide="radar"></i>Buscar cámaras en mi red
-    </button>
-    <div id="estadoBusqueda"></div>
-    <div class="dispositivos-lan" id="dispositivosLan"></div>
-
-    <form id="formCamara">
-      <div class="fila-doble">
-        <div class="campo">
-          <label for="camHost">IP de la cámara</label>
-          <input id="camHost" placeholder="192.168.1.64" required>
-        </div>
-        <div class="campo">
-          <label for="camId">Identificador</label>
-          <input id="camId" placeholder="cam-01" value="cam-01" required pattern="[A-Za-z0-9_\-]{2,64}">
-        </div>
-      </div>
-      <div class="fila-doble">
-        <div class="campo">
-          <label for="camUser">Usuario</label>
-          <input id="camUser" placeholder="admin" value="admin" required>
-        </div>
-        <div class="campo">
-          <label for="camPassword">Contraseña</label>
-          <input id="camPassword" type="password" required autocomplete="off">
-        </div>
-      </div>
-
-      <button type="submit" id="btnProbarCamara" style="width:100%;justify-content:center">
-        <i data-lucide="video"></i>Probar conexión
-      </button>
-      <div class="error" id="errorCamara"></div>
-    </form>
-
-    <div id="resultadoCamara"></div>
   </div>
 </div>
 
