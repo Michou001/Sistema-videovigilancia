@@ -59,3 +59,6 @@ imagenes-prueba/
 
 # Respaldos locales (tools/respaldo.py): llevan .env y la base de datos
 respaldos/
+
+# Videos de demostracion (pesan): se copian a mano a cada equipo
+demo/videos/
