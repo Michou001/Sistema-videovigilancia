@@ -5,6 +5,12 @@ Detección de **placas mexicanas**, **rostros**, **movimiento anómalo**,
 video en vivo de cámaras IP, con cruce contra lista negra, alertas en tiempo
 real, clips de evidencia y avisos al celular, en una plataforma web.
 
+> **Caso de despliegue institucional / InnovaTICs:** la propuesta para un campus
+> universitario se documenta en
+> **[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
+> El plan de pruebas y estabilización para la final está en
+> **[docs/validacion-innovatics.md](docs/validacion-innovatics.md)**.
+
 | Módulo | Estado |
 |---|---|
 | Placas mexicanas (YOLOv9 + OCR de placas + formatos NOM-001-SCT-2-2016) | Funcionando; 35/35 lecturas en pruebas de ángulo ([ADR-001](docs/adr/ADR-001-lectura-de-placas.md), [placas mexicanas](docs/placas-mexicanas.md)) |
@@ -60,6 +66,24 @@ lista negra, el horario de las reglas y la severidad los decide la API, que es
 quien tiene la base de datos; por eso la lista negra y las reglas se cambian
 sin tocar los workers.
 
+### Despliegue físico por campus
+
+El software no exige que todas las cámaras estén conectadas al mismo router ni
+que pertenezcan físicamente al mismo edificio. La propuesta institucional usa:
+
+- cámaras IP por Ethernet;
+- switches PoE cercanos a cada grupo de cámaras;
+- Cat6 para tramos de cobre dentro de su límite de diseño;
+- fibra entre edificios o zonas distantes;
+- VLAN de videovigilancia separada de usuarios;
+- uno o varios nodos GPU de borde según carga;
+- API, base de datos y auditoría centralizadas.
+
+Para alturas iniciales de cámara, tipos de punto, PoE, cálculo de ancho de
+banda, segmentación, redundancia, crecimiento por campus y ficha de
+levantamiento por cámara:
+**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
+
 ### Estructura
 
 ```
@@ -94,9 +118,9 @@ sin tocar los workers.
 │                        dataset_alertas, exportar_dataset, purgar_datos, respaldo,
 │                        metricas, placa_demo, grabar_video, ...
 ├── docker/              Imágenes, Caddyfile, go2rtc
-├── tests/               269 pruebas sin cámara ni GPU
-├── docs/                Hikvision, despliegue, privacidad, licencias, reentrenamiento,
-│                        evidencias medidas (docs/evidencias)
+├── tests/               277 pruebas sin cámara ni GPU
+├── docs/                Hikvision, despliegue, campus, privacidad, licencias,
+│                        reentrenamiento, validación, evidencias medidas
 ├── demo/                Placa de prueba imprimible; videos del plan de contingencia
 └── entrega/             Presentación y memoria técnica de la Fase 2
 ```
@@ -109,13 +133,8 @@ sin tocar los workers.
 python -m venv venv
 venv\Scripts\activate
 
-# 1. torch CON CUDA -- va aparte, NO desde requirements.txt
 pip install torch==2.13.0+cu126 torchvision==0.28.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-
-# 2. el resto, con las versiones probadas
 pip install -r requirements.txt -c constraints.txt
-
-# 3. verificar que la GPU se usa (debe decir True)
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
@@ -124,15 +143,13 @@ CPU, más lento.
 
 ```bash
 copy .env.example .env
-python tools/init_plataforma.py      # crea BD, usuario admin y token del worker
+python tools/init_plataforma.py
 ```
 
-`init_plataforma.py` imprime una sola vez la contraseña del admin y la línea
-`API_TOKEN=...` que va en el `.env`. Guía paso a paso para el equipo:
+Guía paso a paso para el equipo:
 **[docs/GUIA_PRUEBA.md](docs/GUIA_PRUEBA.md)**.
 
-**Con Docker** (equipo dedicado con GPU NVIDIA): `docker-compose.yml` levanta
-todo, con HTTPS, PostgreSQL, Redis y go2rtc. Ver
+Con Docker:
 **[docs/despliegue.md](docs/despliegue.md#con-docker)**.
 
 ---
@@ -140,22 +157,19 @@ todo, con HTTPS, PostgreSQL, Redis y go2rtc. Ver
 ## Uso
 
 ```bash
-iniciar_api.bat                 # o: python -m api
-iniciar_worker.bat              # o: python -m edge.worker
+iniciar_api.bat
+iniciar_worker.bat
 ```
 
 Dashboard en `http://localhost:8000`, documentación de la API en `/docs`.
 
-Antes de cargar modelos conviene verificar la fuente de video:
+Antes de cargar modelos:
 
 ```bash
 python -m edge.worker --diagnostico
 ```
 
-Reporta fps reales, latencia, frames descartados, reconexiones y uso de CPU. Si
-aquí los números están mal, ningún modelo lo va a arreglar.
-
-Cambiar de fuente es solo editar `SOURCE` en el `.env`:
+Cambiar fuente es configuración:
 
 ```bash
 SOURCE=webcam:0
@@ -206,13 +220,12 @@ proceso por cámara, que es lo que hace el catálogo
 
 ```bash
 python -m edge.worker --env .env --env .env.cam2 --env .env.cam3
-python -m edge.worker --carpeta camaras          # todos los camaras/*.env
+python -m edge.worker --carpeta camaras
 ```
 
-El alta desde el dashboard crea el archivo de cada cámara (copiando el token y
-los detectores del `.env`).
+---
 
-### El dashboard
+## El dashboard
 
 | Apartado | Para qué | Qué muestra |
 |---|---|---|
@@ -220,274 +233,99 @@ los detectores del `.env`).
 | **Registro** | Pantalla de trabajo | Búsqueda de eventos por placa, tipo, estado, fechas o **descripción**; alertas por atender con su foto y **clip** |
 | **Mapa** | Dónde está cada cámara | Cámaras en línea / sin señal; una alerta crítica parpadea en su punto |
 | **Cámaras** | Solo administradores | Catálogo de cámaras: buscar, diagnosticar, recomendar instalación, dar de alta e iniciar su worker |
-| **Administración** | Solo administradores | Usuarios y roles, bitácora, dataset de placas, notificaciones |
+| **Administración** | Solo administradores | Usuarios y roles, bitácora, zonas, dataset de placas, notificaciones |
 
-- Tres roles: **Consulta** mira, **Operador** además atiende alertas y
-  exporta, **Administrador** además gestiona lista negra, cámaras, zonas y
-  usuarios. Todo cambio queda en la **bitácora de auditoría**.
-- La búsqueda de placas ignora guiones y espacios: `abc123` encuentra
-  `ABC-123-A`. Una lectura mal hecha se **corrige** desde la fila (lápiz): se
-  vuelve a cruzar con la lista negra y queda como dato para reentrenar el OCR.
-- Cada alerta tiene **folio** (`ALR-000123`), foto ampliable, **clip de video**
-  de los segundos antes y después, y se cierra con una **nota de atención**.
-- **Zonas y reglas** se dibujan sobre el video de cada cámara (icono de zona
-  en su recuadro).
-- Una alerta crítica muestra un banner y suena, y llega al celular del
-  responsable (Telegram, correo, WhatsApp o webhook).
-- La vista en vivo no cuesta nada mientras nadie mira: al salir de Monitoreo
-  o con la pestaña en segundo plano, el worker deja de codificar y subir video.
+---
 
-### Cruce contra lista negra y reglas
+## Cruce contra lista negra y reglas
 
 | Detección | Estrategia | Resultado |
 |---|---|---|
-| Placa idéntica | Normalización + match exacto | `critical` |
-| Placa con error de OCR (`A8C-I23`) | Corrección por formato mexicano | `critical` — misma placa |
-| Placa parecida (`ABD-123`) | Distancia de edición ≤ 1 | `warning` — *posible* coincidencia |
-| Rostro | Similitud coseno ≥ `FACE_MATCH_THRESHOLD` | severidad del registro |
-| Movimiento súbito, caída, manos arriba, posible agresión | Regla | `warning` |
-| Zona: intrusión, cruce de línea, merodeo | Regla **dentro de su horario** | la que elija el administrador |
-| Sabotaje / pérdida de video de la cámara | Evento ISAPI de la cámara | `critical` |
-| Cámara sin imagen más de `NOTIFY_CAMARA_CAIDA_S` | Vigilante de la API | `warning` + aviso al recuperarse |
-| Arma confirmada | Regla | `critical` |
+| Placa idéntica | Normalización + match exacto | critical |
+| Placa con error de OCR | Corrección por formato mexicano | critical |
+| Placa parecida | Distancia de edición ≤ 1 | warning |
+| Rostro | Similitud coseno ≥ umbral | severidad del registro |
+| Movimiento/caída/postura | Regla | warning |
+| Zona | Regla + horario | severidad configurada |
+| Sabotaje/pérdida de video | Evento de cámara | critical |
+| Cámara sin imagen | Vigilante de API | warning |
+| Arma confirmada | Regla | critical |
 
-Una coincidencia difusa **nunca** se titula como un hecho: la alerta dice
-"Posible placa ABC-123 (se leyó ABD-123)". Cada registro puede tener
-**vigencia**. Al dar de alta una placa o una persona, el sistema **revisa el
-pasado** y genera la alerta si ya había pasado frente a una cámara.
-
-**Si la plataforma se cae, el worker no pierde nada.** Lo que no se pudo
-enviar va a `data/spool/` y se reenvía solo cuando la API vuelve.
+La coincidencia difusa nunca se presenta como hecho confirmado. Si la API se
+cae, el worker conserva eventos en `data/spool/` y los reenvía.
 
 ---
 
 ## Lectura de placas
 
-1. **Detección** con YOLOv9 entrenado solo con placas
-   (`open-image-models`, ONNX, mAP50 0.966).
-2. **Seguimiento**: un vehículo = un `track_id` = un evento, emitido cuando
-   sale de escena con la mejor evidencia acumulada.
-3. **OCR** con `fast-plate-ocr` (un transformer entrenado con placas, no un
-   OCR de texto general): menos de 1 ms por lectura, hasta 10 por vehículo.
-4. **Formatos mexicanos** (NOM-001-SCT-2-2016 y anteriores): cada formato dice
-   qué posiciones son letras y cuáles dígitos, así que `A8C-I23` se corrige a
-   `ABC-123`. Sin `I`, `Ñ`, `O` ni `Q` donde la norma no las usa. La alerta dice
-   el **tipo de placa y la entidad** ("Automóvil particular de Jalisco").
-5. **Placas extranjeras** (Texas, California...): el OCR reconoce el país y no
-   se fuerzan al formato mexicano.
-6. **Consenso** entre las lecturas del mismo vehículo y **color aproximado**
-   del vehículo para que la alerta diga qué buscar.
+El flujo usa detección, tracking, OCR especializado, formatos mexicanos,
+consenso por vehículo y cruce contra lista negra. Para instalación física, el
+lente y la geometría del carril son tan importantes como el modelo.
 
-Detalle y cómo reentrenar el OCR con placas propias:
+Detalle:
 **[docs/placas-mexicanas.md](docs/placas-mexicanas.md)**.
-
-| Condición | YOLOv5 + EasyOCR (anterior) | YOLOv9 + OCR de placas |
-|---|---|---|
-| De frente | 4/5 | 5/5 |
-| De lado 35° / 50° | 2/5 / 2/5 | 5/5 / 5/5 |
-| Desde arriba | 2/5 | 5/5 |
-| Rotada 15° | 3/5 | 5/5 |
-| Lejos | 3/5 | 5/5 |
-| Poca luz | 4/5 | 5/5 |
-| Tiempo por foto | 50–280 ms | 22–29 ms |
-
-### Alcance medido
-
-Hace falta que la placa mida **≥ 36 px de ancho** para leerla. Con placa de
-frente:
-
-| Lente | Sub-stream 1280 px | **Main 3200 px** |
-|---|---|---|
-| 2.8 mm (gran angular) | 4.1 m | **10.2 m** |
-| 4 mm (estándar) | 6.0 m | **15.1 m** |
-| 6 mm (teleobjetivo) | 10.6 m | **26.6 m** |
-
-En ángulo de 45° multiplica por 0.7, y para instalar conviene el doble de
-margen (~100 px). Reproducible con `python tools/calibrar_distancia.py`.
-Conclusiones prácticas: **el lente manda más que el modelo** y **la cámara va
-apuntada al carril**, no al estacionamiento entero.
 
 ---
 
 ## Reconocimiento facial
 
-Modelo **InsightFace `buffalo_l`** (ArcFace, embeddings de 512-d) sobre
-onnxruntime-GPU. Un rostro de menos de **50 px** se descarta; la calidad de
-cada vista combina tamaño, confianza, **pose** y **nitidez**; el embedding del
-evento promedia las 3 mejores vistas de la persona seguida y, con Hikvision,
-se recalcula sobre la foto del canal principal.
+InsightFace `buffalo_l` con embeddings de 512 dimensiones. Requiere
+calibración de umbral y fundamento legal para altas. Los embeddings de personas
+no registradas no se conservan.
 
-Dar de alta a alguien exige declarar un **fundamento legal**. Los embeddings
-de quien **no** está en la lista negra no se guardan nunca.
-
-> `buffalo_l` es de **uso no comercial**: ver [docs/licencias.md](docs/licencias.md).
+> `buffalo_l` tiene restricciones de uso: ver
+> **[docs/licencias.md](docs/licencias.md)**.
 
 ---
 
 ## Movimiento, caídas y posturas
 
-**Movimiento súbito.** Mide qué tan rápido se mueve una persona respecto a su
-propio tamaño en pantalla (alturas de cuerpo por segundo): un forcejeo, un
-golpe o alguien corriendo comparten una firma de velocidad muy por encima de
-caminar. Confirmación temporal (3 de 5 lecturas) y saltos imposibles del
-tracker descartados.
-
-**Pose (YOLO11-pose, `ENABLE_POSE`).** El esqueleto distingue lo que la caja no:
-
-| Evento | Criterio |
-|---|---|
-| **Persona caída** | El torso pasa de vertical a horizontal en < 2 s **y la cadera baja** hacia el piso. Agacharse o acostarse despacio no cuentan. |
-| **Manos arriba** | Las dos muñecas sobre la cabeza, con el torso erguido, sostenido `MANOS_ARRIBA_S` segundos: postura de asalto. |
-| **Posible agresión** | Muñecas muy rápidas en varios frames seguidos junto a otra persona. Estimación: amerita mirar. |
-
-Todo sale como `warning`: el operador decide, no una alarma automática.
+YOLO11 + tracking y YOLO11-pose permiten estimar movimiento súbito, caídas,
+manos arriba y posible agresión. Son señales para revisión del operador, no
+sentencias automáticas.
 
 ---
 
 ## Zonas y reglas
 
-Se dibujan en el dashboard sobre el video de cada cámara (solo
-administradores) y el worker las aplica sobre las personas y vehículos que ya
-sigue, sin correr otro modelo:
-
-| Regla | Ejemplo |
-|---|---|
-| **Intrusión** con horario | Alguien en el patio de 22:00 a 06:00 |
-| **Cruce de línea** con sentido | Un vehículo que entra por la salida |
-| **Merodeo** | Alguien más de 90 s junto al cajero |
-| **Conteo** | Vehículos que entran y salen por hora (estadística, sin alerta) |
-
-El pie de la persona (no el centro de la caja) decide si está dentro; una
-franja alrededor de las líneas evita contar cruces cuando alguien se queda
-parado sobre ellas. Los horarios son hora local del sitio (`ZONA_HORARIA`) y
-la API los juzga con la hora del **evento**.
-
-## La cámara misma
-
-- **Eventos ISAPI de Hikvision** (`ISAPI=auto`): lente tapado, cámara movida o
-  desenfocada, pérdida de video y la analítica propia de la cámara. Ver
-  [docs/camara-hikvision.md](docs/camara-hikvision.md).
-- **Cámara caída**: la API avisa si una cámara lleva más de
-  `NOTIFY_CAMARA_CAIDA_S` sin imagen (worker caído, red cortada, cámara que no
-  entrega video), y cuando se recupera. El aviso sale una sola vez aunque la
-  API corra en varios procesos.
-
-## Clips y avisos al celular
-
-- **Clips**: el worker guarda en memoria los últimos segundos; cuando la API
-  responde que un evento fue alerta, arma un clip de `CLIP_PRE_S` antes y
-  `CLIP_POST_S` después (H.264 con PyAV, o VP8) y lo sube. "Ver clip" aparece
-  en la alerta sin recargar.
-- **Notificaciones** (`NOTIFY_*`): Telegram, correo, WhatsApp (Twilio) y
-  webhook firmado. Solo críticas por defecto, sin repetidos, con tope por
-  minuto y **sin foto** salvo que el aviso de privacidad lo contemple. Se
-  prueban desde *Administración > Notificaciones*.
-
-## Búsqueda por descripción (opcional)
-
-Con `SEMANTIC_SEARCH=true`, un modelo de visión y lenguaje multilingüe
-(SigLIP) permite buscar en las capturas **en español**: "camioneta blanca",
-"persona con mochila roja". Cada búsqueda queda en la bitácora y los vectores
-se borran junto con su foto.
+Intrusión por horario, cruce de línea con sentido, merodeo y conteo se
+configuran por cámara. Son especialmente útiles en accesos restringidos,
+pasillos, patios y estacionamientos.
 
 ---
 
 ## Detección de armas
 
-**`ENABLE_WEAPONS=false` por defecto.** Probado contra la cámara real con un
-cuchillo en mano: YOLO11-COCO no lo detectó (COCO no tiene arma de fuego y
-reconoce cuchillos de foto de producto). El código queda listo para un modelo
-afinado (`models/weapons.pt`), con confirmación temporal de 4 de 6 frames.
-
-El camino para tenerlo: activar `DATASET_ENABLED`, que los operadores
-califiquen las alertas y armar el dataset con `tools/dataset_alertas.py`
-(**[docs/reentrenamiento.md](docs/reentrenamiento.md)**).
-
-> No descargues pesos `.pt` de repositorios desconocidos: son archivos pickle
-> y **ejecutan código arbitrario al cargarse**.
+**`ENABLE_WEAPONS=false` por defecto.** El modelo generalista no alcanzó la
+fiabilidad necesaria en prueba real; no debe venderse como función operativa
+hasta contar con un modelo y dataset validados.
 
 ---
 
-## Seguridad
+## Seguridad y privacidad
 
-- Contraseñas con bcrypt; sesión JWT con **revocación** (cambiar la
-  contraseña o el rol cierra las sesiones abiertas); límite de intentos de
-  login compartido entre procesos.
-- La evidencia (fotos, clips, video en vivo) solo se sirve con sesión; en el
-  navegador la sesión viaja en una cookie `HttpOnly` y `SameSite=Strict`, y
-  las acciones que cambian algo exigen la cabecera `Authorization` (CSRF).
-- Política de seguridad de contenido estricta: sin JavaScript en línea ni de
-  CDN (las librerías van dentro del proyecto).
-- **HTTPS** con `tools/generar_certificado.py` o con Caddy (Docker).
-- go2rtc solo es alcanzable a través del proxy, con sesión y solo para
-  negociar el video.
-- **Bitácora de auditoría** de todo cambio y de toda búsqueda por
-  descripción.
+- bcrypt y JWT revocable;
+- cookie HttpOnly/SameSite para lectura;
+- autorización para cambios;
+- CSP estricta;
+- HTTPS;
+- go2rtc detrás de proxy;
+- bitácora de auditoría;
+- retención por capas.
 
-## Privacidad
-
-Retención por capas, con purga automática cada 24 h:
-
-| Dato | Plazo |
-|---|---|
-| Fotos de eventos sin coincidencia | 7 días |
-| Eventos sin coincidencia (solo texto) | 30 días |
-| Clips de video de alertas | 90 días |
-| Alertas y su evidencia | 1 año |
-| Embeddings de quien no está en la lista negra | nunca se guardan |
-
-```bash
-python tools/purgar_datos.py --simular
-```
-
-Obligaciones al instalarlo, notificaciones, clips y búsqueda:
-**[docs/privacidad.md](docs/privacidad.md)**.
-
-## Licencias
-
-Casi todo es MIT/BSD/Apache, **salvo tres piezas** que deciden si el sistema
-se puede comercializar tal cual: **Ultralytics YOLO11 (AGPL-3.0)**, los pesos
-de rostros **`buffalo_l` (no comercial)** y FFmpeg/x264 de los clips H.264
-(GPL). Alternativas en **[docs/licencias.md](docs/licencias.md)**.
+Ver:
+**[docs/privacidad.md](docs/privacidad.md)** y
+**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
 
 ---
 
-## Rendimiento medido
-
-RTX 4050 Laptop (6 GB), Hikvision 1280×720 @ 20 fps, placas + rostros + armas
-a la vez:
-
-| Detector | ms/frame |
-|---|---|
-| Placas | 10.5 |
-| Rostros | 21.4 |
-| Armas | 12.0 |
-| **Total** | **43.9** |
-
-**7.8 fps de 8 objetivo, 1.6 GB de 6 GB de VRAM**, 0 reconexiones.
-
-Para ir más rápido: `python tools/optimizar_modelos.py` mide FP16 y exporta
-los YOLO a **TensorRT**; `ORT_TENSORRT=true` hace lo mismo con placas y
-rostros; `HW_DECODE=auto` decodifica el video en la GPU; y varias cámaras en
-un proceso comparten los modelos.
-
-Dos trampas encontradas midiendo, ambas silenciosas:
-
-1. **onnxruntime-gpu 1.23+ está compilado contra CUDA 13** y PyTorch cu126 trae
-   CUDA 12. No lanza error: cae a CPU y el reconocimiento pasa de 12 a 77 ms.
-   Por eso `requirements.txt` fija `onnxruntime-gpu==1.22.0`.
-2. **El limitador de fps recalculaba el objetivo desde el momento del yield**
-   y daba 5.5 fps con objetivo 8. Corregido con planificación acumulativa.
-
----
-
-## Pruebas
+## Rendimiento y pruebas
 
 ```bash
 python tests/correr_todas.py
 ```
 
-**269 pruebas en 23 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
+**277 pruebas en 24 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
 confirmación temporal, rostros, pose, zonas y horarios, ISAPI, clips,
 notificaciones (servicios simulados), cámaras caídas, búsqueda, reentrenamiento,
 WebRTC, seguridad, retención, catálogo de cámaras (con una cámara simulada
@@ -502,6 +340,11 @@ PRUEBAS_REDIS=redis://localhost:6379/15 python tests/correr_todas.py
 
 La integración continua corre todo en Linux y Windows (Python 3.11 y 3.12),
 contra PostgreSQL 16 y Redis 7, y construye la imagen Docker de la API.
+
+Para la preparación de InnovaTICs no basta con CI: deben registrarse métricas
+de campo de red, placa, pose, reglas, resiliencia, carga multicámara y
+almacenamiento. Ver
+**[docs/validacion-innovatics.md](docs/validacion-innovatics.md)**.
 
 ---
 
@@ -522,6 +365,8 @@ resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
 
 ## Despliegue
 
-Servidor 24/7, servicios, Docker, WebRTC, varias cámaras y checklist de
-producción: **[docs/despliegue.md](docs/despliegue.md)**. El código corre
-igual en Windows y Linux.
+Servidor 24/7, Docker, WebRTC, varias cámaras y checklist de producción:
+**[docs/despliegue.md](docs/despliegue.md)**.
+
+Diseño físico y red para campus:
+**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
