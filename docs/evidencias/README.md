@@ -73,6 +73,11 @@ producción, sobre escenas generadas:
 Por eso, en la demo el accesorio principal es la foto de una placa real y
 esta placa queda de respaldo (ver `tools/placa_demo.py`).
 
+## Matriz de pruebas
+
+[matriz-de-pruebas.md](matriz-de-pruebas.md): qué se probó, cómo, y qué falta
+probar con la cámara del stand.
+
 ## Pendientes de medir con la cámara real
 
 Se miden en el Bootcamp, con la cámara Hikvision del stand:
