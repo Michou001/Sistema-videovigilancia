@@ -268,6 +268,7 @@ export function marcarEnCamara(ev) {
   const r = recuadros.get(ev.camera_id);
   if (!r) return;
   r.ultimoEvento = ev;
+  r.el.classList.remove('detecto'); void r.el.offsetWidth; r.el.classList.add('detecto');
   r.el.querySelector('.ultimo-evento').textContent = `${valorLegible(ev)} · ${hora(ev.ts)}`;
   r.el.querySelector('[data-accion="evidencia-camara"]').disabled = !ev.snapshot_path;
   if (!r.capa) return;

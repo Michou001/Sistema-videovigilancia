@@ -33,38 +33,8 @@ input, select, textarea {
 }
 input::placeholder, textarea::placeholder { color: #8dA3bf; opacity: 1; }
 input:focus, textarea:focus, select:focus { outline: 2px solid #68b7ff; outline-offset: 2px; }
-#login { padding: 48px; background: radial-gradient(ellipse at 12% 34%, #1552a03b, transparent 60%); }
-.login-layout { display: grid; grid-template-columns: minmax(0, 1fr) 410px; gap: 80px; align-items: center; width: min(1120px, 100%); }
-.login-presentacion { position: relative; }
-.login-presentacion .marca { justify-content: flex-start; margin-bottom: 64px; }
-.marca .ojo { width: 48px; height: 48px; background: #183563; border-color: #376095; border-radius: 14px; }
-.marca .ojo img { width: 31px; }
-.marca .nombre { color: var(--texto); font-size: 18px; font-weight: 750; letter-spacing: 2px; }
-.marca .nombre small { display: block; font-size: 10px; color: #b0c5e0; font-weight: 400; letter-spacing: 1px; margin-top: 3px; }
-.login-eyebrow { display: flex; align-items: center; gap: 10px; color: #8acfff; font-size: 12px; letter-spacing: .3px; margin-bottom: 20px; }
-.login-eyebrow span { width: 24px; height: 2px; background: #63d4ed; }
-.login-presentacion h1 { font-size: clamp(48px, 5.6vw, 76px); line-height: 1.06; letter-spacing: -3px; font-weight: 750; }
-.login-presentacion h1 em { font-style: normal; color: #7ed7f3; }
-.login-descripcion { max-width: 400px; color: #b5c8e1; font-size: 17px; line-height: 1.75; margin-top: 25px; }
-.login-capacidades { display: flex; flex-wrap: wrap; gap: 12px 22px; margin-top: 32px; color: #c1d0e4; font-size: 12px; }
-.login-capacidades span { display: flex; align-items: center; gap: 8px; }
-.login-capacidades svg { color: #71c8ff; font-size: 17px; }
-.login-pie { margin-top: 64px; padding-top: 20px; border-top: 1px solid #2c4260; font-size: 11px; color: #83a5d4; letter-spacing: 1px; }
-.login-pie span { margin-left: 14px; color: #a9bad0; letter-spacing: 0; }
 .tarjeta { border-radius: 20px; background: linear-gradient(145deg, #1a304b, #0f1f34); border-color: #385578; box-shadow: 0 24px 80px #00000030; }
-#formLogin { max-width: none; padding: 34px; border-top: 3px solid #64c4ed; }
-#formLogin .logo-hero { width: 138px; margin: 0 auto 24px; }
-.login-form-heading { margin-bottom: 28px; text-align: center; }
-.login-form-heading h2 { font-size: 24px; letter-spacing: -.6px; }
-.login-form-heading p { color: var(--tenue); margin-top: 5px; font-size: 13px; }
 .campo label { font-size: 12px; text-transform: none; letter-spacing: 0; margin-bottom: 8px; color: #d2def0; }
-#formLogin .campo { margin-bottom: 20px; }
-#formLogin input { min-height: 48px; }
-.login-submit { width: 100%; justify-content: center; margin-top: 9px; min-height: 48px; background: linear-gradient(110deg, #2563df, #327ff0); color: #fff; }
-.login-submit svg:last-child { margin-left: auto; }
-.login-submit svg:first-child { margin-right: auto; }
-.login-acceso { text-align: center; display: flex; justify-content: center; align-items: center; gap: 7px; font-size: 11px; color: #a9bdd7; padding-top: 16px; border-top: 1px solid #2c4260; }
-.login-acceso svg { color: #79badf; font-size: 15px; }
 #barra { backdrop-filter: blur(16px); }
 #barra::after { height: 2px; opacity: 1; background: linear-gradient(90deg, #317bf0, #72cce8 40%, #1d3d64); }
 header { padding: 16px 28px; background: #102038f2; border-bottom: none; gap: 13px; }
@@ -111,22 +81,9 @@ tbody tr:hover { background: #1a3452; }
 .catalogo { padding: 22px 28px 40px; max-width: none; }
 @media (min-width: 1700px) { main { grid-template-columns: minmax(0, 1fr) 400px; } }
 @media (max-width: 1100px) {
-  .login-layout { gap: 40px; grid-template-columns: minmax(0, 1fr) 360px; }
-  #login { padding: 32px; }
   main { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  #login { padding: 28px 20px; }
-  .login-layout { grid-template-columns: minmax(0, 1fr); gap: 28px; max-width: 430px; }
-  .login-presentacion .marca { margin-bottom: 25px; }
-  .login-presentacion h1 { font-size: 42px; letter-spacing: -1.5px; }
-  .login-presentacion h1 br { display: none; }
-  .login-presentacion h1 em::before { content: " "; }
-  .login-eyebrow { font-size: 11px; margin-bottom: 12px; }
-  .login-descripcion { margin-top: 14px; font-size: 14px; }
-  .login-capacidades, .login-pie { display: none; }
-  #formLogin { padding: 26px; }
-  #formLogin .logo-hero { width: 98px; margin-bottom: 16px; }
   header { padding: 14px 16px; gap: 10px; }
   nav.apartados { order: 10; width: 100%; overflow-x: auto; }
   nav.apartados button { flex: 1; padding: 7px 11px; white-space: nowrap; }
@@ -139,117 +96,9 @@ tbody tr:hover { background: #1a3452; }
   main, .catalogo { padding: 18px 16px 30px; gap: 16px; }
   #rejilla { padding: 12px; gap: 12px; }
   .panel > h2 { padding: 14px; }
-  .login-presentacion h1 br::after { content: " "; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-}
-/* Cristal facetado inspirado en las capas del ojo de GOSS. */
-#login {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  background:
-    radial-gradient(ellipse at 78% 32%, #278fee38, transparent 46%),
-    radial-gradient(ellipse at 15% 76%, #2147ac30, transparent 46%),
-    linear-gradient(135deg, #071223, #0c2342 54%, #080f20);
-}
-#login::before, #login::after {
-  content: ""; position: absolute; pointer-events: none; z-index: -1;
-}
-#login::before {
-  inset: 0;
-  background: url("/static/img/cristal-login.svg") center / cover no-repeat;
-  opacity: .8;
-}
-#login::after {
-  width: 550px; height: 550px; right: -180px; top: -210px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #87dfff25, transparent 68%);
-  filter: blur(20px);
-}
-.login-layout { position: relative; z-index: 1; }
-#formLogin {
-  position: relative; isolation: isolate; overflow: hidden;
-  border: 1px solid #b2e4ff54;
-  border-top-color: #d9f5ffa3;
-  border-left-color: #a9d8ff70;
-  border-radius: 24px;
-  background:
-    linear-gradient(125deg, #b8e7ff18, transparent 38%),
-    linear-gradient(160deg, #2b547778, #122d4dd9 65%, #0c203ae8);
-  backdrop-filter: blur(26px) saturate(145%);
-  -webkit-backdrop-filter: blur(26px) saturate(145%);
-  box-shadow: 0 30px 90px #00000050, inset 0 1px 0 #d1edff38,
-              inset 1px 0 0 #8ad2ff1a, 0 0 48px #269deb0c;
-}
-#formLogin::before, #formLogin::after {
-  content: ""; position: absolute; pointer-events: none; z-index: -1;
-}
-#formLogin::before {
-  inset: 0;
-  background: linear-gradient(140deg, #dcf8ff14, #45b5fa06 62%, transparent);
-  clip-path: polygon(0 0, 100% 0, 0 55%);
-}
-#formLogin::after {
-  inset: 0;
-  background: linear-gradient(30deg, #2874cf16, #a5e9ff0e);
-  clip-path: polygon(100% 27%, 100% 100%, 34% 100%);
-}
-#formLogin .logo-hero { filter: drop-shadow(0 8px 22px #39acff35); }
-#formLogin .login-form-heading h2 { color: #f2fbff; }
-#formLogin .login-form-heading p, #formLogin .login-acceso { color: #c0d7ec; }
-#formLogin label { color: #dceeff; }
-#formLogin input {
-  border-color: #82b5dd54;
-  background: linear-gradient(135deg, #091c2cce, #102b44c7);
-  box-shadow: inset 0 2px 7px #020c162b, 0 1px 0 #b2e9ff0d;
-  color: #f4faff;
-}
-#formLogin input::placeholder { color: #a8bfd5; }
-#formLogin input:focus {
-  border-color: #84d7ff; outline: 2px solid #86d9ff;
-  outline-offset: 2px; background: #102841e8;
-}
-#formLogin .login-submit {
-  position: relative; overflow: hidden;
-  border: 1px solid #a1d9ff70;
-  background:
-    linear-gradient(155deg, #d9f7ff2e, transparent 48%),
-    linear-gradient(110deg, #215cce, #2677df 58%, #2985d2);
-  box-shadow: inset 0 1px 0 #d0f3ff59, 0 6px 20px #02162966;
-  text-shadow: 0 1px 2px #053063;
-}
-#formLogin .login-submit::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  clip-path: polygon(76% 0, 100% 0, 100% 100%, 56% 100%);
-  background: linear-gradient(150deg, #c8f4ff26, #76cdff05);
-}
-#formLogin .login-submit:hover { filter: brightness(1.1); border-color: #c0edff; }
-.login-presentacion .marca .ojo {
-  background: linear-gradient(135deg, #8ad9ff30, #2471cb38, #163d672e);
-  border-color: #84cfff62;
-  box-shadow: inset 0 1px 0 #d5f4ff40, 0 8px 24px #00000024;
-  backdrop-filter: blur(12px);
-}
-.login-presentacion h1 em {
-  color: #8ee4ff;
-  background: linear-gradient(110deg, #e1fbff, #7ad8ff 45%, #61a8f7);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.login-capacidades span {
-  padding: 8px 11px; border-radius: 8px; border: 1px solid #7ab9e729;
-  background: linear-gradient(135deg, #649dd217, #102b481c);
-}
-.login-acceso { border-top-color: #83bddd35; }
-@supports not (backdrop-filter: blur(1px)) {
-  #formLogin { background-color: #142d48; }
-}
-@media (max-width: 760px) {
-  #login::before { background-position: 64% center; opacity: .5; }
-  #formLogin { border-radius: 20px; }
-  .login-presentacion h1 { font-size: clamp(32px, 8.5vw, 42px); }
 }
 .camara-contexto { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; font-size: 12px; }
 .rol-camara { color: #c3d6ed; }
@@ -336,4 +185,174 @@ nav.apartados button.activo { color: #a1f0e1; background: #1b3f43; box-shadow: i
  .camara-cab .ubicacion { display: none; }
  .panel-video > h2 .section-eyebrow, .panel-actividad > h2 .section-eyebrow { display: none; }
  #rejilla.enfocada .camara-video { min-height: 160px; }
+}
+
+/* ---------- Acceso ----------
+   Pantalla de producto, no de presentacion: marca, sitio, hora y estado del
+   servidor. El formulario queda en la pupila del iris del logo. */
+#login {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: grid; min-height: 100vh; grid-template-rows: 1fr auto;
+  background:
+    radial-gradient(ellipse 60% 70% at 72% 50%, #1b4f9a40, transparent 70%),
+    linear-gradient(160deg, #081427, #0a1a33 55%, #071022);
+}
+.acceso {
+  display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 72px;
+  align-items: center; align-self: center; width: min(1160px, 100%); margin: 0 auto;
+  padding: 48px 48px 24px;
+}
+.acceso-marca { display: flex; align-items: center; gap: 14px; }
+.acceso-marca img { width: 44px; height: 44px; }
+.acceso-marca span { font-size: 19px; font-weight: 700; letter-spacing: 3px; color: var(--texto); }
+.acceso-marca small {
+  display: block; margin-top: 3px; font-size: 11px; font-weight: 400;
+  letter-spacing: 1.2px; color: #9fb6d3; text-transform: uppercase;
+}
+.acceso-reloj { margin: 72px 0 56px; }
+.acceso-hora {
+  font-size: clamp(64px, 8vw, 104px); font-weight: 300; line-height: 1;
+  letter-spacing: -2px; font-variant-numeric: tabular-nums; color: #eef6ff;
+}
+.acceso-hora span { font-size: .38em; letter-spacing: 0; color: #6f93bd; margin-left: 4px; }
+.acceso-fecha { margin-top: 14px; font-size: 17px; color: #b7cbe3; }
+.acceso-fecha::first-letter { text-transform: uppercase; }
+.acceso-nombre {
+  display: inline-block; margin-top: 22px; padding: 6px 12px; border-left: 3px solid #4fb3fa;
+  background: #12305580; font-size: 14px; font-weight: 600; color: #d8e9fb;
+}
+.acceso-estado { list-style: none; display: grid; gap: 10px; font-size: 13px; color: #a9bfd9; }
+.acceso-estado li { display: flex; align-items: center; gap: 10px; }
+.acceso-estado svg { width: 15px; height: 15px; color: #6fb6ef; }
+.acceso-estado .punto { width: 8px; height: 8px; margin: 0 3px; }
+
+#formLogin {
+  position: relative; max-width: none; padding: 36px; border-radius: 16px;
+  background: linear-gradient(180deg, #13294af2, #0e2140f5);
+  border: 1px solid #2f5584; box-shadow: 0 30px 80px -24px #000000a0;
+}
+/* El iris va detras del formulario, centrado en el (1130,500 de 1600x1000). */
+.acceso-panel { position: relative; }
+#formLogin { z-index: 1; }
+.acceso-panel::before {
+  content: ""; position: absolute; left: 50%; top: 50%; z-index: 0;
+  width: 1600px; height: 1000px; transform: translate(-70.625%, -50%);
+  background: url("/static/img/iris-login.svg") center / 100% 100% no-repeat;
+  pointer-events: none;
+}
+.acceso-titulo { font-size: 22px; font-weight: 650; letter-spacing: -.3px; }
+.acceso-sub { margin: 6px 0 28px; font-size: 13px; color: #9fb6d3; }
+#formLogin .campo { margin-bottom: 18px; }
+#formLogin input { min-height: 46px; background: #0a1a30; border-color: #355a86; }
+#formLogin input:focus { border-color: #6fd3ff; }
+.login-submit {
+  width: 100%; justify-content: center; min-height: 46px; margin-top: 8px;
+  background: #2f74e6; color: #fff; font-weight: 600; letter-spacing: .3px;
+}
+.login-submit:hover { background: #3b82f1; }
+.login-acceso {
+  display: flex; gap: 8px; align-items: flex-start; margin-top: 22px; padding-top: 16px;
+  border-top: 1px solid #284a73; font-size: 12px; line-height: 1.5; color: #a3b9d4;
+}
+.login-acceso svg { flex: none; width: 15px; height: 15px; margin-top: 1px; color: #6fb6ef; }
+.acceso-pie {
+  display: flex; justify-content: space-between; gap: 16px; padding: 14px 48px;
+  border-top: 1px solid #1d3657; font-size: 11px; letter-spacing: 1px; color: #7f9cc0;
+  font-family: var(--mono);
+}
+@media (max-width: 960px) {
+  .acceso { grid-template-columns: minmax(0, 1fr); gap: 28px; max-width: 460px; padding: 28px 16px 16px; }
+  .acceso-reloj { margin: 28px 0 0; }
+  .acceso-hora { font-size: 56px; }
+  .acceso-estado { display: none; }
+  #formLogin { padding: 26px 20px; }
+  .acceso-pie { padding: 12px 16px; }
+}
+
+/* ---------- Acceso: movimiento ----------
+   Entrada escalonada, el iris girando como lente que enfoca y el punto de
+   estado "latiendo". Todo se apaga con prefers-reduced-motion (arriba). */
+.acceso-panel::after, .acceso-escaneo {
+  content: ""; position: absolute; left: 50%; top: 50%; z-index: 0;
+  width: 1000px; height: 1000px; pointer-events: none;
+}
+.acceso-panel::after {
+  background: url("/static/img/iris-marcas.svg") center / 100% 100% no-repeat;
+  animation: acceso-aparecer 1.4s ease-out both, acceso-girar 140s linear infinite;
+}
+.acceso-escaneo {
+  background: url("/static/img/iris-escaneo.svg") center / 100% 100% no-repeat;
+  animation: acceso-aparecer 1.6s .3s ease-out both, acceso-girar 18s linear infinite;
+}
+.acceso-panel::before { animation: acceso-enfocar 1.6s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes acceso-girar { from { transform: translate(-50%, -50%) rotate(0); }
+                          to   { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes acceso-aparecer { from { opacity: 0; } to { opacity: 1; } }
+@keyframes acceso-enfocar {
+  from { opacity: 0; transform: translate(-70.625%, -50%) scale(1.12); filter: blur(6px); }
+  to   { opacity: 1; transform: translate(-70.625%, -50%) scale(1); filter: blur(0); }
+}
+
+.acceso-marca, .acceso-reloj, .acceso-estado, #formLogin, .acceso-pie {
+  animation: acceso-entrar .8s cubic-bezier(.2, .7, .2, 1) both;
+}
+.acceso-reloj { animation-delay: .08s; }
+.acceso-estado { animation-delay: .16s; }
+#formLogin { animation-delay: .12s; }
+.acceso-pie { animation-delay: .3s; }
+@keyframes acceso-entrar { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+.acceso-estado .punto.on { animation: acceso-latido 2.4s ease-out infinite; }
+@keyframes acceso-latido {
+  0% { box-shadow: 0 0 0 0 #34d39980; }
+  70%, 100% { box-shadow: 0 0 0 8px #34d39900; }
+}
+.acceso-hora span { transition: color .3s; }
+
+#formLogin input { transition: border-color .2s, box-shadow .2s, background .2s; }
+#formLogin input:focus { box-shadow: 0 0 0 4px #4fb3fa26; }
+.login-submit { position: relative; overflow: hidden; transition: background .2s, transform .1s; }
+.login-submit::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+  background: linear-gradient(100deg, transparent 30%, #ffffff40 50%, transparent 70%);
+}
+.login-submit:hover::after { transform: translateX(120%); transition: transform .7s ease; }
+.login-submit:active { transform: scale(.985); }
+.login-submit:disabled { background: #2f74e6; }
+.login-submit:disabled::after {
+  transform: none; background-size: 200% 100%;
+  animation: acceso-cargando 1s linear infinite;
+}
+@keyframes acceso-cargando { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+#formLogin.sacudir { animation: acceso-sacudir .42s cubic-bezier(.36, .07, .19, .97); }
+@keyframes acceso-sacudir {
+  20%, 60% { transform: translateX(-7px); }
+  40%, 80% { transform: translateX(7px); }
+}
+
+/* ---------- Dashboard: movimiento ----------
+   La misma identidad del acceso dentro del sistema. Sin transformaciones que
+   se queden puestas: el mapa (Leaflet) mide su contenedor al abrir. */
+.vista.activa { animation: vista-entra .45s cubic-bezier(.2, .7, .2, 1); }
+@keyframes vista-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.punto.on { animation: acceso-latido 2.4s ease-out infinite; }
+
+.metrica.cambio { animation: metrica-cambio 1.2s ease-out; }
+.metrica.critica.cambio { animation: metrica-critica 1.4s ease-out; }
+@keyframes metrica-cambio { 0% { border-color: #6fd3ff; box-shadow: 0 0 0 3px #4fb3fa40; } 100% { box-shadow: 0 0 0 0 #4fb3fa00; } }
+@keyframes metrica-critica { 0% { border-color: var(--critico); box-shadow: 0 0 0 3px #ff475755; } 100% { box-shadow: 0 0 0 0 #ff475700; } }
+
+.deteccion.nueva { animation: deteccion-entra .5s cubic-bezier(.2, .7, .2, 1), entra 1.2s ease-out; }
+.deteccion.nueva.critical { animation: deteccion-entra .5s cubic-bezier(.2, .7, .2, 1), deteccion-critica 1.8s ease-out; }
+@keyframes deteccion-entra { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes deteccion-critica { 0%, 40% { background: #ff475738; } 100% { background: rgba(255,71,87,.07); } }
+
+.camara.detecto { animation: camara-detecto 1.4s ease-out; }
+@keyframes camara-detecto { 0% { box-shadow: 0 0 0 2px #6fd3ff, 0 0 28px #4fb3fa66; } 100% { box-shadow: 0 15px 40px #0003; } }
+.camara.destacada { animation: camara-alerta 1.6s ease-in-out infinite; }
+@keyframes camara-alerta {
+  0%, 100% { box-shadow: 0 0 0 1px var(--critico), 0 0 0 0 #ff475700; }
+  50% { box-shadow: 0 0 0 2px var(--critico), 0 0 26px #ff475766; }
 }

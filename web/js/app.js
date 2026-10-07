@@ -35,6 +35,7 @@ import './placas.js';
 import './zonas.js';
 import './mapa.js';
 import './titulos.js';
+import './acceso.js';
 
 iconos();
 
@@ -185,12 +186,30 @@ function pedirStats() {
 }
 escuchar('pedir-stats', pedirStats);
 
+/* Una metrica que cambia cuenta hasta su valor nuevo y destella: el operador
+ * ve que algo acaba de pasar sin leer el numero. La primera carga no anima. */
+function contar(id, valor) {
+  const el = $(id);
+  const antes = Number(el.dataset.valor ?? valor);
+  el.dataset.valor = valor;
+  if (antes === valor || !Number.isFinite(antes)) { el.textContent = valor; return; }
+  const tarjeta = el.closest('.metrica');
+  tarjeta.classList.remove('cambio'); void tarjeta.offsetWidth; tarjeta.classList.add('cambio');
+  const inicio = performance.now(), dur = 700;
+  const paso = (t) => {
+    const k = Math.min(1, (t - inicio) / dur), suave = 1 - (1 - k) ** 3;
+    el.textContent = Math.round(antes + (valor - antes) * suave);
+    if (k < 1 && el.dataset.valor == valor) requestAnimationFrame(paso);
+  };
+  requestAnimationFrame(paso);
+}
+
 async function refrescarStats() {
   try {
     const s = await api('/api/stats');
-    $('mEventos').textContent = s.total_eventos;
-    $('mAlertas').textContent = s.alertas_nuevas;
-    $('mPlacas').textContent = s.eventos_por_tipo.plate || 0;
+    contar('mEventos', s.total_eventos);
+    contar('mAlertas', s.alertas_nuevas);
+    contar('mPlacas', s.eventos_por_tipo.plate || 0);
 
     // Con el operador en Monitoreo, el globo del otro apartado es lo unico que
     // le dice que hay alertas esperando.

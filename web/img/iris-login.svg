@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <!-- Fondo del acceso: el iris del logo de GOSS IP como reticula de lente. -->
+  <g fill="none" stroke="#4a8fe0">
+    <path d="M 330 500 Q 1130 -170 1930 500 Q 1130 1170 330 500 Z" stroke-opacity=".10" stroke-width="1.5"/>
+    <circle cx="1130" cy="500" r="262" stroke-opacity="0.34" stroke-width="1.2"/>
+    <circle cx="1130" cy="500" r="300" stroke-opacity="0.16" stroke-width="1"/>
+    <circle cx="1130" cy="500" r="410" stroke-opacity="0.22" stroke-width="1"/>
+    <circle cx="1130" cy="500" r="560" stroke-opacity="0.12" stroke-width="1"/>
+    <circle cx="1130" cy="500" r="740" stroke-opacity="0.08" stroke-width="1"/>
+    <circle cx="1130" cy="500" r="950" stroke-opacity="0.05" stroke-width="1"/>
+    <path d="M140 500H800M1460 500H2120M1130 -60V170M1130 830V1060" stroke-opacity=".10" stroke-dasharray="2 10"/>
+  </g>
+</svg>

@@ -25,38 +25,42 @@
 
 <!-- ============ LOGIN ============ -->
 <div id="login">
-  <div class="login-layout">
-    <section class="login-presentacion" aria-labelledby="loginTitulo">
-      <div class="marca">
-        <span class="ojo"><img src="/static/img/logo-icon.png" alt=""></span>
-        <span class="nombre">GOSS IP <small>Videovigilancia inteligente</small></span>
+  <div class="acceso">
+    <section class="acceso-sitio" aria-label="Centro de monitoreo">
+      <div class="acceso-marca">
+        <img src="/static/img/favicon.svg" alt="" width="44" height="44">
+        <span>GOSS IP<small>Videovigilancia inteligente</small></span>
       </div>
-      <div class="login-eyebrow"><span></span> Una visión más clara de tu seguridad</div>
-      <h1 id="loginTitulo">Observa.<br> Comprende.<br> <em>Actúa.</em></h1>
-      <p class="login-descripcion">Cámaras, detecciones y evidencia conectadas en un mismo centro de monitoreo.</p>
-      <div class="login-capacidades">
-        <span><i data-lucide="video"></i>Video en vivo</span>
-        <span><i data-lucide="scan-line"></i>Detección inteligente</span>
-        <span><i data-lucide="layers"></i>Evidencia organizada</span>
+      <div class="acceso-reloj">
+        <div class="acceso-hora" id="accesoHora">--:--<span id="accesoSeg">:--</span></div>
+        <div class="acceso-fecha" id="accesoFecha"></div>
+        <div class="acceso-nombre" id="accesoSitio">Centro de monitoreo</div>
       </div>
-      <div class="login-pie">GOSS IP <span>Visibilidad para tomar mejores decisiones.</span></div>
+      <ul class="acceso-estado">
+        <li><span class="punto" id="accesoPunto"></span><span id="accesoServidor">Comprobando el servidor…</span></li>
+        <li><i data-lucide="cpu"></i>Video y análisis procesados en este equipo</li>
+      </ul>
     </section>
-    <form class="tarjeta" id="formLogin">
-      <img class="logo-hero" src="/static/img/logo-full.svg" width="466" height="451" alt="GOSS IP">
-      <div class="login-form-heading"><h2>Bienvenido</h2><p>Ingresa a tu centro de monitoreo.</p></div>
-      <div class="campo">
-        <label for="usuario">Usuario</label>
-        <input id="usuario" autocomplete="username" placeholder="Tu usuario" required autofocus>
-      </div>
-      <div class="campo">
-        <label for="password">Contraseña</label>
-        <input id="password" type="password" autocomplete="current-password" placeholder="Tu contraseña" required>
-      </div>
-      <button type="submit" class="login-submit"><i data-lucide="log-in"></i>Entrar al sistema<i data-lucide="arrow-right"></i></button>
-      <div class="error" id="errorLogin" role="alert"></div>
-      <p class="login-acceso"><i data-lucide="shield-check"></i>Acceso para personal autorizado</p>
-    </form>
+    <div class="acceso-panel">
+      <div class="acceso-escaneo" aria-hidden="true"></div>
+      <form class="tarjeta" id="formLogin">
+        <h1 class="acceso-titulo">Iniciar sesión</h1>
+        <p class="acceso-sub">Usa la cuenta que te asignó el administrador.</p>
+        <div class="campo">
+          <label for="usuario">Usuario</label>
+          <input id="usuario" autocomplete="username" required autofocus>
+        </div>
+        <div class="campo">
+          <label for="password">Contraseña</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="login-submit">Entrar</button>
+        <div class="error" id="errorLogin" role="alert"></div>
+        <p class="login-acceso"><i data-lucide="shield-check"></i>Acceso restringido. Cada inicio de sesión y cada intento fallido quedan en la bitácora.</p>
+      </form>
+    </div>
   </div>
+  <footer class="acceso-pie"><span>GOSS IP</span><span id="accesoVersion"></span></footer>
 </div>
 
 <!-- ============ APP ============ -->
@@ -75,7 +79,7 @@
 
   <header>
     <h1>
-      <img src="/static/img/logo-icon.png" alt="" style="width:20px;height:auto">
+      <img src="/static/img/favicon.svg" alt="" width="22" height="22">
       GOSS IP
     </h1>
 

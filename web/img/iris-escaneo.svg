@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <!-- Arcos de escaneo del acceso: giran alrededor del formulario. -->
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6fd3ff" stop-opacity="0"/><stop offset="1" stop-color="#6fd3ff"/></linearGradient></defs>
+  <g fill="none" stroke-width="2.5" stroke-linecap="round">
+    <path d="M640.2 114.7A410 410 0 0 1 897.8 400.8" stroke="#6fd3ff" stroke-opacity=".6"/>
+    <path d="M359.8 885.3A410 410 0 0 1 185.9 763.5" stroke="#6fd3ff" stroke-opacity=".3"/>
+    <path d="M253.8 410.4A262 262 0 0 1 410.4 253.8" stroke="#8fe0ff" stroke-opacity=".35" stroke-width="2"/>
+  </g>
+</svg>
