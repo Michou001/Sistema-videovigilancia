@@ -7,10 +7,11 @@
  */
 
 import {
-  $, accion, api, colorTexto, emitir, escapar, estado, fechaHora, hora, iconoTag, iconos,
+  $, accion, api, colorTexto, emitir, escapar, estado, escuchar, fechaHora, hora, iconoTag, iconos,
   NOMBRES, nombreCamara, puede, valorLegible,
 } from './nucleo.js';
-import { miniatura } from './evidencia.js';
+import { miniatura, abrirVisor, urlEvidencia } from './evidencia.js';
+import { estadoCamara, nombreFuncion } from './salud_camaras.js';
 import { abrirWebRTC, Superposicion } from './webrtc.js';
 
 /* camera_id -> { el, img, cuerpo, transmitiendo, capa, pc, sup, sinWebrtc } */
@@ -73,6 +74,7 @@ export async function refrescarCamaras() {
   try {
     enVivo = await api('/api/preview/camaras');
   } catch {
+    emitir('salud-video', null);
     return;   // sin red: se conserva lo que ya esta pintado
   }
 
@@ -87,6 +89,7 @@ export async function refrescarCamaras() {
     ...porId.keys(),
   ])].sort();
 
+  const resumen = [];
   for (const id of ids) {
     const vivo = porId.get(id);
     const r = recuadros.get(id) || crearRecuadro(id);
@@ -94,8 +97,15 @@ export async function refrescarCamaras() {
 
     r.el.querySelector('.nom').textContent = (meta && meta.name) || id;
     r.el.querySelector('.ubicacion').textContent = (meta && meta.location) || '';
-    r.el.querySelector('.punto').className =
-      'punto ' + (vivo ? 'on' : (meta && meta.online ? '' : 'off'));
+    const saludCam = estadoCamara(meta, vivo, r.errorVideo);
+    r.el.dataset.estado = saludCam.clave;
+    r.el.querySelector('.estado-camara').textContent = saludCam.nombre;
+    r.el.querySelector('.rol-camara').textContent = nombreFuncion(meta && meta.funcion);
+    r.el.querySelector('.punto').className = 'punto ' +
+      (saludCam.clave === 'en-linea' ? 'on' :
+        ['reconectando', 'error-video'].includes(saludCam.clave) ? 'espera' :
+          saludCam.clave === 'sin-senal' ? 'off' : '');
+    resumen.push({ id, ...saludCam });
     r.el.querySelector('.fps').textContent = vivo ? `${vivo.fps} fps video` : '';
     // Salud reportada por el latido del worker: fps a los que de verdad esta
     // detectando y cuantas veces tuvo que reconectar con la camara.
@@ -104,8 +114,12 @@ export async function refrescarCamaras() {
     if (meta && meta.reconexiones) salud.push(`${meta.reconexiones} reconex.`);
     r.el.querySelector('.salud').textContent = salud.join(' · ');
 
-    if (vivo) arrancarFlujo(r, cfg);
+    if (vivo && !['sin-senal', 'deshabilitada', 'reconectando'].includes(saludCam.clave)) arrancarFlujo(r, cfg);
     else if (r.transmitiendo) { detenerFlujo(r); r.cuerpo.innerHTML = PLACEHOLDER_SIN_SENAL; }
+    if (!r.transmitiendo) {
+      const texto = r.cuerpo.querySelector('.sinsenal');
+      if (texto) texto.textContent = saludCam.nombre;
+    }
   }
 
   // Camaras que ya no existen ni en la BD ni transmitiendo.
@@ -113,9 +127,10 @@ export async function refrescarCamaras() {
     if (!ids.includes(id)) { detenerFlujo(r); r.el.remove(); recuadros.delete(id); }
   }
 
+  emitir('salud-video', resumen);
   $('rejilla').classList.toggle('una', ids.length === 1);
   $('sinCamaras').style.display = ids.length ? 'none' : 'block';
-  $('contadorCamaras').textContent = ids.length ? `${enVivo.length}/${ids.length} en vivo` : '';
+  $('contadorCamaras').textContent = ids.length ? `${resumen.filter(c => c.clave === 'en-linea').length}/${ids.length} en vivo` : '';
   iconos();
 }
 
@@ -137,8 +152,11 @@ function crearRecuadro(id) {
       <span class="crece"></span>
       <span class="salud"></span>
       <span class="fps"></span>
+      <button class="icono-cam ampliar-camara" title="Ampliar esta cámara" aria-label="Ampliar ${escapar(id)}" data-accion="ampliar-camara" data-camara="${escapar(id)}"><i data-lucide="maximize-2"></i></button>
     </div>
-    <div class="camara-video">${PLACEHOLDER_SIN_SENAL}</div>`;
+    <div class="camara-contexto"><span class="rol-camara"></span><span class="estado-camara" role="status">Comprobando</span></div>
+    <div class="camara-video">${PLACEHOLDER_SIN_SENAL}</div>
+    <div class="camara-evidencia"><span class="ultimo-evento">Esperando un evento de esta cámara</span><button class="sec" data-accion="evidencia-camara" data-camara="${escapar(id)}" disabled>Ver evidencia</button></div>`;
   $('rejilla').append(el);
 
   const r = { id, el, img: new Image(), cuerpo: el.querySelector('.camara-video'),
@@ -149,10 +167,13 @@ function crearRecuadro(id) {
   // dejar el recuadro con la imagen rota hasta que alguien recargue.
   r.img.onerror = () => {
     if (!r.transmitiendo) return;
+    r.errorVideo = true;
+    r.el.querySelector('.estado-camara').textContent = 'Reconectando video';
     detenerFlujo(r);
     r.cuerpo.innerHTML = PLACEHOLDER_SIN_SENAL;
     iconos();
   };
+  r.img.onload = () => { r.errorVideo = false; };
   recuadros.set(id, r);
   return r;
 }
@@ -178,6 +199,7 @@ function arrancarFlujo(r, cfg = { modo: 'mjpeg' }) {
   r.cuerpo.append(r.img);
   capaUltima(r);
   r.img.src = url;
+  r.sup = new Superposicion(r.cuerpo, r.img, r.id);
   r.transmitiendo = true;
   emitir('flujo-iniciado', { id: r.id, cuerpo: r.cuerpo, img: r.img });
 }
@@ -224,10 +246,31 @@ export function recuadroDe(id) {
   return recuadros.get(id);
 }
 
+function enfocarCamara(id = null) {
+  $('rejilla').classList.toggle('enfocada', !!id);
+  $('verAmbas').hidden = !id;
+  for (const [clave, r] of recuadros) r.el.hidden = !!id && clave !== id;
+}
+accion('ampliar-camara', el => enfocarCamara(el.dataset.camara));
+accion('ver-ambas', () => enfocarCamara());
+accion('anotaciones', el => {
+  const ocultar = !$('rejilla').classList.contains('sin-anotaciones');
+  $('rejilla').classList.toggle('sin-anotaciones', ocultar);
+  el.setAttribute('aria-pressed', String(!ocultar));
+  el.innerHTML = `<i data-lucide="scan"></i>${ocultar ? 'Mostrar análisis' : 'Análisis visible'}`;
+  iconos();
+});
+escuchar('fin-sesion', () => enfocarCamara());
+document.addEventListener('keydown', e => { if (e.key === 'Escape') enfocarCamara(); });
+
 /* Marca en el recuadro de la camara lo ultimo que encontro. */
 export function marcarEnCamara(ev) {
   const r = recuadros.get(ev.camera_id);
-  if (!r || !r.capa) return;
+  if (!r) return;
+  r.ultimoEvento = ev;
+  r.el.querySelector('.ultimo-evento').textContent = `${valorLegible(ev)} · ${hora(ev.ts)}`;
+  r.el.querySelector('[data-accion="evidencia-camara"]').disabled = !ev.snapshot_path;
+  if (!r.capa) return;
   r.capa.innerHTML =
     `<span>${iconoTag(ev.type)}</span>` +
     `<span class="v">${escapar(valorLegible(ev))}</span>` +
@@ -293,3 +336,16 @@ export async function cargarDetecciones() {
 }
 
 accion('editar-camara', (el) => emitir('editar-camara', el.dataset.camara));
+
+accion('evidencia-camara', el => {
+  const ev = recuadros.get(el.dataset.camara)?.ultimoEvento;
+  if (ev?.snapshot_path) abrirVisor(urlEvidencia(ev.snapshot_path),
+    `${nombreCamara(ev.camera_id)} · ${fechaHora(ev.ts)} · ${valorLegible(ev)}`);
+});
+escuchar('stats', () => { if (temporizador) refrescarCamaras(); });
+escuchar('fin-sesion', () => {
+  for (const r of recuadros.values()) {
+    detenerFlujo(r); clearTimeout(r.temporizadorCapa); clearTimeout(r.temporizadorAlerta); r.el.remove();
+  }
+  recuadros.clear();
+});

@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GOSS IP</title>
-<link rel="icon" type="image/png" href="/static/img/logo-icon.png">
+<link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 <!-- Lucide 1.48.0 (licencia ISC): iconos SVG, iguales en cualquier sistema
      operativo. Va DENTRO del proyecto (web/vendor/) y no desde un CDN: en una
      red de camaras sin internet los botones que solo tienen icono (corregir,
@@ -14,6 +16,7 @@
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/static/css/estilos.css">
+  <link rel="stylesheet" href="/static/css/presencia.css?v=4">
 <!-- Sin JavaScript en linea (ni <script> ni onclick=""): la politica de
      seguridad del servidor lo prohibe. Toda la logica vive en /static/js. -->
 <script type="module" src="/static/js/app.js"></script>
@@ -22,27 +25,37 @@
 
 <!-- ============ LOGIN ============ -->
 <div id="login">
-  <div style="width:100%;max-width:380px">
-  <div class="marca">
-    <span class="ojo"><img src="/static/img/logo-icon.png" alt=""></span>
-    <span class="nombre">Goss IP</span>
-  </div>
-  <form class="tarjeta" id="formLogin">
-    <img class="logo-hero" src="/static/img/logo-full.png" alt="GOSS IP">
-    <p class="sub" style="text-align:center">Sistema de videovigilancia — detección de placas, rostros y movimiento anómalo</p>
-    <div class="campo">
-      <label for="usuario">Usuario</label>
-      <input id="usuario" autocomplete="username" required autofocus>
-    </div>
-    <div class="campo">
-      <label for="password">Contraseña</label>
-      <input id="password" type="password" autocomplete="current-password" required>
-    </div>
-    <button type="submit" style="width:100%;margin-top:8px;justify-content:center">
-      <i data-lucide="log-in"></i>Entrar
-    </button>
-    <div class="error" id="errorLogin" role="alert"></div>
-  </form>
+  <div class="login-layout">
+    <section class="login-presentacion" aria-labelledby="loginTitulo">
+      <div class="marca">
+        <span class="ojo"><img src="/static/img/logo-icon.png" alt=""></span>
+        <span class="nombre">GOSS IP <small>Videovigilancia inteligente</small></span>
+      </div>
+      <div class="login-eyebrow"><span></span> Una visión más clara de tu seguridad</div>
+      <h1 id="loginTitulo">Observa.<br> Comprende.<br> <em>Actúa.</em></h1>
+      <p class="login-descripcion">Cámaras, detecciones y evidencia conectadas en un mismo centro de monitoreo.</p>
+      <div class="login-capacidades">
+        <span><i data-lucide="video"></i>Video en vivo</span>
+        <span><i data-lucide="scan-line"></i>Detección inteligente</span>
+        <span><i data-lucide="layers"></i>Evidencia organizada</span>
+      </div>
+      <div class="login-pie">GOSS IP <span>Visibilidad para tomar mejores decisiones.</span></div>
+    </section>
+    <form class="tarjeta" id="formLogin">
+      <img class="logo-hero" src="/static/img/logo-full.svg" width="466" height="451" alt="GOSS IP">
+      <div class="login-form-heading"><h2>Bienvenido</h2><p>Ingresa a tu centro de monitoreo.</p></div>
+      <div class="campo">
+        <label for="usuario">Usuario</label>
+        <input id="usuario" autocomplete="username" placeholder="Tu usuario" required autofocus>
+      </div>
+      <div class="campo">
+        <label for="password">Contraseña</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="Tu contraseña" required>
+      </div>
+      <button type="submit" class="login-submit"><i data-lucide="log-in"></i>Entrar al sistema<i data-lucide="arrow-right"></i></button>
+      <div class="error" id="errorLogin" role="alert"></div>
+      <p class="login-acceso"><i data-lucide="shield-check"></i>Acceso para personal autorizado</p>
+    </form>
   </div>
 </div>
 
@@ -92,6 +105,10 @@
   </header>
   </div><!-- /#barra -->
 
+  <div class="dashboard-intro">
+    <div><p class="section-eyebrow">GOSS IP / CONTROL EN VIVO</p><h2 id="tituloVista">Todo a la vista.</h2><p id="descripcionVista">Observa tus cámaras. Identifica lo importante. Actúa con evidencia.</p></div>
+    <div class="dashboard-sello"><span class="punto on"></span><span>MONITOREO LOCAL<br><small>Video y análisis en tu equipo</small></span></div>
+  </div>
   <div class="metricas">
     <div class="metrica"><div class="n" id="mEventos">0</div><div class="e">Eventos</div></div>
     <div class="metrica critica"><div class="n" id="mAlertas">0</div><div class="e">Alertas sin ver</div></div>
@@ -102,18 +119,19 @@
   <!-- ---------- APARTADO 1: MONITOREO EN VIVO ---------- -->
   <div class="vista activa" id="vistaMonitoreo">
     <main>
-      <div class="panel">
-        <h2>Cámaras en vivo <span class="crece" id="contadorCamaras"></span></h2>
+      <div class="panel panel-video">
+        <h2><span class="section-eyebrow">01 / EN VIVO</span> Cámaras <span class="crece" id="contadorCamaras"></span>
+          <button class="sec chico" data-accion="ver-ambas" id="verAmbas" hidden><i data-lucide="layout-grid"></i>Ver todas</button>
+          <button class="sec chico" data-accion="anotaciones" id="toggleAnotaciones" aria-pressed="true"><i data-lucide="scan"></i>Análisis visible</button>
+        </h2>
         <div id="rejilla"></div>
         <div class="vacio" id="sinCamaras">
-          Ninguna cámara está enviando video.<br>
-          Inicia el worker con <span class="mono">python -m edge.worker</span>
-          y <span class="mono">PREVIEW_ENABLED=true</span> en su <span class="mono">.env</span>.
+          No hay video disponible.<br>Revisa la conexión de las cámaras y su estado en el apartado Cámaras.
         </div>
       </div>
 
-      <div class="panel">
-        <h2>Detecciones en vivo <span class="crece" id="contadorDetecciones"></span></h2>
+      <div class="panel panel-actividad">
+        <h2><span class="section-eyebrow">02 / ACTIVIDAD</span> Últimas detecciones <span class="crece" id="contadorDetecciones"></span></h2>
         <div class="lista" id="listaDetecciones" style="max-height:none"></div>
         <div class="vacio" id="sinDetecciones">Esperando detecciones…</div>
       </div>
@@ -179,7 +197,7 @@
             <thead><tr><th>Hora</th><th>Tipo</th><th>Valor</th><th>Cámara</th><th>Estado</th><th></th></tr></thead>
             <tbody id="tablaEventos"></tbody>
           </table>
-          <div class="vacio" id="sinEventos">Sin eventos todavía. Inicia el worker para empezar a detectar.</div>
+          <div class="vacio" id="sinEventos">Sin eventos todavía. Las detecciones aparecerán aquí cuando las cámaras registren actividad.</div>
         </div>
       </div>
 
@@ -203,6 +221,14 @@
       </div>
       <div class="panel">
         <h2>Sin ubicación</h2>
+        <div class="ubicacion-dispositivo" data-rol="admin">
+          <h3>Ubicación del stand</h3>
+          <p>Las cámaras están junto a la laptop. Obtén su ubicación y elige cuáles colocar en el mismo punto.</p>
+          <button class="sec" data-accion="mapa-dispositivo"><i data-lucide="locate-fixed"></i>Usar mi ubicación</button>
+          <p id="mapaPrecision" role="status"></p>
+          <div id="mapaElegirCamaras"></div>
+          <button id="mapaAplicar" data-accion="mapa-aplicar-stand" hidden>Ubicar cámaras seleccionadas aquí</button>
+        </div>
         <div id="mapaSinUbicacion"></div>
         <p class="sub" style="margin-top:12px">Pulsa "Ubicar" y luego haz clic en el mapa donde está la cámara, o
           escribe sus coordenadas al editarla (lápiz en su recuadro de Monitoreo).</p>
@@ -472,6 +498,19 @@
       <input id="edCamNombre" maxlength="80" required>
     </div>
     <div class="campo">
+      <label for="edCamFuncion">Rol de la cámara</label>
+      <select id="edCamFuncion">
+        <option value="">Sin asignar</option>
+        <option value="lpr">LPR / acceso vehicular</option>
+        <option value="peatonal">Zona peatonal / pose</option>
+        <option value="pasillo">Pasillo</option>
+        <option value="zona">Zona de seguridad</option>
+        <option value="patio">Patio</option>
+        <option value="estacionamiento">Estacionamiento</option>
+      </select>
+      <p class="ayuda">Identifica su uso en el panel. Los detectores se configuran en el catálogo.</p>
+    </div>
+    <div class="campo">
       <label for="edCamUbicacion">Ubicación</label>
       <input id="edCamUbicacion" maxlength="160" placeholder="Acceso norte · Av. Juárez esq. Hidalgo">
     </div>
@@ -587,7 +626,7 @@
   <form class="tarjeta" id="formCorreccion">
     <div class="pestanas">
       <span style="font-weight:700;display:flex;align-items:center;gap:8px">
-        <i data-lucide="pencil-line"></i>Corregir lectura
+        <i data-lucide="pencil-line"></i>Revisar detección de placa
       </span>
       <span class="crece"></span>
       <button class="sec" type="button" data-accion="cerrar-correccion"><i data-lucide="x"></i></button>
@@ -595,6 +634,12 @@
     <p class="sub">El sistema leyó <strong class="mono" id="corOriginal"></strong>. Escribe la placa como se ve en la foto.
       Se volverá a comparar con la lista negra.</p>
     <input type="hidden" id="corEvento">
+    <img id="corFoto" class="revision-foto" alt="Evidencia de la lectura que se está revisando" hidden>
+    <div class="revision-acciones">
+      <button class="sec" type="button" data-accion="revisar-placa" data-resultado="confirmada">La lectura es correcta</button>
+      <button class="sec" type="button" data-accion="revisar-placa" data-resultado="no_es_placa">No es una placa</button>
+      <button class="sec chico" type="button" data-accion="revisar-placa" data-resultado="pendiente">Dejar sin validar</button>
+    </div>
     <div class="campo">
       <label for="corValor">Placa correcta</label>
       <input id="corValor" required maxlength="20" autocomplete="off" class="mono">

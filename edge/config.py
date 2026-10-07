@@ -128,8 +128,9 @@ class EdgeConfig:
     Con varias camaras, el CPU se va en decodificar H.264."""
 
     # --- Umbrales ----------------------------------------------------------
-    plate_conf: float = field(default_factory=lambda: _env_float("PLATE_CONF", 0.45))
-    ocr_conf: float = field(default_factory=lambda: _env_float("OCR_CONF", 0.35))
+    plate_conf: float = field(default_factory=lambda: _env_float("PLATE_CONF", 0.60))
+    ocr_conf: float = field(default_factory=lambda: _env_float("OCR_CONF", 0.75))
+    plate_min_readings: int = field(default_factory=lambda: _env_int("PLATE_MIN_READINGS", 3))
     weapon_conf: float = field(default_factory=lambda: _env_float("WEAPON_CONF", 0.40))
     face_conf: float = field(default_factory=lambda: _env_float("FACE_CONF", 0.50))
     motion_conf: float = field(default_factory=lambda: _env_float("MOTION_CONF", 0.45))
@@ -233,8 +234,8 @@ class EdgeConfig:
     capturas siguen llegando igual, solo se pierde el video en vivo."""
 
     preview_fps: float = field(default_factory=lambda: _env_float("PREVIEW_FPS", 6.0))
-    """Fps del preview, independiente de INFER_FPS. Por encima de ~8 no se
-    aprecia diferencia en una rejilla de camaras y cada frame cuesta red."""
+    """Fps del video, independiente de INFER_FPS. Para una demo local con
+    monitor grande, 20 fps; ajustar segun la captura y el ancho de banda."""
 
     preview_width: int = field(default_factory=lambda: _env_int("PREVIEW_WIDTH", 640))
     """Ancho al que se reduce antes de enviar. 640 px se ve bien en un recuadro

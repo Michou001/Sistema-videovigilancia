@@ -393,6 +393,18 @@ class LiveSource(FrameSource):
 
     # -- interfaz publica ---------------------------------------------------
 
+    def ultimo_frame(self, despues: int = -1) -> Optional[FrameInfo]:
+        """Lectura independiente para video; no consume el cursor de la IA.
+
+        El array es de solo lectura para el consumidor. Nunca se vuelve a
+        publicar una imagen congelada durante una desconexion.
+        """
+        with self._cond:
+            f = self._latest
+            if not self._status.connected or f is None or f.index <= despues or f.age > 1.0:
+                return None
+            return f
+
     def read(self, timeout: float = 5.0) -> Optional[FrameInfo]:
         deadline = time.monotonic() + timeout
         with self._cond:

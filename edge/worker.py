@@ -380,6 +380,9 @@ class Camara:
 
             self.inicio = time.monotonic()
             ultimo_reporte = self.inicio
+            video_independiente = self.preview is not None and isinstance(self.fuente, LiveSource)
+            if video_independiente:
+                self.preview.conectar_fuente(self.fuente)
 
             # esperar_cortes: un corte de la camara NO termina el worker. Es un
             # sistema que corre sin nadie mirando; si un parpadeo de red lo
@@ -393,11 +396,11 @@ class Camara:
                 # dos cosas que lo quieren: la ventana local de depuracion y la
                 # vista en vivo del dashboard. Se pregunta primero para no
                 # dibujar cajas que nadie va a ver.
-                para_preview = self.preview is not None and self.preview.quiere_frame()
+                para_preview = not video_independiente and self.preview is not None and self.preview.quiere_frame()
                 if ventana or para_preview:
                     vista = self.vista_anotada(frame)
                     if para_preview:
-                        self.preview.publicar(vista)
+                        self.preview.publicar(frame.frame)
                     if ventana:
                         cv2.imshow(f"Videovigilancia {self.id} - 'q' para salir", vista)
                         if cv2.waitKey(1) & 0xFF in (ord("q"), 27):

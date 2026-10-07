@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi import Path as PathParam
@@ -219,6 +219,7 @@ def exportar_eventos(
 
 class CamaraEdicion(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    funcion: Optional[Literal['lpr', 'peatonal', 'pasillo', 'zona', 'patio', 'estacionamiento']] = None
     location: Optional[str] = Field(default=None, max_length=160)
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lon: Optional[float] = Field(default=None, ge=-180, le=180)
@@ -236,6 +237,8 @@ def editar_camara(camera_id: Annotated[str, PathParam(pattern=PATRON_CAMARA)], d
     if camara is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa cámara")
     camara.name = datos.name.strip()
+    if 'funcion' in datos.model_fields_set:
+        camara.funcion = datos.funcion
     camara.location = (datos.location or "").strip() or None
     if (datos.lat is None) != (datos.lon is None):
         raise HTTPException(422,
@@ -243,7 +246,7 @@ def editar_camara(camera_id: Annotated[str, PathParam(pattern=PATRON_CAMARA)], d
     camara.lat, camara.lon = datos.lat, datos.lon
     registrar(session, "camaras.edicion", usuario=admin.username, objetivo=camera_id,
               detalle={"nombre": camara.name, "ubicacion": camara.location,
-                       "lat": camara.lat, "lon": camara.lon}, request=request)
+                       "lat": camara.lat, "lon": camara.lon, "funcion": camara.funcion}, request=request)
     session.commit()
     log.info("Camara %s renombrada a '%s' por %s", camera_id, camara.name, admin.username)
     return {"camera_id": camara.camera_id, "name": camara.name, "location": camara.location,
@@ -281,6 +284,9 @@ def estadisticas(session: SesionBD, _: OperadorActual):
             "camera_id": c.camera_id,
             "name": c.name,
             "location": c.location,
+            "funcion": c.funcion,
+            "enabled": c.enabled,
+            "connected": salud.get("connected"),
             "lat": c.lat,
             "lon": c.lon,
             # El worker late cada 15 s; sin senal en 60 s se considera caida.

@@ -194,6 +194,7 @@ def test_latido_marca_la_camara_en_linea():
     cam = next(x for x in c.get("/api/stats", headers=h).json()["camaras"]
                if x["camera_id"] == "cam-latido")
     assert cam["online"] and cam["fps"] == 7.9 and cam["reconexiones"] == 2
+    assert cam["connected"] is True and cam["enabled"] is True
 
     c.post("/api/events/heartbeat", params={"camera_id": "cam-latido"}, headers=WORKER,
            json={"connected": False})
@@ -243,6 +244,21 @@ def test_alerta_de_persona_caida():
     alerta = next(a for a in c.get("/api/alerts", headers=h).json() if a["type"] == "anomaly"
                   and a["title"] == "Posible persona caída")
     assert "tendida" in alerta["detail"]
+
+
+def test_rol_de_camara_se_conserva_al_editar_nombre():
+    c, h = _cliente()
+    _ingerir(c, _evento(valor="ROL-100"))
+    ruta = '/api/cameras/cam-prueba'
+    assert c.put(ruta, headers=h, json={'name': 'Piloto vehicular', 'funcion': 'lpr'}).status_code == 200
+    assert c.put(ruta, headers=h, json={'name': 'Nuevo nombre'}).status_code == 200
+    cam = next(x for x in c.get('/api/stats', headers=h).json()['camaras'] if x['camera_id'] == 'cam-prueba')
+    assert cam['funcion'] == 'lpr'
+    assert c.put(ruta, headers=h, json={'name': 'Nuevo nombre', 'funcion': 'inventado'}).status_code == 422
+    assert c.put(ruta, json={'name': 'Cambio sin permiso', 'funcion': 'peatonal'}).status_code == 401
+    assert c.put(ruta, headers=h, json={'name': 'Nuevo nombre', 'funcion': None}).status_code == 200
+    cam = next(x for x in c.get('/api/stats', headers=h).json()['camaras'] if x['camera_id'] == 'cam-prueba')
+    assert cam['funcion'] is None
 
 
 # --------------------------------------------------------------------------

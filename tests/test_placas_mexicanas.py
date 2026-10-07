@@ -205,7 +205,7 @@ def _track(lecturas, regiones=None, crudas=None, conf=0.9):
 
 def test_detector_arma_evento_mexicano_con_tipo_y_entidad():
     det = _detector()
-    ev = det._construir_evento(_track([("JHK123A", 0.95), ("JHK123A", 0.9)],
+    ev = det._construir_evento(_track([("JHK123A", 0.95), ("JHK123A", 0.9), ("JHK123A", 0.95)],
                                       regiones=[("United States", 0.9)] * 2))
     assert ev.value == "JHK-123-A"
     assert ev.meta["tipo_placa"] == "Automóvil particular"
@@ -227,12 +227,12 @@ def test_detector_reporta_placa_extranjera_que_antes_descartaba():
 def test_detector_descarta_formato_raro_dudoso():
     det = _detector()
     assert det._construir_evento(_track([("6ZW123", 0.7)])) is None
-    assert det._construir_evento(_track([("6ZW123", 0.95)])) is not None
+    assert det._construir_evento(_track([("6ZW123", 0.95)] * 3)) is not None
 
 
 def test_detector_guarda_donde_esta_la_placa_en_la_evidencia():
     det = _detector()
-    track = _track([("JHK123A", 0.95)])
+    track = _track([("JHK123A", 0.95)] * 3)
     track.state["recorte"] = np.zeros((40, 120, 3), np.uint8)
     ev = det._construir_evento(track)
     try:
@@ -244,6 +244,17 @@ def test_detector_guarda_donde_esta_la_placa_en_la_evidencia():
 
 
 # --------------------------------------------------------------------------
+
+def test_descarta_caja_real_717_y_lectura_unica():
+    det = _detector()
+    caja = _track([("717", 0.4013)], regiones=[("United States", 0.95)], crudas=[("717", 0.4013)])
+    caja.confidence = 0.4809
+    assert det._construir_evento(caja) is None
+    assert det._construir_evento(_track([("JHK123A", 0.99)])) is None
+    # Variantes generadas por una sola pasada no cuentan como tres votos.
+    assert det._construir_evento(_track([("JHK123A", 0.99)] * 5, crudas=[("JHK123A", 0.99)])) is None
+    assert det._construir_evento(_track([("JHK123A", 0.95)] * 3)) is not None
+
 
 def main() -> int:
     pruebas = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]

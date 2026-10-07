@@ -40,6 +40,78 @@ def test_pose_frontal_vale_mas_que_perfil():
     assert factor_pose(None) == 1.0          # sin puntos no se penaliza
 
 
+class _Rostro:
+    def __init__(self, kps, bbox=(500, 200, 600, 330)):
+        self.bbox = np.asarray(bbox, dtype=np.float32)
+        self.det_score = 0.8
+        self.kps = np.asarray(kps, dtype=np.float32)
+        self.normed_embedding = _unitario(np.ones(512))
+
+
+def _detector_sin_modelo(rostros_por_llamada):
+    """FaceDetector con un detector de mentiras: sin GPU ni InsightFace."""
+    from types import SimpleNamespace
+    from edge.detectors.faces import FaceDetector
+    from edge.tracking import IoUTracker
+
+    det = FaceDetector.__new__(FaceDetector)
+    det.cfg = SimpleNamespace(face_template_size=3, camera_id="cam-prueba")
+    det.MIN_ANCHO_ROSTRO = 50
+    det.embedder = SimpleNamespace(detectar=lambda _f: rostros_por_llamada())
+    det.tracker = IoUTracker(iou_min=0.3, max_age=20, min_hits=3)
+    det.snapshot_hd = None
+    det._frame_idx = det._descartados_pequenos = det._eventos_emitidos = det._hd_usados = 0
+    det._ms_inferencia = 0.0
+    det._forma_frame = (720, 1280)
+    emitidos = []
+    det._construir_evento = lambda t: emitidos.append(t.state.get("pose")) or "evento"
+    return det, emitidos
+
+
+def _correr(det, poses, inicio=0.0, paso=0.125):
+    from edge.sources import FrameInfo
+    cuadro = np.zeros((720, 1280, 3), np.uint8)
+    salida = []
+    for i, _ in enumerate(poses):
+        salida += det.procesar(FrameInfo(cuadro, i, inicio + i * paso))
+    return salida
+
+
+def test_rostro_de_frente_se_reporta_sin_esperar_a_que_se_vaya():
+    poses = [PERFIL] * 4 + [FRONTAL] * 20          # entra de perfil, se queda de frente 2.5 s
+    actual = iter(poses + [None] * 30)
+    det, emitidos = _detector_sin_modelo(lambda: [] if (k := next(actual)) is None else [_Rostro(k)])
+    eventos = _correr(det, poses)
+    assert eventos == ["evento"], "con la persona aun en cuadro ya debe haber evento"
+    assert emitidos[0] > 0.7, "el evento lleva la vista frontal, no la de perfil"
+    # Se va: el track cierra sin repetir el evento.
+    assert _correr(det, [None] * 30, inicio=10.0) == []
+    assert len(emitidos) == 1
+
+
+def test_rostro_que_nunca_da_la_cara_se_reporta_al_salir():
+    actual = iter([PERFIL] * 12 + [None] * 30)
+    det, emitidos = _detector_sin_modelo(lambda: [] if (k := next(actual)) is None else [_Rostro(k)])
+    assert _correr(det, [PERFIL] * 12) == []
+    assert _correr(det, [None] * 30, inicio=5.0) == ["evento"]
+    assert len(emitidos) == 1
+
+
+def test_foto_hd_de_perfil_no_reemplaza_la_frontal():
+    from concurrent.futures import Future
+    for kps_hd, debe_cambiar in ((PERFIL, False), (FRONTAL, True)):
+        det, _ = _detector_sin_modelo(lambda: [])
+        det.embedder.detectar = lambda _r, k=kps_hd: [_Rostro(k, bbox=(40, 40, 260, 300))]
+        from edge.tracking import Track
+        t = Track(track_id=1, bbox=(500, 200, 600, 330), confidence=0.8, first_seen=0.0, last_seen=1.0)
+        original = np.zeros((10, 10, 3), np.uint8)
+        futuro = Future()
+        futuro.set_result(np.full((1800, 3200, 3), 90, np.uint8))
+        t.state.update(pose=0.95, recorte=original, hd_future=futuro, bbox_bajo=(500, 200, 600, 330))
+        det._mejorar_con_hd(t)
+        assert (t.state["recorte"] is not original) == debe_cambiar, kps_hd
+
+
 def test_nitidez_distingue_enfoque():
     rng = np.random.default_rng(1)
     nitido = (rng.random((120, 120, 3)) * 255).astype(np.uint8)

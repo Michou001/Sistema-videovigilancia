@@ -18,10 +18,13 @@ export function agregarEvento(ev, nuevo = false) {
   if (nuevo) tr.className = 'nuevo';
   const corregido = ev.meta && ev.meta.lectura_original
     ? ` <span class="corregida" title="Leída como ${escapar(ev.meta.lectura_original)}">corregida</span>` : '';
+  const revision = ev.meta?.revision_placa;
+  const revisada = revision === 'no_es_placa' ? ' <span class="etiqueta warning">No es placa</span>'
+    : revision === 'confirmada' ? ' <span class="corregida">Validada</span>' : '';
   tr.innerHTML = `
     <td class="mono" style="color:var(--tenue);white-space:nowrap">${fechaHora(ev.ts)}</td>
     <td>${iconoTag(ev.type)} ${escapar(NOMBRES[ev.type] || ev.type)}</td>
-    <td class="mono"><strong>${escapar(valorLegible(ev))}</strong>${corregido}</td>
+    <td class="mono"><strong>${escapar(valorLegible(ev))}</strong>${corregido}${revisada}</td>
     <td style="color:var(--tenue)">${escapar(nombreCamara(ev.camera_id))}${colorTexto(ev)}</td>
     <td><span class="etiqueta ${escapar(ev.severity)}">${escapar(ETIQUETAS_SEVERIDAD[ev.severity] || ev.severity)}</span></td>
     <td><div class="acciones-fila"></div></td>`;
@@ -39,10 +42,11 @@ export function agregarEvento(ev, nuevo = false) {
     // para reentrenar el OCR con placas mexicanas.
     const b = document.createElement('button');
     b.className = 'icono-fila';
-    b.title = 'Corregir la lectura de esta placa';
+    b.title = 'Revisar o corregir esta lectura';
     b.dataset.accion = 'corregir-placa';
     b.dataset.evento = ev.event_id;
     b.dataset.valor = ev.value;
+    b.dataset.foto = ev.snapshot_path || '';
     b.innerHTML = '<i data-lucide="pencil-line"></i>';
     celda.append(b);
   }

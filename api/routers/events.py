@@ -153,7 +153,7 @@ def _guardar(evento: DetectionEvent, resultado: MatchResult,
 # Lo que el dashboard muestra de un evento en vivo. El resto de `meta`
 # (lecturas de OCR, velocidades) se queda en la base de datos.
 _META_VISIBLE = ("color_vehiculo", "tipo_placa", "entidad", "pais", "zona", "direccion",
-                 "lectura_original")
+                 "lectura_original", "revision_placa")
 
 
 def _meta_para_dashboard(meta: Optional[dict]) -> dict:

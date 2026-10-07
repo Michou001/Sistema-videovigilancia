@@ -42,6 +42,12 @@ from shared.events import BBox, DetectionEvent, EventType  # noqa: E402
 
 log = logging.getLogger(__name__)
 
+# Desde que factor_pose una vista cuenta como "de frente", y cuanto se espera
+# despues de ver a la persona antes de reportarla con esa vista (para que
+# junte varias vistas y llegue la foto HD).
+POSE_FRONTAL = 0.7
+ESPERA_FRONTAL_S = 1.0
+
 _onnx_configurado = False
 
 
@@ -295,6 +301,7 @@ class FaceDetector(Detector):
                 continue
             recorte = self._recortar(frame.frame, rostro.bbox)
             calidad = self._calidad(rostro, recorte)
+            pose = factor_pose(getattr(rostro, "kps", None))
             embedding = np.asarray(rostro.normed_embedding, dtype=np.float32)
 
             vistas: list = track.state.setdefault("vistas", [])
@@ -307,19 +314,32 @@ class FaceDetector(Detector):
                 track.state["calidad"] = calidad
                 track.state["recorte"] = recorte
                 track.state["det_score"] = float(rostro.det_score)
+                track.state["pose"] = pose
+
+            # Se pide UNA sola vez por track -- no en cada frame que mejora la
+            # calidad, que dispararia una peticion HTTP por frame -- y hasta
+            # que la persona esta de frente: pedida al entrar (de perfil,
+            # caminando) la foto HD salia peor que la mejor vista normal.
+            if (self.snapshot_hd is not None and "hd_future" not in track.state
+                    and pose >= POSE_FRONTAL):
+                track.state["hd_future"] = self.snapshot_hd.pedir()
                 track.state["bbox_bajo"] = tuple(float(v) for v in rostro.bbox)
 
-                # Se pide UNA sola vez por track, en la primera deteccion que
-                # ya vale la pena mejorar -- no en cada frame que mejora la
-                # calidad, que dispararia una peticion HTTP por frame. Se pide
-                # temprano (la persona sigue en cuadro) porque para cuando el
-                # track cierre y se arme el evento pueden haber pasado 2-3
-                # segundos, tiempo de sobra para que ya se haya ido.
-                if self.snapshot_hd is not None and "hd_future" not in track.state:
-                    track.state["hd_future"] = self.snapshot_hd.pedir()
-
         eventos = []
+        # Con una vista frontal el evento sale ya, con la persona todavia en
+        # cuadro: si esta en la lista negra, la alerta no espera a que se vaya.
+        # Sigue siendo un evento por visita; quien nunca da la cara se reporta
+        # al salir con su mejor vista.
+        for track in tracks:
+            if (not track.state.get("emitido") and track.state.get("pose", 0.0) >= POSE_FRONTAL
+                    and frame.ts - track.first_seen >= ESPERA_FRONTAL_S):
+                evento = self._construir_evento(track)
+                track.state["emitido"] = True
+                if evento is not None:
+                    eventos.append(evento)
         for track in self.tracker.recoger_expirados():
+            if track.state.get("emitido"):
+                continue
             evento = self._construir_evento(track)
             if evento is not None:
                 eventos.append(evento)
@@ -328,6 +348,8 @@ class FaceDetector(Detector):
     def vaciar(self) -> list[DetectionEvent]:
         eventos = []
         for track in self.tracker.cerrar():
+            if track.state.get("emitido"):
+                continue
             evento = self._construir_evento(track)
             if evento is not None:
                 eventos.append(evento)
@@ -404,9 +426,12 @@ class FaceDetector(Detector):
         # La vista HD entra a la plantilla como una vista mas, con su propia
         # calidad (normalmente la mas alta: mas pixeles de rostro).
         track.state.setdefault("vistas", []).append((self._calidad(mejor, recorte), embedding))
-        track.state["recorte"] = recorte
-        track.state["det_score"] = float(mejor.det_score)
-        self._hd_usados += 1
+        # La foto de evidencia solo se cambia si la HD esta al menos igual de
+        # frente: mas pixeles de un perfil no le ganan a una vista frontal.
+        if factor_pose(getattr(mejor, "kps", None)) >= track.state.get("pose", 0.0) - 0.1:
+            track.state["recorte"] = recorte
+            track.state["det_score"] = float(mejor.det_score)
+            self._hd_usados += 1
 
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
         self._mejorar_con_hd(track)
