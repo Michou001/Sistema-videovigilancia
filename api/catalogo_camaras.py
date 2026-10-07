@@ -865,31 +865,43 @@ def describe_rtsp(host: str, puerto: int, ruta: str, user: str, password: str,
     fallido, es la camara diciendo que algoritmo usa."""
     uri = f"rtsp://{host}:{puerto}{ruta}"
 
-    def pedir(cseq: int, autorizacion: str = "") -> tuple[int, dict, str]:
-        # Conexion nueva por peticion: varias camaras cierran el socket
-        # despues de un 401.
-        with socket.create_connection((host, puerto), timeout=timeout) as s:
-            s.settimeout(timeout)
-            extra = f"Authorization: {autorizacion}\r\n" if autorizacion else ""
-            s.sendall((f"DESCRIBE {uri} RTSP/1.0\r\nCSeq: {cseq}\r\n"
-                       f"Accept: application/sdp\r\nUser-Agent: GOSS-IP\r\n{extra}\r\n").encode())
-            return _leer_respuesta_rtsp(s)
+    def pedir(s: socket.socket, cseq: int, autorizacion: str = "") -> tuple[int, dict, str]:
+        extra = f"Authorization: {autorizacion}\r\n" if autorizacion else ""
+        s.sendall((f"DESCRIBE {uri} RTSP/1.0\r\nCSeq: {cseq}\r\n"
+                   f"Accept: application/sdp\r\nUser-Agent: GOSS-IP\r\n{extra}\r\n").encode())
+        return _leer_respuesta_rtsp(s)
 
+    def conectar() -> socket.socket:
+        s = socket.create_connection((host, puerto), timeout=timeout)
+        s.settimeout(timeout)
+        return s
+
+    s = None
     try:
-        codigo, cab, cuerpo = pedir(1)
+        s = conectar()
+        codigo, cab, cuerpo = pedir(s, 1)
         if codigo == 401:
             auth = _autorizacion_rtsp(cab.get("www-authenticate", ""), user, password, "DESCRIBE", uri)
             if not auth:
                 return {"codigo": 401}
-            codigo, cab, cuerpo = pedir(2, auth)
+            # En la MISMA conexion: Hikvision liga el nonce del reto a ella y
+            # rechaza (401) una respuesta correcta que llega por otra. Solo si
+            # la camara cerro el socket se abre uno nuevo.
+            try:
+                codigo, cab, cuerpo = pedir(s, 2, auth)
+            except OSError:
+                codigo = 0
+            if codigo == 0:
+                s.close()
+                s = conectar()
+                codigo, cab, cuerpo = pedir(s, 2, auth)
         return {"codigo": codigo, "codec": codec_de_sdp(cuerpo) if codigo == 200 else None}
     except OSError as e:
         return {"codigo": 0, "error": type(e).__name__}
+    finally:
+        if s is not None:
+            s.close()
 
-
-# --------------------------------------------------------------------------
-# Apertura real del stream (resolucion, fps y vista previa)
-# --------------------------------------------------------------------------
 
 def url_rtsp(host: str, puerto: int, ruta: str, user: str, password: str) -> str:
     return f"rtsp://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{puerto}{ruta}"
