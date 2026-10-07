@@ -7,6 +7,8 @@
  *                entran. Es la pantalla de guardia: se mira, no se opera.
  *   REGISTRO  -- el historico de eventos y las alertas por atender. Es la
  *                pantalla de trabajo: se busca, se resuelve, se descarta.
+ *   MAPA      -- donde esta cada camara y como esta.
+ *   CAMARAS   -- catalogo y alta de camaras (solo administradores).
  *
  * Estan separados porque no se usan a la vez ni por lo mismo, y porque el
  * video en vivo cuesta ancho de banda: al salir de Monitoreo los flujos se
@@ -117,11 +119,14 @@ async function arrancar() {
 /* Apartados                                                           */
 /* ------------------------------------------------------------------ */
 
-const VISTAS = ['monitoreo', 'registro', 'mapa'];
+const VISTAS = ['monitoreo', 'registro', 'mapa', 'camaras'];
 let vistaActual = null;
 
 function mostrarVista(nombre) {
   if (!VISTAS.includes(nombre)) nombre = 'monitoreo';
+  // El catalogo de camaras es solo de administradores: si alguien con otro
+  // rol tenia ese apartado recordado, vuelve a Monitoreo.
+  if (nombre === 'camaras' && !puede('admin')) nombre = 'monitoreo';
   vistaActual = nombre;
   almacen.guardar('vista', nombre);
 
