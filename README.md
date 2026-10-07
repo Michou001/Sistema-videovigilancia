@@ -94,7 +94,7 @@ sin tocar los workers.
 │                        dataset_alertas, exportar_dataset, purgar_datos, respaldo,
 │                        metricas, placa_demo, grabar_video, ...
 ├── docker/              Imágenes, Caddyfile, go2rtc
-├── tests/               267 pruebas sin cámara ni GPU
+├── tests/               269 pruebas sin cámara ni GPU
 ├── docs/                Hikvision, despliegue, privacidad, licencias, reentrenamiento,
 │                        evidencias medidas (docs/evidencias)
 ├── demo/                Placa de prueba imprimible; videos del plan de contingencia
@@ -487,7 +487,7 @@ Dos trampas encontradas midiendo, ambas silenciosas:
 python tests/correr_todas.py
 ```
 
-**267 pruebas en 23 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
+**269 pruebas en 23 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
 confirmación temporal, rostros, pose, zonas y horarios, ISAPI, clips,
 notificaciones (servicios simulados), cámaras caídas, búsqueda, reentrenamiento,
 WebRTC, seguridad, retención, catálogo de cámaras (con una cámara simulada
