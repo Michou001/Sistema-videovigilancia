@@ -35,6 +35,10 @@ function abrir() {
     window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      // El sitio manda Referrer-Policy: no-referrer, y los servidores de
+      // OpenStreetMap rechazan (403 "Access blocked") los mosaicos pedidos sin
+      // Referer. Solo para esta capa se manda el origen, sin la ruta.
+      referrerPolicy: 'strict-origin-when-cross-origin',
     }).addTo(mapa);
     mapa.setView(CENTRO_MX, 12);
     mapa.on('click', colocar);
