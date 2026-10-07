@@ -135,8 +135,11 @@
       </div>
 
       <div class="panel panel-actividad">
-        <h2><span class="section-eyebrow">02 / ACTIVIDAD</span> Últimas detecciones <span class="crece" id="contadorDetecciones"></span></h2>
-        <div class="lista" id="listaDetecciones" style="max-height:none"></div>
+        <h2><span class="section-eyebrow">02 / CAPTURAS</span> Lo que han visto las cámaras <span class="crece" id="contadorDetecciones"></span>
+          <button class="sec chico" data-accion="ver-lista-detecciones" id="btnListaDetecciones" aria-pressed="false"><i data-lucide="list"></i>Ver como lista</button>
+        </h2>
+        <div class="albumes" id="albumes"></div>
+        <div class="lista" id="listaDetecciones" style="max-height:none" hidden></div>
         <div class="vacio" id="sinDetecciones">Esperando detecciones…</div>
       </div>
     </main>
@@ -753,6 +756,34 @@
 </div>
 
 <!-- ============ VISOR DE EVIDENCIA ============ -->
+<!-- Galeria de capturas: un album por camara y uno general -->
+<div id="modalGaleria" class="modal-overlay">
+  <div class="tarjeta galeria" role="dialog" aria-labelledby="galeriaTitulo">
+    <div class="galeria-cab">
+      <div><span class="section-eyebrow" id="galeriaSub">CAPTURAS</span><h2 id="galeriaTitulo">Todas las cámaras</h2></div>
+      <span class="crece"></span>
+      <div class="galeria-filtros" id="galeriaTipos">
+        <button class="chip activo" data-accion="galeria-tipo" data-tipo="">Todo</button>
+        <button class="chip" data-accion="galeria-tipo" data-tipo="plate"><i data-lucide="car"></i>Placas</button>
+        <button class="chip" data-accion="galeria-tipo" data-tipo="face"><i data-lucide="user-round"></i>Rostros</button>
+        <button class="chip" data-accion="galeria-tipo" data-tipo="anomaly"><i data-lucide="footprints"></i>Movimiento</button>
+      </div>
+      <div class="galeria-filtros" id="galeriaTamanos" title="Fotos por página">
+        <button class="chip" data-accion="galeria-tam" data-tam="4">4 × 4</button>
+        <button class="chip" data-accion="galeria-tam" data-tam="5">5 × 5</button>
+      </div>
+      <button class="sec" data-accion="cerrar-galeria"><i data-lucide="x"></i>Cerrar</button>
+    </div>
+    <div class="galeria-rejilla" id="galeriaRejilla"></div>
+    <div class="vacio" id="galeriaVacia" hidden>No hay capturas con este filtro.</div>
+    <div class="galeria-pie">
+      <button class="sec" data-accion="galeria-pagina" data-dir="-1" id="galeriaAnt"><i data-lucide="chevron-left"></i>Más recientes</button>
+      <span id="galeriaPagina"></span>
+      <button class="sec" data-accion="galeria-pagina" data-dir="1" id="galeriaSig">Anteriores<i data-lucide="chevron-right"></i></button>
+    </div>
+  </div>
+</div>
+
 <div id="visor" data-accion="cerrar-visor">
   <figure>
     <img id="visorImg" alt="Evidencia">

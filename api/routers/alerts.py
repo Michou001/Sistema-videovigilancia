@@ -150,7 +150,7 @@ def _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta):
         if buscado:
             sin_guiones = func.upper(func.replace(func.replace(Event.value, "-", ""), " ", ""))
             consulta = consulta.where(sin_guiones.contains(buscado))
-    return consulta.order_by(col(Event.ts).desc())
+    return consulta.order_by(col(Event.ts).desc(), col(Event.id).desc())
 
 
 @router.get("/events", response_model=list[EventoLeido])
@@ -165,6 +165,8 @@ def listar_eventos(
     desde: Optional[datetime] = None,
     hasta: Optional[datetime] = None,
     limite: int = Query(100, ge=1, le=1000),
+    con_foto: bool = Query(False, description="Solo eventos con captura (galeria)"),
+    desde_n: int = Query(0, ge=0, le=100_000, description="Saltar los primeros N (paginar)"),
 ):
     """Historico de eventos, del mas reciente al mas antiguo.
 
@@ -173,7 +175,9 @@ def listar_eventos(
     escribir y asi es como el OCR la pudo haber leido.
     """
     consulta = _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta)
-    return session.exec(consulta.limit(limite)).all()
+    if con_foto:
+        consulta = consulta.where(col(Event.snapshot_path).is_not(None))
+    return session.exec(consulta.offset(desde_n).limit(limite)).all()
 
 
 @router.get("/events/export.csv")

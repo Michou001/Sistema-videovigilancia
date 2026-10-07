@@ -356,3 +356,61 @@ nav.apartados button.activo { color: #a1f0e1; background: #1b3f43; box-shadow: i
   0%, 100% { box-shadow: 0 0 0 1px var(--critico), 0 0 0 0 #ff475700; }
   50% { box-shadow: 0 0 0 2px var(--critico), 0 0 26px #ff475766; }
 }
+
+/* ---------- Capturas como albumes ----------
+   Un album general y uno por camara con las 3 fotos mas recientes; al
+   abrirlo, rejilla de 4x4 o 5x5 por pagina. */
+.albumes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; padding: 16px; }
+.albumes[hidden], .lista[hidden] { display: none; }
+.album {
+  border: 1px solid #2c4a6b; border-radius: 14px; background: #0c1a2e; overflow: hidden; cursor: pointer;
+  transition: transform .2s, border-color .2s, box-shadow .2s;
+}
+.album:hover, .album:focus-visible { transform: translateY(-2px); border-color: #4fb3fa; box-shadow: 0 12px 30px #0006; outline: none; }
+.album-portada { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; aspect-ratio: 16 / 10; }
+.album-portada .grande { grid-row: 1 / 3; }
+.album-info { display: grid; gap: 3px; padding: 12px 14px 14px; font-size: 12px; color: #a9bfd9; }
+.album-info strong { font-size: 14px; color: var(--texto); }
+.album-ver { display: flex; align-items: center; gap: 4px; color: #6fb6ef; margin-top: 2px; }
+.album-ver svg { width: 14px; height: 14px; }
+
+.foto { position: relative; padding: 0; min-height: 0; border: 0; border-radius: 0; background: #081322;
+        overflow: hidden; cursor: zoom-in; box-shadow: none; display: block; }
+.foto img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s; }
+.foto:hover img { transform: scale(1.05); }
+.foto-pie {
+  position: absolute; inset: auto 0 0 0; display: flex; align-items: center; gap: 6px; padding: 18px 8px 6px;
+  font-size: 11px; color: #e8f2ff; text-align: left;
+  background: linear-gradient(transparent, #020a14e0);
+}
+.foto-pie svg { width: 13px; height: 13px; flex: none; }
+.foto-pie b { font-family: var(--mono); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foto-pie small { margin-left: auto; color: #9fb6d3; flex: none; }
+.album-portada .chica .foto-pie { display: none; }
+.foto.critical { outline: 2px solid var(--critico); outline-offset: -2px; }
+.foto.warning { outline: 2px solid var(--aviso); outline-offset: -2px; }
+.foto-sin { display: grid; place-items: center; background: #0a1628; color: #3d5b80; }
+.foto-sin svg { width: 26px; height: 26px; }
+
+.tarjeta.galeria { width: min(1240px, 100%); max-width: none; padding: 22px; }
+.galeria-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.galeria-cab h2 { font-size: 20px; margin-top: 2px; }
+.galeria-filtros { display: flex; gap: 6px; }
+.galeria-filtros .chip {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 5px 11px; font-size: 12px;
+  background: #10223a; color: #b9cde5; border: 1px solid #2c4a6b; border-radius: 999px; box-shadow: none;
+}
+.galeria-filtros .chip svg { width: 13px; height: 13px; }
+.galeria-filtros .chip.activo { background: #1f4f8f; color: #fff; border-color: #4fb3fa; }
+.galeria-rejilla { display: grid; grid-template-columns: repeat(var(--columnas, 4), minmax(0, 1fr)); gap: 6px;
+                   /* Tantas filas como columnas, de 4:3: el ancho sale del alto disponible
+                      para que la pagina completa y sus botones quepan sin scroll. */
+                   width: min(100%, calc((100vh - 240px) * 4 / 3)); margin: 0 auto; }
+.galeria-rejilla .foto { aspect-ratio: 4 / 3; border-radius: 8px; animation: vista-entra .35s ease-out both; }
+.galeria-pie { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px;
+               font-size: 12px; color: #9fb6d3; }
+@media (max-width: 760px) {
+  .albumes { grid-template-columns: 1fr; padding: 12px; }
+  .galeria-rejilla { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tarjeta.galeria { padding: 14px; }
+}
