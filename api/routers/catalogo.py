@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Annotated, Literal, Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlmodel import Session, select
@@ -155,10 +155,12 @@ def _auditar(accion: str, usuario: str, request: Request, **kwargs) -> None:
 # --------------------------------------------------------------------------
 
 @router.get("/discover")
-def descubrir(admin: Admin, request: Request) -> dict:
+def descubrir(admin: Admin, request: Request,
+              red: Annotated[Optional[str], Query(max_length=43, pattern=r"^[0-9./]+$")] = None) -> dict:
+    """Busca en todas las redes de este equipo, o solo en `red` (ej. 192.168.100.0/24)."""
     registradas = {d["host"]: cid for cid, d in camaras_en_entorno().items() if d["host"]}
     try:
-        resultado = catalogo.descubrir(registradas=registradas)
+        resultado = catalogo.descubrir(subred=red, registradas=registradas)
     except (RuntimeError, ValueError) as e:
         raise HTTPException(422, str(e)) from None
     # Una camara registrada que cambio de IP se reconoce por su MAC.
