@@ -175,7 +175,8 @@ accion('catalogo-buscar', async (boton) => {
     '<span class="cargando"><i data-lucide="loader"></i>Buscando en la red (ONVIF y puertos de cámara, unos segundos)…</span>';
   iconos();
   try {
-    const r = await api('/api/cameras/discover');
+    const red = $('redBusqueda').value.trim();
+    const r = await api('/api/cameras/discover' + (red ? '?red=' + encodeURIComponent(red) : ''));
     pintarDescubrimiento(r);
   } catch (err) {
     $('estadoDescubrimiento').innerHTML = `<span class="error">${escapar(err.message)}</span>`;
@@ -206,7 +207,7 @@ function pintarDescubrimiento(r) {
   const camaras = r.dispositivos.filter((d) => d.es_camara);
   const otros = r.dispositivos.filter((d) => !d.es_camara);
   $('estadoDescubrimiento').textContent =
-    `Red ${r.subred} · ${r.duracion_s} s · ${camaras.length} cámara(s) probable(s)` +
+    `${r.subred.includes(',') ? 'Redes' : 'Red'} ${r.subred} · ${r.duracion_s} s · ${camaras.length} cámara(s) probable(s)` +
     (r.onvif_respondieron ? ` · ${r.onvif_respondieron} respondieron por ONVIF` : '');
   $('resultadosDescubrimiento').innerHTML =
     (camaras.length ? camaras.map(filaDispositivo).join('')

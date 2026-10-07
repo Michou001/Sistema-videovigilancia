@@ -208,19 +208,57 @@ def ip_local() -> Optional[str]:
         s.close()
 
 
+# Adaptadores que no llevan a ninguna camara: maquinas virtuales, WSL, VPN.
+_VIRTUALES = ("vethernet", "wsl", "hyper-v", "docker", "virtualbox", "vmware", "loopback",
+              "bluetooth", "vpn", "tailscale", "zerotier", "veth", "br-", "virbr")
+
+
+def interfaces_locales() -> list[tuple[str, str, ipaddress.IPv4Network]]:
+    """(nombre, ip, red) de cada tarjeta encendida con IPv4 real.
+
+    En la sede de la demo la camara va por cable a la laptop y la laptop puede
+    estar ademas en el Wi-Fi: hay que buscar en las dos redes, no solo en la
+    que tiene salida a internet. Y sin internet tiene que funcionar igual."""
+    try:
+        import psutil
+    except ImportError:
+        local = ip_local()
+        return [("red", local, ipaddress.ip_network(f"{local}/24", strict=False))] if local else []
+    salida = []
+    estados = psutil.net_if_stats()
+    for nombre, direcciones in psutil.net_if_addrs().items():
+        st = estados.get(nombre)
+        if st is None or not st.isup or any(v in nombre.lower() for v in _VIRTUALES):
+            continue
+        for d in direcciones:
+            if d.family != socket.AF_INET or not d.netmask:
+                continue
+            ip = ipaddress.ip_address(d.address)
+            if ip.is_loopback or ip.is_link_local:
+                continue
+            salida.append((nombre, d.address, ipaddress.ip_network(f"{d.address}/{d.netmask}", strict=False)))
+    return salida
+
+
 def es_direccion_local(host: str) -> bool:
-    """Privada, de enlace local o loopback. Diagnosticar manda credenciales y
-    hace peticiones desde el servidor: limitarlo a la red local evita que el
-    endpoint sirva para escanear o autenticarse contra equipos de internet."""
+    """IP privada, loopback, o de una red conectada directamente a este equipo.
+
+    Diagnosticar manda credenciales y hace peticiones desde el servidor:
+    limitarlo a la red local evita que el endpoint sirva para escanear o
+    autenticarse contra equipos de internet. "Red directa" cubre redes como la
+    de la UAEMex, que usa direcciones publicas (148.215.x.x) adentro del campus."""
     if os.getenv("CAMARAS_FUERA_DE_LAN", "").lower() in ("1", "true", "si", "yes"):
         return True
     try:
         direcciones = {info[4][0] for info in socket.getaddrinfo(host, None)}
     except OSError:
         return False
+    redes = [red for _, _, red in interfaces_locales()]
     for d in direcciones:
         ip = ipaddress.ip_address(d.split("%")[0])
-        if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            continue
+        if not any(ip in red for red in redes):
             return False
     return bool(direcciones)
 
@@ -320,36 +358,42 @@ def parsear_probe_match(xml: str) -> Optional[dict]:
     return datos
 
 
-def ws_discovery(espera: float = 2.5) -> dict[str, dict]:
-    """IP -> datos de las camaras ONVIF que respondieron."""
+def ws_discovery(espera: float = 2.5, ips_locales: Optional[list[str]] = None) -> dict[str, dict]:
+    """IP -> datos de las camaras ONVIF que respondieron. El sondeo sale por
+    cada tarjeta: con Wi-Fi y cable a la vez, el sistema operativo solo lo
+    mandaria por una."""
     encontrados: dict[str, dict] = {}
-    local = ip_local()
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sockets = []
+    for local in ips_locales or [ip_local()]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        try:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            if local:
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local))
+            s.settimeout(0.1)
+            # Con tipo (lo estandar) y sin tipo (grabadores que solo responden asi).
+            for tipos in ("<d:Types>dn:NetworkVideoTransmitter</d:Types>", ""):
+                mensaje = _PROBE.format(id=uuid.uuid4(), tipos=tipos).encode()
+                s.sendto(mensaje, ("239.255.255.250", 3702))
+            sockets.append(s)
+        except OSError as e:
+            log.info("WS-Discovery no disponible por %s: %s", local, e)
+            s.close()
     try:
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        if local:
-            # Con varias tarjetas (Wi-Fi + virtuales de Docker/VPN) el multicast
-            # sale por la que el sistema quiera: se fija la de la LAN.
-            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local))
-        s.settimeout(0.3)
-        # Con tipo (lo estandar) y sin tipo (grabadores que solo responden asi).
-        for tipos in ("<d:Types>dn:NetworkVideoTransmitter</d:Types>", ""):
-            mensaje = _PROBE.format(id=uuid.uuid4(), tipos=tipos).encode()
-            s.sendto(mensaje, ("239.255.255.250", 3702))
         fin = time.monotonic() + espera
-        while time.monotonic() < fin:
-            try:
-                datos, origen = s.recvfrom(65535)
-            except (socket.timeout, ConnectionResetError):
-                continue
-            match = parsear_probe_match(datos.decode("utf-8", "ignore"))
-            if match:
-                match["host"] = match.get("host") or origen[0]
-                encontrados[origen[0]] = match
-    except OSError as e:
-        log.info("WS-Discovery no disponible: %s", e)
+        while sockets and time.monotonic() < fin:
+            for s in sockets:
+                try:
+                    datos, origen = s.recvfrom(65535)
+                except (socket.timeout, ConnectionResetError, OSError):
+                    continue
+                match = parsear_probe_match(datos.decode("utf-8", "ignore"))
+                if match:
+                    match["host"] = match.get("host") or origen[0]
+                    encontrados[origen[0]] = match
     finally:
-        s.close()
+        for s in sockets:
+            s.close()
     return encontrados
 
 
@@ -399,19 +443,24 @@ def descubrir(subred: Optional[str] = None, registradas: Optional[dict[str, str]
     marcarlas en vez de ofrecerlas otra vez."""
     t0 = time.monotonic()
     registradas = registradas or {}
-    local = ip_local()
-    if subred is None:
-        if not local:
-            raise RuntimeError("No pude determinar la IP de este equipo en la red local.")
-        subred = str(ipaddress.ip_network(f"{local}/24", strict=False))
-    red = ipaddress.ip_network(subred, strict=False)
-    if red.num_addresses > 1024:
-        raise ValueError("La subred es demasiado grande: usa una /22 o más chica.")
+    interfaces = interfaces_locales()
+    propias = {ip for _, ip, _ in interfaces}
+    if subred:
+        redes = [ipaddress.ip_network(subred, strict=False)]
+        if redes[0].num_addresses > 1024:
+            raise ValueError("La red es demasiado grande: usa una /22 o más chica.")
+    else:
+        # El /24 de cada tarjeta: una red /16 de la universidad son 65 mil
+        # direcciones; el /24 donde esta la laptop es donde suele estar la camara.
+        redes = list(dict.fromkeys(ipaddress.ip_network(f"{ip}/24", strict=False) for _, ip, _ in interfaces))[:4]
+        if not redes:
+            raise RuntimeError("Este equipo no tiene ninguna red conectada (ni cable ni Wi-Fi).")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as unico:
-        onvif_futuro = unico.submit(ws_discovery)
+        onvif_futuro = unico.submit(ws_discovery, 2.5, sorted(propias) or None)
 
-        pares = [(str(ip), p) for ip in red.hosts() if str(ip) != local for p in PUERTOS]
+        pares = [(str(ip), p) for red in redes for ip in red.hosts() if str(ip) not in propias
+                 for p in PUERTOS]
         abiertos: dict[str, list[int]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=256) as pool:
             for (ip, p), ok in zip(pares, pool.map(lambda par: puerto_abierto(*par), pares)):
@@ -434,8 +483,9 @@ def descubrir(subred: Optional[str] = None, registradas: Optional[dict[str, str]
 
     dispositivos.sort(key=lambda d: (not d["es_camara"], ipaddress.ip_address(d["host"])))
     return {
-        "subred": str(red),
-        "ip_local": local,
+        "subred": ", ".join(str(r) for r in redes),
+        "redes": [{"interfaz": n, "ip": ip, "red": str(r)} for n, ip, r in interfaces],
+        "ip_local": ", ".join(sorted(propias)),
         "duracion_s": round(time.monotonic() - t0, 1),
         "onvif_respondieron": len(onvif),
         "dispositivos": dispositivos,

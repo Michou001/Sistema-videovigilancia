@@ -239,6 +239,8 @@
           <div class="botonera">
             <button type="button" data-accion="catalogo-buscar"><i data-lucide="radar"></i>Buscar dispositivos en la red</button>
             <button type="button" class="sec" data-accion="catalogo-manual"><i data-lucide="keyboard"></i>Agregar manualmente</button>
+            <input id="redBusqueda" class="red-busqueda" placeholder="Red (opcional): 192.168.100.0/24"
+                   autocomplete="off" pattern="[0-9./]{7,43}" title="Déjalo vacío para buscar en todas las redes de este equipo">
           </div>
           <div class="tenue pequeno" id="estadoDescubrimiento">
             Busca por ONVIF y por puertos de cámara en la red local. No manda contraseñas.

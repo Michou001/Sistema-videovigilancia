@@ -337,6 +337,25 @@ def test_direcciones_fuera_de_la_lan_se_rechazan():
     assert not cat.es_direccion_local("8.8.8.8")
 
 
+def test_red_publica_conectada_cuenta_como_local():
+    """La red de la UAEMex usa IPs publicas (148.215.x.x) dentro del campus:
+    una camara en la misma red que la laptop es local aunque su IP no sea privada."""
+    import ipaddress
+
+    original = cat.interfaces_locales
+    cat.interfaces_locales = lambda: [("Ethernet", "148.215.4.129", ipaddress.ip_network("148.215.4.0/24"))]
+    try:
+        assert cat.es_direccion_local("148.215.4.64")
+        assert not cat.es_direccion_local("148.215.9.64")
+    finally:
+        cat.interfaces_locales = original
+
+
+def test_interfaces_virtuales_no_se_escanean():
+    nombres = [n.lower() for n, _, _ in cat.interfaces_locales()]
+    assert not any("vethernet" in n or "wsl" in n or "loopback" in n for n in nombres)
+
+
 # --------------------------------------------------------------------------
 # Diagnostico contra la camara simulada
 # --------------------------------------------------------------------------
