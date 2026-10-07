@@ -150,34 +150,27 @@ def identificar(host: str, user: str, password: str) -> bool:
     contrasena incorrecta son 9 intentos fallidos, y Hikvision bloquea la IP
     tras ~5. Un solo intento HTTP aqui evita dejarte fuera 30 minutos.
     """
-    import urllib.error
-    import urllib.request
+    # Antes se usaba HTTPDigestAuthHandler de urllib, que ante un 401 reintenta
+    # solo hasta 5 veces: una contrasena mala eran 6 intentos fallidos, justo lo
+    # que esta funcion queria evitar. ClienteIsapi manda la contrasena una vez.
+    from api.catalogo_camaras import ClienteIsapi, CredencialesRechazadas, parsear_device_info
 
-    url = f"http://{host}/ISAPI/System/deviceInfo"
-    gestor = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    gestor.add_password(None, url, user, password)
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPDigestAuthHandler(gestor),  # Hikvision usa Digest
-        urllib.request.HTTPBasicAuthHandler(gestor),
-    )
     try:
-        with opener.open(url, timeout=5) as resp:
-            xml = resp.read().decode("utf-8", errors="ignore")
-        print("[OK] Credenciales validas. Dispositivo:")
-        for etiqueta in ("deviceName", "model", "firmwareVersion", "serialNumber"):
-            ini, fin = f"<{etiqueta}>", f"</{etiqueta}>"
-            if ini in xml:
-                valor = xml.split(ini)[1].split(fin)[0]
-                print(f"      {etiqueta:18} {valor}")
-        return True
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            print("[x] La camara RECHAZO las credenciales (401).")
-            print("    No voy a probar las rutas RTSP: serian 9 intentos fallidos mas")
-            print("    y Hikvision bloquea la IP tras ~5. Revisa usuario y contrasena")
-            print("    en el .env antes de reintentar.")
-            return False
-        print(f"[!] ISAPI respondio {e.code} (puede ser normal segun el firmware)")
+        xml = ClienteIsapi(host, user, password).get("/ISAPI/System/deviceInfo")
+        if xml:
+            info = parsear_device_info(xml)
+            print("[OK] Credenciales validas. Dispositivo:")
+            for etiqueta in ("nombre", "modelo", "firmware", "serie"):
+                if info.get(etiqueta):
+                    print(f"      {etiqueta:18} {info[etiqueta]}")
+            return True
+        print("[!] ISAPI no respondio deviceInfo (puede ser normal segun el firmware)")
+    except CredencialesRechazadas:
+        print("[x] La camara RECHAZO las credenciales (401).")
+        print("    No voy a probar las rutas RTSP: serian 9 intentos fallidos mas")
+        print("    y Hikvision bloquea la IP tras ~5. Revisa usuario y contrasena")
+        print("    en el .env antes de reintentar.")
+        return False
     except Exception as e:  # noqa: BLE001 - diagnostico, cualquier fallo es informativo
         print(f"[!] Sin respuesta de ISAPI en http://{host} ({type(e).__name__})")
     # Sin confirmacion pero sin rechazo explicito: seguimos, puede ser firmware raro.

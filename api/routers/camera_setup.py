@@ -212,7 +212,7 @@ def archivo_env_para(camera_id: str) -> Path:
             or not principal.get("SOURCE", "").startswith(("rtsp://", "rtsps://")):
         return ENV_PATH
     for otro in sorted(BASE_DIR.glob(".env.*")):
-        if otro.name == ".env.example" or otro.suffix in {".bak", ".example"}:
+        if otro.name == ".env.example" or otro.suffix in {".bak", ".example"} or "bak" in otro.name:
             continue
         if _leer_env(otro).get("CAMERA_ID") == camera_id:
             return otro
