@@ -36,6 +36,7 @@ import './zonas.js';
 import './mapa.js';
 import './titulos.js';
 import './acceso.js';
+import './galeria.js';
 
 iconos();
 

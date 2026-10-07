@@ -265,6 +265,25 @@ def test_revision_excluye_negativo_del_ocr_y_conserva_evidencia():
         assert ev['event_id'] not in z.read('negativas.jsonl').decode()
 
 
+def test_galeria_solo_fotos_y_pagina_sin_repetir():
+    c, h = _cliente()
+    camara = "cam-galeria-" + uuid.uuid4().hex[:6]
+    ids = []
+    for i in range(7):
+        ev = _evento(f"GAL-{i:03d}", camera_id=camara, snapshot_path=_foto(f"galeria-{uuid.uuid4().hex}"))
+        ids.append(ev["event_id"])
+        _ingerir(c, ev)
+    _ingerir(c, _evento("SIN-FOTO", camera_id=camara))
+    ruta = f"/api/events?camera_id={camara}&con_foto=true&limite=4"
+    pag1 = c.get(ruta, headers=h).json()
+    pag2 = c.get(ruta + "&desde_n=4", headers=h).json()
+    assert len(pag1) == 4 and len(pag2) == 3
+    vistos = [e["event_id"] for e in pag1 + pag2]
+    assert sorted(vistos) == sorted(ids), "las dos paginas cubren las 7 fotos sin repetir"
+    assert all(e["snapshot_path"] for e in pag1 + pag2)
+    assert len(c.get(f"/api/events?camera_id={camara}", headers=h).json()) == 8
+
+
 def main() -> int:
     pruebas = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     fallos = 0
