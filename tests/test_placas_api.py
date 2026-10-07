@@ -258,7 +258,8 @@ def test_revision_excluye_negativo_del_ocr_y_conserva_evidencia():
     assert (RAIZ / ev['snapshot_path']).is_file()
     assert c.post(ruta, headers=h, json={'resultado': 'confirmada'}).status_code == 200
     buf = io.BytesIO()
-    with Session(engine) as s: exportar(s, buf)
+    with Session(engine) as s:
+        exportar(s, buf)
     with zipfile.ZipFile(buf) as z:
         assert Path(ev['snapshot_path']).stem in z.read('anotaciones.csv').decode()
         assert ev['event_id'] not in z.read('negativas.jsonl').decode()

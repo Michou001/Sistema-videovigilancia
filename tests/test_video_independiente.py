@@ -52,4 +52,5 @@ class VideoIndependiente(unittest.TestCase):
             self.assertFalse(p._hilo_fuente.is_alive())
 
 
-if __name__ == '__main__': unittest.main()
+if __name__ == '__main__':
+    unittest.main()

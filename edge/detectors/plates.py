@@ -494,7 +494,6 @@ class PlateDetector(Detector):
     def cajas(self) -> list[dict]:
         salida = []
         for track in self.tracker.tracks_confirmados():
-            lecturas = track.state.get("lecturas", [])
             mejor = self._lectura_visible(track)
             texto = f"{formatear(mejor[0])} ({mejor[1]:.2f})" if mejor else "Candidato sin validar"
             salida.append(caja(track.bbox, texto, "#22c55e" if mejor else "#f59e0b", "placa"))
