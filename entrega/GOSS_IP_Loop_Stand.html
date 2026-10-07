@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOSS IP</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07101f; overflow: hidden; }
+  video { width: 100vw; height: 100vh; object-fit: cover; display: block; }
+  body.quieto { cursor: none; }
+  p { position: fixed; bottom: 14px; width: 100%; margin: 0; text-align: center;
+      font: 13px "Segoe UI", sans-serif; color: #6f93bd; transition: opacity .6s; }
+  body.quieto p, body.completa p { opacity: 0; }
+</style>
+</head>
+<body>
+<!-- Loop del stand: abre este archivo y haz clic para pantalla completa.
+     Funciona sin internet; el video va en la misma carpeta. -->
+<video src="GOSS_IP_Loop_Stand.mp4" poster="GOSS_IP_Loop_Stand.png" autoplay muted loop playsinline></video>
+<p>Clic para pantalla completa · Esc para salir</p>
+<script>
+  const cuerpo = document.body;
+  let espera;
+  const mover = () => { cuerpo.classList.remove('quieto'); clearTimeout(espera);
+                        espera = setTimeout(() => cuerpo.classList.add('quieto'), 2000); };
+  addEventListener('mousemove', mover); mover();
+  addEventListener('click', () => document.fullscreenElement
+    ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+  addEventListener('fullscreenchange', () => cuerpo.classList.toggle('completa', !!document.fullscreenElement));
+</script>
+</body>
+</html>
