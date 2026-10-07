@@ -260,6 +260,7 @@ class Camara:
             "fps_procesados": round(self.frames / transcurrido, 2),
             "eventos": self.total_eventos,
             "detectores": {d.name: d.resumen for d in self.detectores},
+            **self._ventana(),
             "fallos_detector": {k: v for k, v in self.fallos.items() if v},
             "modelos_compartidos": cargados(),
         }
@@ -269,6 +270,31 @@ class Camara:
             except Exception:  # noqa: BLE001
                 pass
         return datos
+
+    def _ventana(self) -> dict:
+        """fps y milisegundos por detector desde el latido anterior (~15 s).
+
+        Los promedios acumulados desde el arranque arrastran la carga de los
+        modelos y el calentamiento de la GPU (la primera inferencia tarda un
+        segundo o mas): en los primeros minutos daban la mitad de los fps
+        reales. Esto es lo que se mide en tools/metricas.py."""
+        ahora = time.monotonic()
+        anterior = getattr(self, "_latido_previo", None)
+        actual = {"t": ahora, "frames": self.frames, "det": {}}
+        salida: dict = {}
+        for d in self.detectores:
+            st = d.stats
+            n, ms = st.get("frames"), st.get("ms_inferencia_promedio")
+            if n is None or ms is None:
+                continue
+            actual["det"][d.name] = (n, n * ms)
+            if anterior and d.name in anterior["det"] and n > anterior["det"][d.name][0]:
+                n0, total0 = anterior["det"][d.name]
+                salida.setdefault("ms_inferencia", {})[d.name] = round((n * ms - total0) / (n - n0), 1)
+        if anterior and ahora > anterior["t"]:
+            salida["fps_recientes"] = round((self.frames - anterior["frames"]) / (ahora - anterior["t"]), 2)
+        self._latido_previo = actual
+        return salida
 
     def emitir(self, evento, frame=None) -> None:
         self.sink.enviar(evento)
