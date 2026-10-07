@@ -62,3 +62,6 @@ respaldos/
 
 # Videos de demostracion (pesan): se copian a mano a cada equipo
 demo/videos/
+
+# Documentos internos del equipo (guia de demo, banco de preguntas): no son publicos
+entrega/interno/
