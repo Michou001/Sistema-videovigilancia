@@ -24,6 +24,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _carpeta(variable: str, defecto: str) -> Path:
+    """Carpeta de evidencia. Relativa a la raiz del proyecto si no es
+    absoluta: las rutas de evidencia se guardan relativas a la raiz."""
+    ruta = Path(os.getenv(variable) or BASE_DIR / "data" / defecto)
+    return ruta if ruta.is_absolute() else BASE_DIR / ruta
+
+
 @dataclass
 class ApiConfig:
     database_url: str = field(
@@ -49,10 +56,8 @@ class ApiConfig:
     0.50 es el punto de partida habitual; subirlo reduce falsos positivos a
     costa de perder coincidencias reales."""
 
-    snapshot_dir: Path = field(default_factory=lambda: Path(
-        os.getenv("SNAPSHOT_DIR") or BASE_DIR / "data" / "snapshots"))
-    clips_dir: Path = field(default_factory=lambda: Path(
-        os.getenv("CLIPS_DIR") or BASE_DIR / "data" / "clips"))
+    snapshot_dir: Path = field(default_factory=lambda: _carpeta("SNAPSHOT_DIR", "snapshots"))
+    clips_dir: Path = field(default_factory=lambda: _carpeta("CLIPS_DIR", "clips"))
     """Clips de video de las alertas (ver edge/clips.py). Carpeta aparte de las
     fotos porque pesan 100 veces mas y conviene poder moverla a otro disco."""
     web_dir: Path = BASE_DIR / "web"
