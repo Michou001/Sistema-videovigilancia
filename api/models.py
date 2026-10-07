@@ -77,6 +77,14 @@ class Camera(EnUtc, table=True):
     )
     enabled: bool = Field(default=True)
 
+    funcion: Optional[str] = Field(
+        default=None, max_length=32,
+        description="Para que se instalo: lpr, peatonal, pasillo, zona, patio, estacionamiento")
+    ficha_json: Optional[str] = Field(
+        default=None,
+        description="Ficha del catalogo: marca, modelo, firmware, stream y recomendacion, cada "
+                    "dato con su fuente. Nunca lleva credenciales.")
+
     # Salud reportada por el worker (heartbeat). Permite pintar la camara en
     # rojo en el dashboard sin tener que mirar el video.
     last_heartbeat: Optional[datetime] = Field(default=None, index=True)

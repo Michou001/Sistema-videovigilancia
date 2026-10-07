@@ -30,6 +30,7 @@ from api.routers import (  # noqa: E402
     blacklist,
     busqueda,
     camera_setup,
+    catalogo,
     events,
     faces,
     media,
@@ -228,6 +229,7 @@ app.include_router(faces.router)
 app.include_router(alerts.router)
 app.include_router(preview.router)
 app.include_router(camera_setup.router)
+app.include_router(catalogo.router)
 app.include_router(media.router)
 app.include_router(placas.router)
 app.include_router(notificaciones.router)
