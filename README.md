@@ -357,9 +357,12 @@ almacenamiento. Ver
 | `python tools/metricas.py --resumen --desde AAAA-MM-DD` | Alertas, tiempo de atención, placas corregidas, caídas y recuperación, desde la base de datos |
 | `python tools/placa_demo.py` | Placa de prueba imprimible (serie sin entidad asignada), validada con el detector y el OCR |
 | `python tools/grabar_video.py --segundos 90` | Graba la cámara en el ensayo, para usar el video como cámara si en la sede falla la real |
+| `python tools/marca/loop_logo.py entrega/GOSS_IP_Loop_Stand.mp4` | Loop del logo para el monitor del stand (12 s, 1080p, sin corte); la frase se cambia en el script |
 
-Entregables en [entrega/](entrega/) (presentación y memoria técnica) y
-resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
+Entregables en [entrega/](entrega/): presentación, memoria técnica, portafolio
+de evidencias, bitácora del Bootcamp y el loop del stand
+(`GOSS_IP_Loop_Stand.html` lo reproduce a pantalla completa sin internet).
+Resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
 
 ---
 
