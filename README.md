@@ -17,7 +17,8 @@ real, clips de evidencia y avisos al celular, en una plataforma web.
 | Búsqueda por descripción ("camioneta blanca") | Opcional; probado con el modelo real en español |
 | Video en vivo por WebRTC (go2rtc) con cajas dibujadas en el navegador | Opcional; MJPEG como respaldo automático |
 | Armas blancas (YOLO11-COCO) | Apagado por defecto: no detectó en prueba real (ver abajo) |
-| Varias cámaras en un solo proceso con modelos compartidos | Probado con 2 Hikvision reales |
+| Varias cámaras en un solo proceso con modelos compartidos | Probado con 2 Hikvision reales; con más de 2, un proceso por cámara rinde 67 % más ([medición](docs/evidencias/README.md)) |
+| **Catálogo de cámaras**: buscar (ONVIF, puertos, MAC), diagnosticar (ISAPI/ONVIF/RTSP), recomendar instalación y dar de alta desde el navegador | Funcionando; probado con una cámara simulada en las pruebas, pendiente con la Hikvision del stand |
 | PostgreSQL + Redis (varios procesos de API), Docker, HTTPS | Funcionando |
 
 ---
@@ -90,10 +91,14 @@ sin tocar los workers.
 │   └── routers/         auth, usuarios, bitácora, eventos, alertas, zonas, ...
 ├── web/                 Dashboard (HTML + JS, sin compilación ni CDN)
 ├── tools/               init_plataforma, probe_camara, optimizar_modelos, go2rtc_config,
-│                        dataset_alertas, exportar_dataset, purgar_datos, ...
+│                        dataset_alertas, exportar_dataset, purgar_datos, respaldo,
+│                        metricas, placa_demo, grabar_video, ...
 ├── docker/              Imágenes, Caddyfile, go2rtc
-├── tests/               233 pruebas sin cámara ni GPU
-└── docs/                Hikvision, despliegue, privacidad, licencias, reentrenamiento
+├── tests/               267 pruebas sin cámara ni GPU
+├── docs/                Hikvision, despliegue, privacidad, licencias, reentrenamiento,
+│                        evidencias medidas (docs/evidencias)
+├── demo/                Placa de prueba imprimible; videos del plan de contingencia
+└── entrega/             Presentación y memoria técnica de la Fase 2
 ```
 
 ---
@@ -158,14 +163,46 @@ SOURCE=file:videos/prueba.mp4
 SOURCE=rtsp://operador:pass@192.168.1.64:554/Streaming/Channels/102
 ```
 
-Para encontrar la cámara y su URL RTSP: botón **Cámaras** del dashboard, o
+Para encontrar la cámara y su URL RTSP: apartado **Cámaras** del dashboard, o
 `python tools/probe_camara.py --descubrir` (ver
 **[docs/camara-hikvision.md](docs/camara-hikvision.md)**).
+
+### Catálogo de cámaras
+
+Apartado **Cámaras** del dashboard (solo administradores), en cuatro pasos:
+
+1. **Buscar** en todas las redes del equipo, sin mandar contraseñas: ONVIF
+   WS-Discovery, puertos de cámara, huella ISAPI/Dahua y fabricante por
+   prefijo MAC. Los teléfonos y laptops (MAC aleatoria, WSD de Windows) se
+   separan como "otro equipo".
+2. **Diagnosticar** con la contraseña, que se prueba **una sola vez**:
+   marca, modelo, firmware y serie (ISAPI u ONVIF), cada stream con codec,
+   resolución y fps, confirmado con RTSP DESCRIBE; vista previa y aviso si el
+   stream va en H.265 (sin WebRTC garantizado).
+3. **Recomendar** según función, altura, distancia y lente: px por metro,
+   px de placa y de rostro, ángulo vertical, alcance y nivel DORI
+   (IEC 62676-4), usos posibles, detectores sugeridos y lo que hay que
+   validar en sitio ([shared/instalacion.py](shared/instalacion.py)).
+4. **Dar de alta**: escribe el `.env` de la cámara y guarda su ficha (sin
+   credenciales). El worker se **inicia y detiene desde el navegador**
+   cuando API y workers corren en el mismo equipo (`PERMITIR_INICIAR_WORKER`).
+
+Cada dato dice su fuente (la cámara, el instalador o una regla de GOSS) y
+una cámara se reconoce por serie o MAC aunque el router le cambie la IP.
+También acepta altas manuales: URL RTSP, webcam o un video de `demo/videos`
+que hace de cámara (en bucle y a velocidad real, `SOURCE_LOOP` y
+`SOURCE_REALTIME`).
 
 ### Varias cámaras
 
 Todas en **un solo proceso**: los modelos se cargan una vez y los comparten.
 Cada cámara corre en su hilo; si una se cae, las demás siguen.
+
+Medido en una RTX 4050: con 4 cámaras en un proceso la GPU queda al 34 % y el
+total es de 11 cuadros/s (el límite es el GIL de Python); con un proceso por
+cámara, 18 cuadros/s y la GPU al 77 %. Con más de 2 cámaras conviene un
+proceso por cámara, que es lo que hace el catálogo
+([docs/evidencias](docs/evidencias/README.md)).
 
 ```bash
 python -m edge.worker --env .env --env .env.cam2 --env .env.cam3
@@ -182,6 +219,7 @@ los detectores del `.env`).
 | **Monitoreo** | Pantalla de guardia | Cámaras en vivo con las cajas dibujadas (MJPEG, o WebRTC con go2rtc); detecciones conforme entran |
 | **Registro** | Pantalla de trabajo | Búsqueda de eventos por placa, tipo, estado, fechas o **descripción**; alertas por atender con su foto y **clip** |
 | **Mapa** | Dónde está cada cámara | Cámaras en línea / sin señal; una alerta crítica parpadea en su punto |
+| **Cámaras** | Solo administradores | Catálogo de cámaras: buscar, diagnosticar, recomendar instalación, dar de alta e iniciar su worker |
 | **Administración** | Solo administradores | Usuarios y roles, bitácora, dataset de placas, notificaciones |
 
 - Tres roles: **Consulta** mira, **Operador** además atiende alertas y
@@ -449,10 +487,12 @@ Dos trampas encontradas midiendo, ambas silenciosas:
 python tests/correr_todas.py
 ```
 
-**233 pruebas en 21 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
+**267 pruebas en 23 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
 confirmación temporal, rostros, pose, zonas y horarios, ISAPI, clips,
 notificaciones (servicios simulados), cámaras caídas, búsqueda, reentrenamiento,
-WebRTC, seguridad, retención y la API completa contra una base temporal.
+WebRTC, seguridad, retención, catálogo de cámaras (con una cámara simulada
+que responde ISAPI y RTSP) y la API completa contra una base temporal. Las
+pruebas usan su propia carpeta de evidencia: nunca tocan `data/`.
 Contra PostgreSQL y Redis reales:
 
 ```bash
@@ -462,6 +502,21 @@ PRUEBAS_REDIS=redis://localhost:6379/15 python tests/correr_todas.py
 
 La integración continua corre todo en Linux y Windows (Python 3.11 y 3.12),
 contra PostgreSQL 16 y Redis 7, y construye la imagen Docker de la API.
+
+---
+
+## Fase 2 del reto: herramientas para la demo
+
+| Herramienta | Para qué |
+|---|---|
+| `python tools/respaldo.py [--con-evidencia] [--nube]` | Código (todas las ramas), `.env`, base de datos y secretos, con manifiesto SHA-256. `--nube` copia a OneDrive **sin** credenciales |
+| `python tools/metricas.py --muestrear 300` | fps, ms por detector, latencia de la API, GPU, VRAM y CPU en vivo, a CSV |
+| `python tools/metricas.py --resumen --desde AAAA-MM-DD` | Alertas, tiempo de atención, placas corregidas, caídas y recuperación, desde la base de datos |
+| `python tools/placa_demo.py` | Placa de prueba imprimible (serie sin entidad asignada), validada con el detector y el OCR |
+| `python tools/grabar_video.py --segundos 90` | Graba la cámara en el ensayo, para usar el video como cámara si en la sede falla la real |
+
+Entregables en [entrega/](entrega/) (presentación y memoria técnica) y
+resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
 
 ---
 
