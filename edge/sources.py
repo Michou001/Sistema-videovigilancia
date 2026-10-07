@@ -474,6 +474,7 @@ class FileSource(FrameSource):
             raise RuntimeError(f"OpenCV no pudo abrir {self.path} (codec no soportado?)")
 
         self._counter = 0
+        self._desde_t0 = 0      # frames leidos desde la ultima vuelta del bucle
         self._status = SourceStatus(connected=True)
         self._native_fps = self._cap.get(cv2.CAP_PROP_FPS) or 25.0
         self._t0 = time.monotonic()
@@ -488,20 +489,26 @@ class FileSource(FrameSource):
         if not ok or frame is None:
             if self.loop:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                # El reloj de reproduccion vuelve a cero junto con el video. Antes
+                # solo se reiniciaba t0 y el contador seguia: al dar la vuelta, el
+                # siguiente frame "tocaba" en t0 + duracion del video y la fuente
+                # se quedaba dormida todo ese tiempo.
                 self._t0 = time.monotonic()
+                self._desde_t0 = 0
                 ok, frame = self._cap.read()
             if not ok or frame is None:
                 self._status.connected = False
                 return None
 
         self._counter += 1
+        self._desde_t0 += 1
         self._status.frames_grabbed = self._counter
         self._status.last_frame_at = time.time()
         self._status.measured_fps = self._native_fps
 
         if self.realtime:
             # Reproduce a la velocidad original, para simular una camara real.
-            target = self._t0 + (self._counter / self._native_fps)
+            target = self._t0 + (self._desde_t0 / self._native_fps)
             delay = target - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
@@ -532,8 +539,12 @@ def open_source(spec: str, *, hw_decode: str = "off", **kwargs) -> FrameSource:
         rtsp://... | http://...     -> LiveSource(url, con reconexion)
         gst:<pipeline>              -> LiveSource(GStreamer, con reconexion)
         file:ruta.mp4 | ruta.mp4    -> FileSource
+
+    `loop` y `realtime` solo aplican a archivos (SOURCE_LOOP, SOURCE_REALTIME).
     """
     spec = spec.strip()
+    loop = bool(kwargs.pop("loop", False))
+    realtime = bool(kwargs.pop("realtime", False))
 
     if spec.startswith(("rtsp://", "rtsps://", "http://", "https://")):
         host = urlparse(spec).hostname or "red"
@@ -556,7 +567,12 @@ def open_source(spec: str, *, hw_decode: str = "off", **kwargs) -> FrameSource:
 
     if spec.startswith("file:"):
         spec = spec[5:]
-    return FileSource(spec, **kwargs)
+    ruta = Path(spec)
+    if not ruta.is_absolute() and not ruta.exists():
+        # Relativa a la raiz del proyecto, no a la carpeta desde donde se lanzo
+        # el worker (el dashboard lo lanza desde la raiz; un .bat, quien sabe).
+        ruta = Path(__file__).resolve().parent.parent / ruta
+    return FileSource(ruta, loop=loop, realtime=realtime, **kwargs)
 
 
 def _redact(target: int | str) -> str:

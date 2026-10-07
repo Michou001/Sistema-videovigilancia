@@ -231,7 +231,8 @@ class Camara:
         self.detectores = construir_detectores(cfg)
         self.sink = crear_sink(cfg)
         self.preview = crear_publicador(cfg)
-        self.fuente = open_source(cfg.source, hw_decode=cfg.hw_decode)
+        self.fuente = open_source(cfg.source, hw_decode=cfg.hw_decode,
+                                  loop=cfg.source_loop, realtime=cfg.source_realtime)
         self.complementos: list = []
         """Piezas opcionales que reciben cada frame y/o producen eventos por su
         cuenta (grabador de clips, eventos de la propia camara). Cumplen:

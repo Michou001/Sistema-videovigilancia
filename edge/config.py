@@ -55,6 +55,12 @@ class EdgeConfig:
 
     # --- Computo -----------------------------------------------------------
     device: str = field(default_factory=lambda: os.getenv("DEVICE", "auto"))  # auto|cuda|cpu
+    source_loop: bool = field(default_factory=lambda: _env_bool("SOURCE_LOOP", False))
+    source_realtime: bool = field(default_factory=lambda: _env_bool("SOURCE_REALTIME", False))
+    """Solo para SOURCE=file:... Un video de demostracion que se comporta como
+    camara: se repite al terminar y se reproduce a su velocidad real (sin esto
+    se procesa lo mas rapido posible, que es lo que se quiere en pruebas)."""
+
     infer_fps: float = field(default_factory=lambda: _env_float("INFER_FPS", 8.0))
     """FPS objetivo de INFERENCIA, no de captura. La camara entrega 25-30 fps;
     procesarlos todos satura la GPU sin ganar nada: un coche no cambia de placa
