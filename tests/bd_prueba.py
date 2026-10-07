@@ -13,9 +13,23 @@ terminar.
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import uuid
 from pathlib import Path
+
+# Fotos y clips de las pruebas en una carpeta PROPIA, nunca en data/snapshots
+# ni data/clips. Antes las pruebas usaban una base de datos temporal con las
+# carpetas reales, y la purga de "huerfanos" borro la evidencia de una prueba
+# con la camara real (para la base temporal, ninguna de esas fotos tenia
+# registro). Va dentro del proyecto porque la API guarda las rutas de
+# evidencia relativas a la raiz. Todos los archivos de pruebas importan este
+# modulo antes que la API; la carpeta se borra al terminar.
+_EVIDENCIA = Path(__file__).resolve().parent.parent / "data" / f"pruebas-{uuid.uuid4().hex[:8]}"
+os.environ["SNAPSHOT_DIR"] = str(_EVIDENCIA / "snapshots")
+os.environ["CLIPS_DIR"] = str(_EVIDENCIA / "clips")
+atexit.register(shutil.rmtree, _EVIDENCIA, ignore_errors=True)
 
 
 def url_temporal(carpeta: Path, nombre: str) -> str:

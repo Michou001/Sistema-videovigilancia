@@ -38,7 +38,7 @@ from pathlib import Path
 
 from sqlmodel import Session, col, delete, select
 
-from api.config import get_config
+from api.config import BASE_DIR, get_config
 from api.models import Alert, AuditLog, Event, FaceEmbedding
 
 log = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def purgar(session: Session, politica: Politica | None = None,
     """
     politica = politica or Politica()
     cfg = get_config()
-    base = cfg.snapshot_dir.parent.parent  # raiz del proyecto
+    base = BASE_DIR  # las rutas de evidencia se guardan relativas a la raiz
     cuenta = {"fotos": 0, "eventos": 0, "alertas": 0, "embeddings": 0, "huerfanas": 0,
               "auditoria": 0, "clips": 0}
 
@@ -224,6 +224,32 @@ def purgar(session: Session, politica: Politica | None = None,
     return cuenta
 
 
+# Si la mayoria de los archivos de la carpeta no tienen registro, lo raro no
+# son los archivos: es la base de datos. Pasa al apuntar DATABASE_URL a una
+# base nueva (al migrar a PostgreSQL, por ejemplo) o cuando una prueba usa una
+# base temporal con las carpetas reales -- asi se borraron una vez las fotos
+# y clips de una prueba con la camara real. En ese caso no se borra nada.
+MAX_HUERFANAS_SIN_REVISAR = 20
+
+
+def _demasiadas(huerfanas: int, total: int, carpeta: Path) -> bool:
+    if huerfanas >= MAX_HUERFANAS_SIN_REVISAR and huerfanas > total / 2:
+        log.warning(
+            "Purga: %d de %d archivos de %s no tienen registro en la base de datos. "
+            "Parece otra base de datos (DATABASE_URL); no se borra ninguno. Si de "
+            "verdad son huerfanos, borralos a mano.", huerfanas, total, carpeta)
+        return True
+    return False
+
+
+def _reciente(archivo: Path, segundos: float = 600) -> bool:
+    """Recien escrito: puede estar a medio ligar a su evento o alerta."""
+    try:
+        return datetime.now().timestamp() - archivo.stat().st_mtime < segundos
+    except OSError:
+        return True
+
+
 def _borrar_vectores(session: Session, event_ids: list[str]) -> None:
     from api.semantica import borrar_de_eventos
 
@@ -244,16 +270,12 @@ def _limpiar_clips_huerfanos(session: Session, carpeta: Path, simular: bool) -> 
             select(Alert.clip_path).where(col(Alert.clip_path).is_not(None))
         ).all() if p
     }
+    todos = list(carpeta.glob("*.mp4")) + list(carpeta.glob("*.webm"))
+    candidatos = [a for a in todos if a.name not in referenciados and not _reciente(a)]
+    if _demasiadas(len(candidatos), len(todos), carpeta):
+        return 0
     n = 0
-    for archivo in list(carpeta.glob("*.mp4")) + list(carpeta.glob("*.webm")):
-        if archivo.name in referenciados:
-            continue
-        # Un clip recien subido puede estar a medio ligar a su alerta.
-        try:
-            if datetime.now().timestamp() - archivo.stat().st_mtime < 600:
-                continue
-        except OSError:
-            continue
+    for archivo in candidatos:
         n += 1
         if not simular:
             try:
@@ -284,10 +306,13 @@ def _limpiar_huerfanas(session: Session, carpeta: Path, base: Path, simular: boo
     # evento y no deben borrarse por "huerfanas".
     protegidas = {"prueba_camara.jpg", "rostro_camara.jpg"}
 
+    todos = list(carpeta.glob("*.jpg"))
+    candidatos = [a for a in todos if a.name not in referenciadas and a.name not in protegidas
+                  and not _reciente(a)]
+    if _demasiadas(len(candidatos), len(todos), carpeta):
+        return 0
     n = 0
-    for archivo in carpeta.glob("*.jpg"):
-        if archivo.name in referenciadas or archivo.name in protegidas:
-            continue
+    for archivo in candidatos:
         n += 1
         if not simular:
             try:
