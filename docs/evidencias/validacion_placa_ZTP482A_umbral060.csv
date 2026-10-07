@@ -1,0 +1,12 @@
+condicion,placa_px,angulo,desenfoque,luz,detecta,lecturas_correctas,aciertos,ejemplo_lectura,conf_ocr_max
+De frente,300,0,0,1.0,0/4,0/4,0,,0.0
+De frente,240,0,0,1.0,1/4,1/4,1,ZTP482A,1.0
+De frente,200,0,0,1.0,1/4,1/4,1,ZTP482A,1.0
+De frente,160,0,0,1.0,1/4,1/4,1,ZTP482A,1.0
+De frente,140,0,0,1.0,1/4,1/4,1,ZTP482A,1.0
+De frente,120,0,0,1.0,0/4,0/4,0,,0.0
+De frente,100,0,0,1.0,0/4,0/4,0,,0.0
+De lado 30°,220,30,0,1.0,0/4,0/4,0,,0.0
+De lado 45°,220,45,0,1.0,0/4,0/4,0,,0.0
+Desenfocada,220,0,1.6,1.0,1/4,1/4,1,ZTP482A,1.0
+Poca luz,220,0,0,0.35,1/4,1/4,1,ZTP482A,1.0
