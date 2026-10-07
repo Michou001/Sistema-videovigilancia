@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from sqlmodel import col, select
 
 from api.auditoria import registrar
-from api.config import get_config
+from api.config import BASE_DIR, get_config
 from api.deps import Admin, OperadorActual, SesionBD
 from api.matching import lista_negra
 from api.models import BlacklistFace, FechasEnUtc
@@ -132,7 +132,7 @@ async def agregar(
     carpeta.mkdir(parents=True, exist_ok=True)
     ruta = carpeta / f"rostro-{registro.id}.jpg"
     cv2.imwrite(str(ruta), imagen)
-    registro.photo_path = ruta.relative_to(cfg.snapshot_dir.parent.parent).as_posix()
+    registro.photo_path = ruta.relative_to(BASE_DIR).as_posix()
     # El fundamento legal va a la bitacora: es lo que se pide en una auditoria.
     registrar(session, "lista_negra.alta_rostro", usuario=admin.username,
               objetivo=f"{label} (#{registro.id})",

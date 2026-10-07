@@ -177,7 +177,9 @@ def test_foto_adjunta_se_guarda_en_la_api():
                  snapshot_path="C:/otra/maquina/data/snapshots/lo-que-sea.jpg")
     _ingerir(c, ev)
     fila = c.get("/api/events", params={"q": "FOT555"}, headers=h).json()[0]
-    assert fila["snapshot_path"] == f"data/snapshots/{ev['event_id']}.jpg"
+    from api.config import get_config
+    esperado = (get_config().snapshot_dir / f"{ev['event_id']}.jpg").relative_to(RAIZ).as_posix()
+    assert fila["snapshot_path"] == esperado, fila["snapshot_path"]
     destino = RAIZ / fila["snapshot_path"]
     _archivos_creados.append(destino)
     assert destino.read_bytes() == jpeg
