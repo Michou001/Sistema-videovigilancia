@@ -263,11 +263,15 @@ def test_canalizar_y_ficha_de_evidencia():
     assert set(z.namelist()) == {"ficha.html", "foto.jpg", "SHA256SUMS.txt"}
     assert z.read("foto.jpg") == jpeg
     huella = hashlib.sha256(jpeg).hexdigest()
-    assert z.read("SHA256SUMS.txt").decode() == f"{huella}  foto.jpg\n"
+    sumas = z.read("SHA256SUMS.txt").decode().splitlines()
+    assert f"{huella}  foto.jpg" in sumas
+    assert f"{hashlib.sha256(z.read('ficha.html')).hexdigest()}  ficha.html" in sumas, "la ficha va al manifiesto"
     ficha = z.read("ficha.html").decode()
     assert folio in ficha and "CNL-911" in ficha and "F-2026-1234" in ficha
     assert "911 / C5 Edomex" in ficha and "Protección Universitaria" in ficha
     assert "Alerta canalizada a otra instancia" in ficha and huella in ficha
+    # La leyenda dice lo que paso, no asume una verificacion.
+    assert "La atendió admin" in ficha and "verificó" not in ficha
 
     bitacora = c.get("/api/audit", params={"accion": "alertas.ficha_evidencia"}, headers=h)
     assert bitacora.status_code == 200, bitacora.text

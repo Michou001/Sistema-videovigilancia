@@ -7,7 +7,7 @@ quien se paso el caso. Todo va en un ZIP:
   ficha.html      imprimible (o "Guardar como PDF" desde el navegador)
   foto.jpg        la captura de la alerta, si sigue en disco
   clip.mp4        el video antes y despues del hecho, si lo hay
-  SHA256SUMS.txt  huella de cada archivo, en el formato de `sha256sum -c`
+  SHA256SUMS.txt  huella de cada archivo (ficha incluida), formato de `sha256sum -c`
 
 La huella permite demostrar despues que lo entregado no se altero: la misma
 lista queda en la bitacora (alertas.ficha_evidencia) con quien la descargo.
@@ -135,7 +135,17 @@ def armar_ficha(alerta: Alert, evento: Optional[Event], camara: Optional[Camera]
     ) or '<tr><td colspan="3">Sin movimientos</td></tr>'
     filas_huellas = "".join(
         f"<tr><td>{html.escape(n)}</td><td class='hash'>{h}</td></tr>" for n, h in huellas.items()
-    ) or '<tr><td colspan="2">La foto y el clip ya no están en disco (retención)</td></tr>'
+    ) or '<tr><td colspan="2">Foto y clip no disponibles en el servidor</td></tr>'
+    # Lo que dice la ficha sobre la revision depende de lo que paso, no se
+    # asume: atender una alerta tampoco confirma que la coincidencia sea cierta.
+    if alerta.status == "acknowledged":
+        revision = (f"La atendió {html.escape(alerta.acknowledged_by or 'un operador')}; atenderla no "
+                    "confirma por sí mismo que la coincidencia sea correcta.")
+    elif alerta.status == "dismissed":
+        motivo = f" ({html.escape(alerta.dismissed_reason)})" if alerta.dismissed_reason else ""
+        revision = f"La descartó {html.escape(alerta.acknowledged_by or 'un operador')}{motivo}."
+    else:
+        revision = "Pendiente de revisión humana: nadie la ha atendido todavía."
     foto = next((n for n in archivos if n.startswith("foto")), None)
     clip = next((n for n in archivos if n.startswith("clip")), None)
 
@@ -164,17 +174,21 @@ img{{max-width:100%;border:1px solid #ccc;margin-top:6px}} .aviso{{font-size:12p
 <table><tr><th>Archivo</th><th>SHA-256</th></tr>{filas_huellas}</table>
 <h2>Bitácora del folio</h2>
 <table><tr><th>Fecha</th><th>Usuario</th><th>Acción</th></tr>{filas_bitacora}</table>
-<p class="aviso">Generada automáticamente. La detección la hace un modelo de visión y la verificó
-un operador humano; no constituye por sí misma una identificación. Contiene datos personales:
+<p class="aviso">Generada automáticamente. La detección la hace un modelo de visión. {revision}
+No constituye por sí misma una identificación. Contiene datos personales:
 entregar solo a la autoridad competente, conforme al aviso de privacidad del sitio. Para comprobar
-que los archivos no cambiaron: <code>sha256sum -c SHA256SUMS.txt</code>.</p>
+que los archivos no cambiaron: <code>sha256sum -c SHA256SUMS.txt</code> (incluye esta ficha). Las
+huellas prueban que el paquete no cambió desde su descarga, no el origen de la imagen.</p>
 </body></html>
 """
+    # La ficha tambien va al manifiesto (no puede llevar su propia huella dentro).
+    ficha = pagina.encode("utf-8")
+    huellas = {"ficha.html": _sha256(ficha), **huellas}
     sumas = "".join(f"{h}  {n}\n" for n, h in huellas.items())
 
     salida = io.BytesIO()
     with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("ficha.html", pagina)
+        z.writestr("ficha.html", ficha)
         for nombre, datos in archivos.items():
             # Foto y clip ya vienen comprimidos: guardarlos tal cual es mas rapido.
             z.writestr(zipfile.ZipInfo(nombre, date_time=datetime.now().timetuple()[:6]), datos,
