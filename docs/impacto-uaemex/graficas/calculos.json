@@ -1,0 +1,64 @@
+{
+  "fecha_revision": "2026-10-07",
+  "resultados_campus": null,
+  "evidencia_externa": {
+    "doi": "10.1111/1745-9133.12419",
+    "reduccion_agregada_pct": 13,
+    "reduccion_estacionamientos_pct": 37,
+    "aplicable_como_prediccion_uaemex": false
+  },
+  "escenarios_ficticios": {
+    "base": 40,
+    "reducciones_pct": [
+      -10,
+      0,
+      5,
+      10,
+      15
+    ],
+    "incidentes": [
+      44.0,
+      40.0,
+      38.0,
+      36.0,
+      34.0
+    ]
+  },
+  "ensayo_sintetico_existente": {
+    "fuente": "validacion_placa_ZTP482A_umbral060.csv",
+    "sha256": "ee09662f7f8c3d1f584d3471413b0353e1ec535284e085fb359997451e803ada",
+    "oportunidades": 44,
+    "detectadas": 6,
+    "correctas": 6,
+    "lecturas_correctas_global_pct": 13.636363636363637,
+    "ocr_condicionado_pct": 100.0
+  },
+  "ejemplo_control_ficticio": {
+    "intervencion": [
+      40,
+      34
+    ],
+    "control": [
+      50,
+      45
+    ],
+    "cociente_cambios": 0.9444444444444444,
+    "reduccion_ajustada_pct": 5.555555555555558,
+    "ic95_poisson_aproximado_reduccion_pct": [
+      -73.6944153056223,
+      48.64686310883924
+    ]
+  },
+  "ejemplo_cero_errores": {
+    "negativos": 20,
+    "fp": 0,
+    "limite_superior_unilateral95_pct": 13.910834066826517
+  },
+  "ejemplo_baja_prevalencia": {
+    "positivos": 10,
+    "negativos": 9990,
+    "sensibilidad": 0.9,
+    "fpr": 0.01,
+    "precision_pct": 8.264462809917354
+  }
+}
