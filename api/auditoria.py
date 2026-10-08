@@ -36,6 +36,8 @@ ACCIONES = {
     "lista_negra.baja_rostro": "Baja de persona",
     "alertas.atendida": "Alerta atendida",
     "alertas.descartada": "Alerta descartada",
+    "alertas.canalizada": "Alerta canalizada a otra instancia",
+    "alertas.ficha_evidencia": "Descarga de ficha de evidencia",
     "eventos.correccion": "Corrección de lectura",
     "eventos.revision_placa": "Revisión de detección de placa",
     "reportes.csv": "Exportación de reporte",

@@ -23,7 +23,7 @@ import {
   agregarDeteccion, cargarDetecciones, detenerCamaras, iniciarCamaras, marcarEnCamara,
 } from './monitoreo.js';
 import {
-  actualizarClip, actualizarFiltroCamaras, agregarAlerta, agregarEvento, cargarAlertas, cargarEventos, filtroActivo,
+  actualizarCanalizaciones, actualizarClip, actualizarFiltroCamaras, agregarAlerta, agregarEvento, cargarAlertas, cargarEventos, filtroActivo,
   prepararBusquedaSemantica,
 } from './registro.js';
 import { cargarPlacas } from './listanegra.js';
@@ -253,6 +253,7 @@ escuchar('ws:alert', (a) => {
 escuchar('ws:alert_resolved', () => { cargarAlertas(); pedirStats(); });
 escuchar('lectura-corregida', () => { cargarEventos().catch(() => {}); pedirStats(); });
 escuchar('ws:alert_updated', actualizarClip);
+escuchar('ws:alert_canalizada', actualizarCanalizaciones);
 escuchar('ws:camera_status', pedirStats);
 escuchar('pedir-stats', pedirStats);
 

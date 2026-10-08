@@ -710,6 +710,14 @@
           </p>
         </div>
         <form id="formZona" hidden>
+          <div class="campo" id="zCampoPlantilla"><label for="zPlantilla">Plantilla</label>
+            <select id="zPlantilla">
+              <option value="">Regla en blanco</option>
+              <option value="acceso_pico">Acceso: horas de entrada y salida de alumnos</option>
+              <option value="estacionamiento_noche">Estacionamiento: madrugada (robo de autopartes)</option>
+              <option value="area_restringida">Área restringida fuera de horario</option>
+            </select>
+            <div class="ayuda" id="zPlantillaAyuda"></div></div>
           <div class="campo"><label for="zNombre">Nombre</label>
             <input id="zNombre" required minlength="2" maxlength="80" placeholder="Estacionamiento de noche" autocomplete="off"></div>
           <div class="campo"><label for="zTipo">Tipo de regla</label>

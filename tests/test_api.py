@@ -226,6 +226,55 @@ def test_reporte_csv():
     assert c.get("/api/events/export.csv").status_code == 401
 
 
+def test_canalizar_y_ficha_de_evidencia():
+    import hashlib
+    import io
+    import zipfile
+
+    c, h = _cliente()
+    c.post("/api/blacklist/plates", headers=h, json={"plate": "CNL-911", "reason": "robo"})
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x01" * 64 + b"\xff\xd9"
+    _ingerir(c, _evento(valor="CNL-911", snapshot_b64=base64.b64encode(jpeg).decode()))
+    alerta = next(a for a in c.get("/api/alerts", headers=h).json() if "CNL-911" in a["title"])
+    assert alerta["canalizaciones"] == [] and "canalizaciones_json" not in alerta
+    _archivos_creados.append(RAIZ / alerta["snapshot_path"])
+    folio = f"ALR-{alerta['id']:06d}"
+
+    r = c.post(f"/api/alerts/{alerta['id']}/canalizar", headers=h,
+               json={"destino": "911_c5", "referencia": "F-2026-1234", "nota": "Se reportó vehículo"})
+    assert r.status_code == 200, r.text
+    canal = r.json()["canalizaciones"]
+    assert len(canal) == 1 and canal[0]["destino"] == "911_c5"
+    assert canal[0]["referencia"] == "F-2026-1234" and canal[0]["por"] == "admin"
+    # Se puede canalizar a otra instancia aunque la alerta ya este cerrada.
+    c.post(f"/api/alerts/{alerta['id']}/resolver", headers=h, json={"accion": "acknowledge"})
+    r = c.post(f"/api/alerts/{alerta['id']}/canalizar", headers=h,
+               json={"destino": "proteccion_universitaria"})
+    assert r.status_code == 200 and len(r.json()["canalizaciones"]) == 2
+    assert c.post(f"/api/alerts/{alerta['id']}/canalizar", headers=h,
+                  json={"destino": "vecinos"}).status_code == 422
+    assert c.post(f"/api/alerts/{alerta['id']}/canalizar",
+                  json={"destino": "911_c5"}).status_code == 401
+
+    r = c.get(f"/api/alerts/{alerta['id']}/ficha.zip", headers=h)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert f"{folio}-evidencia.zip" in r.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert set(z.namelist()) == {"ficha.html", "foto.jpg", "SHA256SUMS.txt"}
+    assert z.read("foto.jpg") == jpeg
+    huella = hashlib.sha256(jpeg).hexdigest()
+    assert z.read("SHA256SUMS.txt").decode() == f"{huella}  foto.jpg\n"
+    ficha = z.read("ficha.html").decode()
+    assert folio in ficha and "CNL-911" in ficha and "F-2026-1234" in ficha
+    assert "911 / C5 Edomex" in ficha and "Protección Universitaria" in ficha
+    assert "Alerta canalizada a otra instancia" in ficha and huella in ficha
+
+    bitacora = c.get("/api/audit", params={"accion": "alertas.ficha_evidencia"}, headers=h)
+    assert bitacora.status_code == 200, bitacora.text
+    assert any(huella in (f.get("detalle") or "") for f in bitacora.json()), "la huella va a la bitacora"
+    assert c.get("/api/alerts/999999/ficha.zip", headers=h).status_code == 404
+
+
 def test_nombre_y_ubicacion_de_camara():
     c, h = _cliente()
     _ingerir(c, _evento(valor="UBI-100"))

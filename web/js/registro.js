@@ -173,6 +173,32 @@ const RESPUESTAS_RAPIDAS = [
   'Se canalizó al 911',
 ];
 
+/* A quien se le pasa el caso. El sistema no llama a nadie por su cuenta: el
+ * monitorista canaliza y aqui queda constancia (api/ficha_evidencia.py). */
+const DESTINOS = {
+  proteccion_universitaria: 'Protección Universitaria',
+  '911_c5': '911 / C5 Edomex',
+  c4_municipal: 'C4 municipal',
+  fiscalia: 'Fiscalía (denuncia)',
+  otro: 'Otra instancia',
+};
+
+function listaCanalizaciones(lista) {
+  if (!lista || !lista.length) return '';
+  return lista.map((c) => `<span class="chip-canal" title="${escapar(c.nota || '')}">
+      <i data-lucide="send"></i>${escapar(DESTINOS[c.destino] || c.destino)}${c.referencia ? ` · ${escapar(c.referencia)}` : ''}
+      <span class="tenue">${escapar(fechaHora(c.ts))} · ${escapar(c.por || '')}</span></span>`).join('');
+}
+
+/* Otro dashboard canalizo: solo se rehace la lista, no la tarjeta, para no
+ * borrar la nota que este operador quiza esta escribiendo. */
+export function actualizarCanalizaciones(a) {
+  const caja = $('listaAlertas').querySelector(`[data-alerta="${Number(a.id)}"] .canalizaciones`);
+  if (!caja) return;
+  caja.innerHTML = listaCanalizaciones(a.canalizaciones);
+  iconos();
+}
+
 export function agregarAlerta(a, nuevo = false) {
   $('sinAlertas').style.display = 'none';
   const div = document.createElement('div');
@@ -209,6 +235,22 @@ export function agregarAlerta(a, nuevo = false) {
   if (a.status && a.status !== 'new') partes.push(escapar(ESTADOS_ALERTA[a.status] || a.status));
 
   const clip = botonClip(a);
+  const respuesta = a.id && puede('operator')
+    ? `<div class="acciones respuesta">
+         <button type="button" class="sec chico" data-accion="abrir-canalizar" data-id="${id}"><i data-lucide="send"></i>Canalizar</button>
+         <button type="button" class="sec chico" data-accion="ficha-evidencia" data-id="${id}"><i data-lucide="file-archive"></i>Ficha de evidencia</button>
+       </div>
+       <form class="canalizar" id="canalizar-${id}" data-id="${id}" hidden>
+         <select name="destino" aria-label="Instancia">
+           ${Object.entries(DESTINOS).map(([k, v]) => `<option value="${k}">${escapar(v)}</option>`).join('')}
+         </select>
+         <input name="referencia" maxlength="80" placeholder="Folio externo (911, reporte, denuncia)" autocomplete="off">
+         <input name="nota" maxlength="500" placeholder="Nota (opcional)" autocomplete="off">
+         <div class="acciones">
+           <button type="submit"><i data-lucide="send"></i>Registrar</button>
+           <button type="button" class="sec" data-accion="abrir-canalizar" data-id="${id}">Cancelar</button>
+         </div>
+       </form>` : '';
 
   div.innerHTML = `
     <div class="crece">
@@ -216,8 +258,10 @@ export function agregarAlerta(a, nuevo = false) {
       <div class="d">${escapar(a.detail || '')}</div>
       <div class="meta">${partes.join(' · ')}</div>
       ${a.notes ? `<div class="nota">${escapar(a.notes)}${a.acknowledged_by ? ` — ${escapar(a.acknowledged_by)}` : ''}</div>` : ''}
+      <div class="canalizaciones">${listaCanalizaciones(a.canalizaciones)}</div>
       ${clip}
       ${acciones}
+      ${respuesta}
     </div>`;
   if (a.snapshot_path) {
     const img = miniatura(a.snapshot_path, `${a.title} · ${fechaHora(a.ts || a.created_at)}`);
@@ -274,6 +318,49 @@ accion('respuesta-rapida', (el) => {
   const texto = el.textContent;
   campo.value = campo.value ? campo.value.trim() + '. ' + texto : texto;
   campo.focus();
+});
+
+accion('abrir-canalizar', (el) => {
+  const form = $('canalizar-' + el.dataset.id);
+  if (!form) return;
+  form.hidden = !form.hidden;
+  if (!form.hidden) form.elements.referencia.focus();
+});
+
+$('listaAlertas').addEventListener('submit', async (e) => {
+  const form = e.target.closest('form.canalizar');
+  if (!form) return;
+  e.preventDefault();
+  const boton = form.querySelector('button[type="submit"]');
+  boton.disabled = true;
+  try {
+    const a = await api(`/api/alerts/${form.dataset.id}/canalizar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        destino: form.elements.destino.value,
+        referencia: form.elements.referencia.value.trim() || null,
+        nota: form.elements.nota.value.trim() || null,
+      }),
+    });
+    actualizarCanalizaciones(a);
+    form.reset();
+    form.hidden = true;
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+accion('ficha-evidencia', async (el) => {
+  el.disabled = true;
+  try {
+    await descargar(`/api/alerts/${el.dataset.id}/ficha.zip`, `${folio(Number(el.dataset.id))}-evidencia.zip`);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    el.disabled = false;
+  }
 });
 
 accion('resolver-alerta', async (el) => {
