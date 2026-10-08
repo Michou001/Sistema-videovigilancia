@@ -10,12 +10,12 @@ enlace; antes de citarlo en la defensa conviene abrir el enlace de nuevo.
 | Caso de acoso en una unidad del Potrobús; el agresor bajó sin ser identificado. | 4 sep 2026 | [AD Noticias](https://adnoticias.mx/reforzara-uaemex-seguridad-potrobus/) |
 | Estudiantes reportan asaltos en calles cercanas al campus, acoso y falta de acciones concretas. | 17 sep 2026 | [Quadratín Edomex](https://edomex.quadratin.com.mx/preocupa-a-estudiantes-de-la-uaemex-inseguridad-y-acoso-en-toluca/) |
 | La UAEMéx acuerda con el Enjambre Estudiantil: más cámaras, credencial digital para entrar a CU y al Potrobús, GPS en 18 de 49 unidades, rutas vigiladas por el C4 de San Mateo Atenco, alumbrado con Toluca. | 6 oct 2026 | [AD Noticias](https://adnoticias.mx/reforzara-uaemex-seguridad-potrobus/), [Plana Mayor](https://planamayor.com.mx/uaemex-acuerda-reforzar-seguridad-en-campus-y-rutas-de-potrobus-tras-reunion-con-enjambre-estudiantil/) |
-| Percepción de inseguridad en Toluca: 71 % (junio 2026), contra 78.9 % un año antes. La ENSU amplió su muestra en Toluca, así que parte de la baja puede ser metodológica. | 1 oct 2026 | [Ayuntamiento de Toluca](https://www2.toluca.gob.mx/la-percepcion-de-inseguridad-en-toluca-es-la-mas-baja-en-su-historia-ricardo-moreno/), [DigitalMex](https://digitalmex.mx/municipios/story/71247/toluca-baja-percepcion-inseguridad-inegi-71) |
-| Toluca reporta baja de 25.36 % en robo a transeúnte y 56.09 % en robo de vehículo (comunicado municipal, no desglosa por colonia). | 21 ene 2026 | [Ayuntamiento de Toluca](https://www2.toluca.gob.mx/registra-toluca-incidencia-delictiva-mas-baja-en-una-decada-ricardo-moreno/) |
+| Percepción de inseguridad en Toluca: 71 % (junio 2026), contra 78.9 % un año antes, según el Ayuntamiento; la cifra por ciudad no se pudo leer como texto en la presentación de INEGI. La ENSU amplió su muestra en Toluca, así que parte de la baja puede ser metodológica. Es percepción de adultos de la ciudad, no de alumnos. | 1 oct 2026 | [Ayuntamiento de Toluca](https://www2.toluca.gob.mx/la-percepcion-de-inseguridad-en-toluca-es-la-mas-baja-en-su-historia-ricardo-moreno/), [DigitalMex](https://digitalmex.mx/municipios/story/71247/toluca-baja-percepcion-inseguridad-inegi-71) |
+| Toluca reporta baja de 25.36 % en robo a transeúnte y 56.09 % en robo de vehículo (comunicado municipal, no desglosa por colonia ni es una tasa de incidentes universitarios). | 21 ene 2026 | [Ayuntamiento de Toluca](https://www2.toluca.gob.mx/registra-toluca-incidencia-delictiva-mas-baja-en-una-decada-ricardo-moreno/) |
 | Operativo "UAEMéx" al regreso a clases: policía de Toluca, Secretaría de Seguridad estatal y Seguridad Institucional de la UAEMéx en CU, Medicina, Los Uribe y preparatorias, desde las 5:45 h. | 4 feb 2025 | [La Jornada Edomex](https://lajornadaestadodemexico.com/implementan-el-operativo-uaemex/) |
-| Asaltos de motociclistas a peatones en la col. Universidad de 6 a 8 h y de 19 a 20 h; robo de autopartes de madrugada. | 24 feb 2023 | [N+](https://www.nmas.com.mx/estado-de-mexico/denuncian-aumento-de-asaltos-a-bordo-de-motos-en-toluca/) (antecedente; base de las plantillas de reglas) |
+| Asaltos de motociclistas a peatones en la col. Universidad de 6 a 8 h y de 19 a 20 h; robo de autopartes de madrugada. | 24 feb 2023 | [N+](https://www.nmas.com.mx/estado-de-mexico/denuncian-aumento-de-asaltos-a-bordo-de-motos-en-toluca/) (antecedente de 2023: inspira los horarios de las plantillas, no prueba que sigan siendo los de mayor riesgo) |
 
-No hay una estadística oficial pública de delitos por plantel. La UAEMéx
+No se encontró una estadística oficial pública de delitos por plantel. La UAEMéx
 anunció un Atlas de Seguridad con las denuncias de su comunidad, pero no está
 publicado. En la defensa: "reportes documentados", no cifras por campus.
 
@@ -42,13 +42,17 @@ es el precedente de cómo un tercero comparte video con el C5.
 5. **Canalizar**: registra a quién pasó el caso (Protección Universitaria,
    911/C5, C4 municipal, Fiscalía) y el folio externo. Queda en la bitácora.
 6. **Ficha de evidencia**: ZIP con ficha imprimible, foto, clip y huellas
-   SHA-256 para entregar a la autoridad; las huellas quedan en la bitácora.
+   SHA-256 (ficha incluida) para entregar a la autoridad; las huellas quedan en
+   la bitácora. Prueban que el paquete no cambió después de descargarlo, no
+   sustituyen una cadena de custodia.
 7. Retención: fotos de eventos normales 7 días, eventos 30, clips 90, alertas
    y su foto 1 año.
 
 El sistema no llama a la policía por su cuenta ni identifica a nadie como
-culpable: acorta el tiempo entre el hecho y que el guardia lo sabe, y deja la
-evidencia ordenada para una denuncia.
+culpable. Su objetivo es acortar el tiempo entre el hecho y que el guardia lo
+sabe, y dejar la evidencia ordenada para una denuncia; ese tiempo todavía no se
+ha medido en un plantel. La hora de una canalización es la de su registro, no
+confirma que la otra instancia la recibió.
 
 ## 4. Plantillas de reglas (editor de zonas)
 
@@ -58,5 +62,5 @@ evidencia ordenada para una denuncia.
 | Estacionamiento: madrugada | merodeo > 30 s, crítica | todos los días 22:00–06:00 | robo de autopartes nocturno |
 | Área restringida | intrusión, crítica | noches y fines de semana | laboratorios, site, almacén |
 
-Son un punto de partida; se ajustan al plantel después de medir falsos
-positivos en campo.
+Los 30 y 45 segundos son parámetros de ensayo, no valores validados: se
+ajustan al plantel después de medir falsos positivos en campo.
