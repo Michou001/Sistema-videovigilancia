@@ -12,14 +12,15 @@ from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlmodel import col, func, select
 
 from api.auditoria import registrar
 from api.deps import Admin, Operador, OperadorActual, SesionBD
 from api.exportacion import celda
+from api.ficha_evidencia import DESTINOS, armar_ficha, leer_canalizaciones
 from api.hub import hub
-from api.models import Alert, Camera, Event, FechasEnUtc
+from api.models import Alert, AuditLog, Camera, Event, FechasEnUtc
 from shared.events import PATRON_CAMARA
 from shared.fechas import a_utc
 from shared.plates import limpiar
@@ -58,7 +59,13 @@ class AlertaLeida(FechasEnUtc, BaseModel):
     acknowledged_at: Optional[datetime] = None
     dismissed_reason: Optional[str] = None
     notes: Optional[str] = None
+    canalizaciones_json: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime
+
+    @computed_field
+    @property
+    def canalizaciones(self) -> list[dict]:
+        return leer_canalizaciones(self.canalizaciones_json)
 
 
 class EventoLeido(FechasEnUtc, BaseModel):
@@ -131,6 +138,80 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
     await hub.difundir("alert_resolved", {"id": alerta.id, "status": alerta.status,
                                           "by": operador.username, "notes": alerta.notes})
     return alerta
+
+
+class Canalizacion(BaseModel):
+    destino: Literal["proteccion_universitaria", "911_c5", "c4_municipal", "fiscalia", "otro"]
+    referencia: Optional[str] = Field(default=None, max_length=80,
+                                      description="Folio del 911, numero de reporte o de denuncia")
+    nota: Optional[str] = Field(default=None, max_length=500)
+
+
+MAX_CANALIZACIONES = 10
+
+
+@router.post("/alerts/{alerta_id}/canalizar", response_model=AlertaLeida)
+async def canalizar(alerta_id: int, datos: Canalizacion, session: SesionBD,
+                    operador: Operador, request: Request):
+    """Dejar constancia de a quien se paso el caso.
+
+    GOSS IP no llama a la policia por su cuenta: el monitorista decide y
+    canaliza (Proteccion Universitaria, 911/C5, C4 municipal, Fiscalia). Aqui
+    queda quien lo hizo, cuando y con que folio externo, para poder seguir el
+    caso. Se puede canalizar a mas de una instancia y aun con la alerta
+    cerrada: el reporte al 911 a veces se hace despues de atenderla.
+    """
+    alerta = session.get(Alert, alerta_id)
+    if alerta is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa alerta")
+    previas = leer_canalizaciones(alerta.canalizaciones_json)
+    if len(previas) >= MAX_CANALIZACIONES:
+        raise HTTPException(422, f"Máximo {MAX_CANALIZACIONES} canalizaciones por alerta")
+    nueva = {
+        "destino": datos.destino,
+        "referencia": (datos.referencia or "").strip() or None,
+        "nota": (datos.nota or "").strip() or None,
+        "por": operador.username,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    alerta.canalizaciones_json = json.dumps(previas + [nueva], ensure_ascii=False)
+    registrar(session, "alertas.canalizada", usuario=operador.username,
+              objetivo=f"ALR-{alerta.id:06d}",
+              detalle={"destino": DESTINOS[datos.destino], "referencia": nueva["referencia"],
+                       "nota": nueva["nota"]}, request=request)
+    session.commit()
+    session.refresh(alerta)
+    log.info("Alerta ALR-%06d canalizada a %s por %s", alerta.id, datos.destino, operador.username)
+
+    await hub.difundir("alert_canalizada", {"id": alerta.id,
+                                            "canalizaciones": leer_canalizaciones(alerta.canalizaciones_json)})
+    return alerta
+
+
+@router.get("/alerts/{alerta_id}/ficha.zip")
+def ficha_evidencia(alerta_id: int, session: SesionBD, operador: Operador, request: Request):
+    """Paquete para entregar a una autoridad: ficha imprimible, foto, clip y
+    la huella SHA-256 de cada archivo.
+
+    La huella permite demostrar despues que lo entregado no se altero: queda
+    tambien en la bitacora, con quien descargo la ficha y cuando.
+    """
+    alerta = session.get(Alert, alerta_id)
+    if alerta is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa alerta")
+    folio = f"ALR-{alerta.id:06d}"
+    evento = session.exec(select(Event).where(Event.event_id == alerta.event_id)).first()
+    camara = session.exec(select(Camera).where(Camera.camera_id == alerta.camera_id)).first()
+    bitacora = session.exec(
+        select(AuditLog).where(AuditLog.objetivo == folio).order_by(col(AuditLog.ts))
+    ).all()
+    contenido, huellas = armar_ficha(alerta, evento, camara, bitacora, generado_por=operador.username)
+
+    registrar(session, "alertas.ficha_evidencia", usuario=operador.username, objetivo=folio,
+              detalle={"sha256": huellas}, request=request, confirmar=True)
+    log.info("Ficha de evidencia %s descargada por %s", folio, operador.username)
+    return Response(contenido, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{folio}-evidencia.zip"'})
 
 
 def _consulta_eventos(tipo, camera_id, q, severidad, desde, hasta):

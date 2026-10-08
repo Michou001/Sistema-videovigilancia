@@ -344,6 +344,12 @@ class Alert(EnUtc, table=True):
         description="Nota de atencion del operador: que se hizo (se aviso a la patrulla, "
                     "se verifico en video...). Es la bitacora del turno.",
     )
+    canalizaciones_json: Optional[str] = Field(
+        default=None,
+        description="[{destino, referencia, nota, por, ts}]: a quien se paso el caso "
+                    "(Proteccion Universitaria, 911/C5, C4 municipal, Fiscalia). "
+                    "El sistema no avisa solo a la policia: deja constancia de quien lo hizo.",
+    )
 
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 

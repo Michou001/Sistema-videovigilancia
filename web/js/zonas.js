@@ -23,6 +23,34 @@ const TIPOS = {
   merodeo: { nombre: 'Merodeo', ayuda: 'Avisa cuando alguien permanece en el área más de los segundos indicados.', linea: false },
   conteo: { nombre: 'Conteo', ayuda: 'Cuenta personas o vehículos que cruzan la línea. No genera alertas.', linea: true },
 };
+/* Reglas tipicas alrededor de un plantel. Los horarios salen de lo reportado
+ * cerca de Ciudad Universitaria (Toluca): asaltos a peatones de 6 a 8 y de 19
+ * a 20 h, cuando llegan y salen los alumnos, y robo de autopartes de
+ * madrugada. Son un punto de partida: el administrador dibuja el area y
+ * ajusta horas y segundos a su plantel. */
+const TODOS = [0, 1, 2, 3, 4, 5, 6];
+const PLANTILLAS = {
+  acceso_pico: {
+    nombre: 'Acceso – horas de entrada y salida', tipo: 'merodeo', persona: true, vehiculo: false,
+    segundos: 45, severidad: 'critical',
+    horario: [{ dias: [0, 1, 2, 3, 4, 5], desde: '06:00', hasta: '08:30' },
+              { dias: [0, 1, 2, 3, 4, 5], desde: '19:00', hasta: '21:00' }],
+    ayuda: 'Alguien que espera más de 45 s junto al acceso en las horas en que se reportan asaltos a alumnos (6–8 y 19–20 h). Dibuja el área de banqueta o parada frente a la puerta.',
+  },
+  estacionamiento_noche: {
+    nombre: 'Estacionamiento – madrugada', tipo: 'merodeo', persona: true, vehiculo: false,
+    segundos: 30, severidad: 'critical',
+    horario: [{ dias: TODOS, desde: '22:00', hasta: '06:00' }],
+    ayuda: 'Una persona que permanece más de 30 s entre los autos de noche, cuando se reporta robo de espejos, faros y baterías. Dibuja el área de cajones.',
+  },
+  area_restringida: {
+    nombre: 'Área restringida fuera de horario', tipo: 'intrusion', persona: true, vehiculo: false,
+    severidad: 'critical',
+    horario: [{ dias: TODOS, desde: '21:00', hasta: '07:00' }, { dias: [5, 6], desde: '07:00', hasta: '21:00' }],
+    ayuda: 'Cualquier persona dentro del área de noche y en fin de semana (laboratorios, site, almacén).',
+  },
+};
+
 const COLORES = { intrusion: '#ff4757', linea: '#ffc400', merodeo: '#3c8cff', conteo: '#34d399' };
 const DIAS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 const NOMBRES_DIA = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
@@ -177,10 +205,33 @@ accion('nueva-zona', () => {
   $('zSeveridad').value = 'warning';
   $('zSiempre').checked = true;
   $('zFranjas').innerHTML = '';
+  $('zFranjasCaja').hidden = true;
   $('zonasError').textContent = '';
+  $('zCampoPlantilla').hidden = false;
+  $('zPlantilla').value = '';
+  $('zPlantillaAyuda').textContent = '';
   prepararSegunTipo();
   mostrarFormulario(true);
   $('zNombre').focus();
+  dibujar();
+});
+
+$('zPlantilla').addEventListener('change', () => {
+  const p = PLANTILLAS[$('zPlantilla').value];
+  $('zPlantillaAyuda').textContent = p ? p.ayuda : '';
+  if (!p || !ed.editando) return;
+  $('zNombre').value = p.nombre;
+  $('zTipo').value = p.tipo;
+  if (TIPOS[ed.editando.tipo].linea !== TIPOS[p.tipo].linea) ed.editando.puntos = [];
+  ed.editando.tipo = p.tipo;
+  $('zPersona').checked = p.persona;
+  $('zVehiculo').checked = p.vehiculo;
+  $('zDireccion').value = 'ambas';
+  if (p.segundos) $('zSegundos').value = String(p.segundos);
+  $('zSeveridad').value = p.severidad;
+  $('zFranjas').innerHTML = '';
+  p.horario.forEach(agregarFranja);
+  prepararSegunTipo();
   dibujar();
 });
 
@@ -191,6 +242,7 @@ accion('editar-zona', (el) => {
   $('zNombre').value = z.nombre;
   $('zTipo').value = z.tipo;
   $('zTipo').disabled = true;     // cambiar el tipo es otra regla: se borra y se crea
+  $('zCampoPlantilla').hidden = true;
   $('zPersona').checked = z.clases.includes('persona');
   $('zVehiculo').checked = z.clases.includes('vehiculo');
   $('zDireccion').value = z.direccion;
