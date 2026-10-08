@@ -279,6 +279,42 @@ def test_canalizar_y_ficha_de_evidencia():
     assert c.get("/api/alerts/999999/ficha.zip", headers=h).status_code == 404
 
 
+def test_resultado_de_revision_y_metricas():
+    c, h = _cliente()
+    c.post("/api/blacklist/plates", headers=h, json={"plate": "RES-001", "reason": "prueba"})
+    for _ in range(4):
+        _ingerir(c, _evento(valor="RES-001"))
+    ids = [a["id"] for a in c.get("/api/alerts", headers=h).json() if "RES-001" in a["title"]][:4]
+    assert len(ids) == 4, ids
+    base = c.get("/api/alerts/metricas", headers=h).json()
+
+    def resolver(i, **cuerpo):
+        return c.post(f"/api/alerts/{i}/resolver", headers=h, json=cuerpo)
+
+    r = resolver(ids[0], accion="acknowledge", resultado="confirmado", nota="Se verificó en video")
+    assert r.status_code == 200 and r.json()["resultado"] == "confirmado"
+    r = resolver(ids[1], accion="dismiss", motivo="falso positivo")
+    assert r.json()["resultado"] == "falso_aviso", "descartar = falso aviso por defecto"
+    assert resolver(ids[2], accion="dismiss", resultado="confirmado").status_code == 422
+    assert resolver(ids[2], accion="acknowledge", resultado="falso_aviso").status_code == 422
+    assert resolver(ids[2], accion="acknowledge", resultado="ensayo").status_code == 200
+
+    m = c.get("/api/alerts/metricas", headers=h).json()
+    assert m["por_resultado"]["confirmado"] == base["por_resultado"]["confirmado"] + 1
+    assert m["por_resultado"]["falso_aviso"] == base["por_resultado"]["falso_aviso"] + 1
+    assert m["ensayos_excluidos"] == base["ensayos_excluidos"] + 1, "los ensayos no se mezclan"
+    assert m["sin_revisar"] >= 1 and m["denominador_precision"] >= 2
+    assert 0 <= m["precision"] <= 1 and m["segundos_hasta_revision"]["n"] >= 2
+    con = c.get("/api/alerts/metricas", params={"incluir_ensayos": True}, headers=h).json()
+    assert con["ensayos_excluidos"] == 0
+
+    ficha = c.get(f"/api/alerts/{ids[0]}/ficha.zip", headers=h)
+    import io
+    import zipfile
+    html = zipfile.ZipFile(io.BytesIO(ficha.content)).read("ficha.html").decode()
+    assert "Resultado de la revisión" in html and "registró el resultado como confirmado" in html
+
+
 def test_nombre_y_ubicacion_de_camara():
     c, h = _cliente()
     _ingerir(c, _evento(valor="UBI-100"))

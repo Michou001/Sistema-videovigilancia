@@ -159,6 +159,10 @@ accion('limpiar-filtros', () => {
 /* ------------------------------------------------------------------ */
 
 const ESTADOS_ALERTA = { acknowledged: 'atendida', dismissed: 'falso positivo' };
+const RESULTADOS = {
+  confirmado: 'confirmada', falso_aviso: 'falso aviso', indeterminado: 'indeterminada',
+  duplicado: 'duplicada', ensayo: 'ensayo',
+};
 const TIPOS_COINCIDENCIA = {
   exact: 'coincidencia exacta', fuzzy: 'coincidencia aproximada',
   biometric: 'coincidencia biométrica', rule: 'regla',
@@ -216,6 +220,12 @@ export function agregarAlerta(a, nuevo = false) {
          <div class="rapidas">
            ${RESPUESTAS_RAPIDAS.map((r) => `<button type="button" class="chip" data-accion="respuesta-rapida" data-id="${id}">${escapar(r)}</button>`).join('')}
          </div>
+         <select id="resultado-${id}" aria-label="Resultado de la revisión">
+           <option value="confirmado">Resultado: confirmado</option>
+           <option value="indeterminado">Resultado: indeterminado (no se pudo verificar)</option>
+           <option value="duplicado">Resultado: duplicado de otra alerta</option>
+           <option value="ensayo">Resultado: ensayo / demostración</option>
+         </select>
          <textarea id="nota-${id}" rows="2" maxlength="1000" placeholder="¿Qué se hizo? (a quién se avisó, qué se vio en el video)"></textarea>
          <div class="acciones">
            <button data-accion="resolver-alerta" data-id="${id}" data-modo="acknowledge"><i data-lucide="save"></i>Cerrar alerta</button>
@@ -232,7 +242,9 @@ export function agregarAlerta(a, nuevo = false) {
     }
     partes.push(coincidencia);
   }
-  if (a.status && a.status !== 'new') partes.push(escapar(ESTADOS_ALERTA[a.status] || a.status));
+  if (a.status && a.status !== 'new') {
+    partes.push(escapar(a.resultado ? (RESULTADOS[a.resultado] || a.resultado) : (ESTADOS_ALERTA[a.status] || a.status)));
+  }
 
   const clip = botonClip(a);
   const respuesta = a.id && puede('operator')
@@ -299,7 +311,31 @@ export function actualizarClip(a) {
   iconos();
 }
 
+/* Lo que se puede afirmar hoy, con su denominador: precision sobre alertas
+ * revisadas (sin ensayos) y tiempo hasta la revision humana. */
+export async function cargarMetricas() {
+  const caja = $('metricasAlertas');
+  if (!caja) return;
+  try {
+    const m = await api('/api/alerts/metricas');
+    const t = m.segundos_hasta_revision;
+    const partes = [];
+    if (m.denominador_precision) {
+      partes.push(`Confirmadas ${m.por_resultado.confirmado} de ${m.denominador_precision} revisadas`
+        + ` (${Math.round(m.precision * 100)} %)`);
+    } else {
+      partes.push('Sin alertas revisadas con resultado');
+    }
+    if (t.n) partes.push(`revisión: mediana ${Math.round(t.mediana)} s · p95 ${Math.round(t.p95)} s (n=${t.n})`);
+    if (m.ensayos_excluidos) partes.push(`${m.ensayos_excluidos} de ensayo excluidas`);
+    caja.textContent = partes.join(' · ');
+  } catch {
+    caja.textContent = '';
+  }
+}
+
 export async function cargarAlertas() {
+  cargarMetricas();
   const alertas = await api('/api/alerts?limite=50');
   $('listaAlertas').innerHTML = '';
   alertas.forEach((a) => agregarAlerta(a));
@@ -373,6 +409,7 @@ accion('resolver-alerta', async (el) => {
     await api(`/api/alerts/${id}/resolver`, {
       method: 'POST',
       body: JSON.stringify({ accion: modo, motivo: modo === 'dismiss' ? 'falso positivo' : null,
+                             resultado: modo === 'dismiss' ? 'falso_aviso' : ($('resultado-' + id)?.value || null),
                              nota: nota || null }),
     });
   } catch (err) {

@@ -41,6 +41,13 @@ DESTINOS = {
 TIPOS_ALERTA = {"plate": "Placa", "face": "Rostro", "weapon": "Arma", "anomaly": "Movimiento",
                 "zone": "Zona / regla", "camera": "Cámara"}
 ESTADOS = {"new": "Sin atender", "acknowledged": "Atendida", "dismissed": "Descartada"}
+RESULTADOS = {
+    "confirmado": "Confirmado",
+    "falso_aviso": "Falso aviso",
+    "indeterminado": "Indeterminado",
+    "duplicado": "Duplicado",
+    "ensayo": "Ensayo / demostración",
+}
 
 
 def leer_canalizaciones(texto: Optional[str]) -> list[dict]:
@@ -114,6 +121,7 @@ def armar_ficha(alerta: Alert, evento: Optional[Event], camara: Optional[Camera]
     ])
     atencion = "".join([
         _fila("Estado", ESTADOS.get(alerta.status, alerta.status)),
+        _fila("Resultado de la revisión", RESULTADOS.get(alerta.resultado or "", alerta.resultado)),
         _fila("Atendió", alerta.acknowledged_by),
         _fila("Hora de atención", _local(alerta.acknowledged_at)),
         _fila("Motivo de descarte", alerta.dismissed_reason),
@@ -139,8 +147,15 @@ def armar_ficha(alerta: Alert, evento: Optional[Event], camara: Optional[Camera]
     # Lo que dice la ficha sobre la revision depende de lo que paso, no se
     # asume: atender una alerta tampoco confirma que la coincidencia sea cierta.
     if alerta.status == "acknowledged":
-        revision = (f"La atendió {html.escape(alerta.acknowledged_by or 'un operador')}; atenderla no "
-                    "confirma por sí mismo que la coincidencia sea correcta.")
+        quien = html.escape(alerta.acknowledged_by or 'un operador')
+        if alerta.resultado == "confirmado":
+            revision = f"La revisó {quien} y registró el resultado como confirmado."
+        elif alerta.resultado:
+            revision = (f"La revisó {quien}; resultado: "
+                        f"{html.escape(RESULTADOS.get(alerta.resultado, alerta.resultado)).lower()}.")
+        else:
+            revision = (f"La atendió {quien} sin registrar resultado; atenderla no confirma "
+                        "por sí mismo que la coincidencia sea correcta.")
     elif alerta.status == "dismissed":
         motivo = f" ({html.escape(alerta.dismissed_reason)})" if alerta.dismissed_reason else ""
         revision = f"La descartó {html.escape(alerta.acknowledged_by or 'un operador')}{motivo}."

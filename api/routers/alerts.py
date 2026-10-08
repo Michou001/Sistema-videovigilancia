@@ -18,7 +18,7 @@ from sqlmodel import col, func, select
 from api.auditoria import registrar
 from api.deps import Admin, Operador, OperadorActual, SesionBD
 from api.exportacion import celda
-from api.ficha_evidencia import DESTINOS, armar_ficha, leer_canalizaciones
+from api.ficha_evidencia import DESTINOS, RESULTADOS, armar_ficha, leer_canalizaciones
 from api.hub import hub
 from api.models import Alert, AuditLog, Camera, Event, FechasEnUtc
 from shared.events import PATRON_CAMARA
@@ -58,6 +58,7 @@ class AlertaLeida(FechasEnUtc, BaseModel):
     acknowledged_by: Optional[str]
     acknowledged_at: Optional[datetime] = None
     dismissed_reason: Optional[str] = None
+    resultado: Optional[str] = None
     notes: Optional[str] = None
     canalizaciones_json: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime
@@ -96,11 +97,16 @@ def listar_alertas(
     ).all()
 
 
+Resultado = Literal["confirmado", "falso_aviso", "indeterminado", "duplicado", "ensayo"]
+
+
 class Resolucion(BaseModel):
     accion: str  # acknowledge | dismiss
     motivo: Optional[str] = Field(default=None, max_length=200)
     nota: Optional[str] = Field(default=None, max_length=1000,
                                 description="Que se hizo: se aviso a la patrulla, se verifico...")
+    resultado: Optional[Resultado] = Field(
+        default=None, description="Que se encontro al revisar. Al descartar, falso_aviso por defecto.")
 
 
 @router.post("/alerts/{alerta_id}/resolver", response_model=AlertaLeida)
@@ -124,20 +130,102 @@ async def resolver(alerta_id: int, datos: Resolucion, session: SesionBD,
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"La alerta ya fue cerrada por {alerta.acknowledged_by or 'otro operador'}")
 
+    resultado = datos.resultado
+    if datos.accion == "dismiss":
+        # Descartar es decir "no era": un descarte "confirmado" no tiene sentido.
+        resultado = resultado or "falso_aviso"
+        if resultado == "confirmado":
+            raise HTTPException(422, "Una alerta confirmada se atiende, no se descarta")
+    elif resultado == "falso_aviso":
+        raise HTTPException(422, "Un falso aviso se descarta con 'Falso positivo'")
+
     alerta.status = "acknowledged" if datos.accion == "acknowledge" else "dismissed"
     alerta.acknowledged_by = operador.username
     alerta.acknowledged_at = datetime.now(timezone.utc)
     alerta.dismissed_reason = datos.motivo
+    alerta.resultado = resultado
     alerta.notes = (datos.nota or "").strip() or None
     registrar(session, "alertas.atendida" if datos.accion == "acknowledge" else "alertas.descartada",
               usuario=operador.username, objetivo=f"ALR-{alerta.id:06d}",
-              detalle={"motivo": datos.motivo, "nota": alerta.notes}, request=request)
+              detalle={"motivo": datos.motivo, "resultado": resultado, "nota": alerta.notes},
+              request=request)
     session.commit()
     session.refresh(alerta)
 
     await hub.difundir("alert_resolved", {"id": alerta.id, "status": alerta.status,
                                           "by": operador.username, "notes": alerta.notes})
     return alerta
+
+
+def _percentil(valores: list[float], p: float) -> Optional[float]:
+    """Percentil por rango mas cercano; None sin datos."""
+    if not valores:
+        return None
+    orden = sorted(valores)
+    k = max(0, min(len(orden) - 1, -(-len(orden) * p // 100) - 1))
+    return round(orden[int(k)], 1)
+
+
+@router.get("/alerts/metricas")
+def metricas_alertas(
+    session: SesionBD,
+    _: OperadorActual,
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+    incluir_ensayos: bool = Query(False, description="Contar tambien las marcadas como ensayo"),
+):
+    """Lo que se puede afirmar con las alertas revisadas, con sus denominadores.
+
+    La precision es confirmadas / (confirmadas + falsos avisos): sin verdad de
+    referencia no se puede saber cuantos hechos NO detecto el sistema, asi que
+    no se reporta sensibilidad. El tiempo es de la alerta a su cierre en el
+    dashboard (revision humana), no la llegada de apoyo. Los ensayos se
+    excluyen por defecto para no mezclar la demo con la operacion.
+    """
+    consulta = select(Alert)
+    if desde:
+        consulta = consulta.where(col(Alert.created_at) >= _limite_utc(desde))
+    if hasta:
+        consulta = consulta.where(col(Alert.created_at) <= _limite_utc(hasta))
+    alertas = session.exec(consulta).all()
+
+    por_resultado = {k: 0 for k in RESULTADOS}
+    sin_revisar = sin_resultado = 0
+    tiempos: list[float] = []
+    por_tipo: dict[str, dict[str, int]] = {}
+    for a in alertas:
+        if a.resultado == "ensayo" and not incluir_ensayos:
+            por_resultado["ensayo"] += 1
+            continue
+        if a.status == "new":
+            sin_revisar += 1
+            continue
+        if a.resultado in por_resultado:
+            por_resultado[a.resultado] += 1
+        else:
+            sin_resultado += 1
+        fila = por_tipo.setdefault(a.type, {"confirmado": 0, "falso_aviso": 0})
+        if a.resultado in fila:
+            fila[a.resultado] += 1
+        if a.acknowledged_at and a.created_at:
+            ini = a.created_at if a.created_at.tzinfo else a.created_at.replace(tzinfo=timezone.utc)
+            fin = a.acknowledged_at if a.acknowledged_at.tzinfo else a.acknowledged_at.replace(tzinfo=timezone.utc)
+            tiempos.append(max(0.0, (fin - ini).total_seconds()))
+
+    conf, falsos = por_resultado["confirmado"], por_resultado["falso_aviso"]
+    return {
+        "total_alertas": len(alertas),
+        "ensayos_excluidos": 0 if incluir_ensayos else por_resultado["ensayo"],
+        "sin_revisar": sin_revisar,
+        "revisadas_sin_resultado": sin_resultado,
+        "por_resultado": por_resultado,
+        "precision": round(conf / (conf + falsos), 3) if conf + falsos else None,
+        "denominador_precision": conf + falsos,
+        "por_tipo": por_tipo,
+        "segundos_hasta_revision": {
+            "n": len(tiempos), "mediana": _percentil(tiempos, 50), "p95": _percentil(tiempos, 95),
+        },
+    }
 
 
 class Canalizacion(BaseModel):
