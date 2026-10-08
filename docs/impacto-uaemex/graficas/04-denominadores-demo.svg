@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="849.6pt" height="410.4pt" viewBox="0 0 849.6 410.4" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-10-07T19:23:13.139474</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.1, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 410.4 
+L 849.6 410.4 
+L 849.6 0 
+L 0 0 
+z
+" style="fill: #f6f7f9"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 237.888 279.072 
+L 790.128 279.072 
+L 790.128 114.912 
+L 237.888 114.912 
+z
+" style="fill: #f6f7f9"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 237.888 279.072 
+L 237.888 114.912 
+" clip-path="url(#p40b7977f1e)" style="fill: none; stroke: #dce2e6; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2"/>
+     <g id="text_1">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="237.888" y="290.929422" transform="rotate(-0 237.888 290.929422)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 354.888 279.072 
+L 354.888 114.912 
+" clip-path="url(#p40b7977f1e)" style="fill: none; stroke: #dce2e6; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4"/>
+     <g id="text_2">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="354.888" y="290.929422" transform="rotate(-0 354.888 290.929422)">25</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 471.888 279.072 
+L 471.888 114.912 
+" clip-path="url(#p40b7977f1e)" style="fill: none; stroke: #dce2e6; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6"/>
+     <g id="text_3">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="471.888" y="290.929422" transform="rotate(-0 471.888 290.929422)">50</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 588.888 279.072 
+L 588.888 114.912 
+" clip-path="url(#p40b7977f1e)" style="fill: none; stroke: #dce2e6; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8"/>
+     <g id="text_4">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="588.888" y="290.929422" transform="rotate(-0 588.888 290.929422)">75</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 705.888 279.072 
+L 705.888 114.912 
+" clip-path="url(#p40b7977f1e)" style="fill: none; stroke: #dce2e6; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10"/>
+     <g id="text_5">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="705.888" y="290.929422" transform="rotate(-0 705.888 290.929422)">100</text>
+     </g>
+    </g>
+    <g id="text_6">
+     <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #152f39" x="514.008" y="313.170438" transform="rotate(-0 514.008 313.170438)">Lecturas correctas con el denominador indicado (%)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_11"/>
+     <g id="text_7">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #152f39" transform="translate(136.001594 144.702913)">Todos los intentos</text>
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #152f39" transform="translate(155.212063 157.905062)">6/44 correctos</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_12"/>
+     <g id="text_8">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #152f39" transform="translate(138.461125 245.538294)">Solo lo detectado</text>
+      <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #152f39" transform="translate(162.210813 258.740442)">6/6 correctos</text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 237.888 122.373818 
+L 301.706182 122.373818 
+L 301.706182 170.774801 
+L 237.888 170.774801 
+z
+" clip-path="url(#p40b7977f1e)" style="fill: #087f72"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 237.888 223.209199 
+L 705.888 223.209199 
+L 705.888 271.610182 
+L 237.888 271.610182 
+z
+" clip-path="url(#p40b7977f1e)" style="fill: #8a969d"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 237.888 279.072 
+L 790.128 279.072 
+" style="fill: none; stroke: #c6d0d5; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_9">
+    <text style="font-weight: 700; font-size: 15px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #152f39" x="306.854182" y="150.470794" transform="rotate(-0 306.854182 150.470794)">13.6 %</text>
+   </g>
+   <g id="text_10">
+    <text style="font-weight: 700; font-size: 15px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #152f39" x="711.036" y="251.306175" transform="rotate(-0 711.036 251.306175)">100.0 %</text>
+   </g>
+  </g>
+  <g id="text_11">
+   <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #087f72" x="46.728" y="24.624" transform="rotate(-0 46.728 24.624)">GOSS IP  /  UTILIDAD PARA LA UAEMÉX</text>
+  </g>
+  <g id="text_12">
+   <text style="font-weight: 700; font-size: 20px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #152f39" x="46.728" y="55.404" transform="rotate(-0 46.728 55.404)">El denominador cambia la conclusión</text>
+  </g>
+  <g id="text_13">
+   <text style="font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #586875" x="46.728" y="84.132" transform="rotate(-0 46.728 84.132)">ENSAYO SINTÉTICO EXISTENTE · Una referencia, varias condiciones · Umbral 0.60</text>
+  </g>
+  <g id="text_14">
+   <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #586875" transform="translate(46.728 350.968938)">Fuente: docs/evidencias/validacion_placa_ZTP482A_umbral060.csv.</text>
+   <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #586875" transform="translate(46.728 367.308)">No es rendimiento de campus ni de vehículos reales. Repeticiones no independientes.</text>
+  </g>
+  <g id="text_15">
+   <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #586875" x="46.728" y="396.036" transform="rotate(-0 46.728 396.036)">Revisión: 7 oct 2026  ·  Fuentes y supuestos en docs/impacto-uaemex/</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p40b7977f1e">
+   <rect x="237.888" y="114.912" width="552.24" height="164.16"/>
+  </clipPath>
+ </defs>
+</svg>
