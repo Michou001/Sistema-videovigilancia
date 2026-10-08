@@ -339,6 +339,12 @@ class Alert(EnUtc, table=True):
     dismissed_reason: Optional[str] = Field(
         default=None, description="'falso positivo' alimenta el reentrenamiento"
     )
+    resultado: Optional[str] = Field(
+        default=None, index=True,
+        description="Que se encontro al revisar: confirmado | falso_aviso | indeterminado | "
+                    "duplicado | ensayo. Atender una alerta no dice si era cierta; esto si, y "
+                    "es lo que permite medir precision sin mezclar los ensayos.",
+    )
     notes: Optional[str] = Field(
         default=None,
         description="Nota de atencion del operador: que se hizo (se aviso a la patrulla, "

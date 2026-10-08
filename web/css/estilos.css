@@ -438,6 +438,9 @@ td select { padding: 4px 8px; font-size: 12.5px; }
              text-transform: uppercase; letter-spacing: .4px; margin-left: 4px; }
 .chip-clip { margin-top: 8px; padding: 4px 10px; font-size: 12px; }
 .alerta .respuesta { margin-top: 6px; }
+.metricas-alertas { color: var(--tenue); font-size: 11.5px; margin: -4px 0 8px; }
+.metricas-alertas:empty { display: none; }
+.alerta .atencion select { font-size: 12.5px; }
 .alerta .canalizaciones { display: flex; flex-wrap: wrap; gap: 5px; }
 .alerta .canalizaciones:not(:empty) { margin-top: 6px; }
 .chip-canal { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 3px 8px;
