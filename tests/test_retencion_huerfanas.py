@@ -29,11 +29,11 @@ from bd_prueba import url_temporal  # noqa: E402
 os.environ["DATABASE_URL"] = url_temporal(_TMP, "huerfanas")
 os.environ["API_TOKEN"] = "token-de-prueba-del-worker"
 
-from sqlmodel import Session  # noqa: E402
+from sqlmodel import Session, select  # noqa: E402
 
 from api.config import BASE_DIR, get_config  # noqa: E402
 from api.database import engine, init_db  # noqa: E402
-from api.models import Event  # noqa: E402
+from api.models import Camera, Event  # noqa: E402
 from api.retention import Politica, purgar  # noqa: E402
 
 
@@ -49,6 +49,10 @@ def _foto(nombre: str, vieja: bool = True) -> Path:
 
 def _evento_con_foto(nombre: str) -> None:
     with Session(engine) as s:
+        # PostgreSQL exige que exista la camara referenciada por el evento.
+        if s.exec(select(Camera).where(Camera.camera_id == "cam-h")).first() is None:
+            s.add(Camera(camera_id="cam-h", name="Camara de prueba de retencion"))
+            s.commit()
         s.add(Event(event_id=str(uuid.uuid4()), dedupe_key=str(uuid.uuid4()), camera_id="cam-h",
                     type="plate", value="ABC123",
                     confidence=0.9, ts=datetime.now(timezone.utc), severity="info",
