@@ -180,7 +180,7 @@ const RESPUESTAS_RAPIDAS = [
 /* A quien se le pasa el caso. El sistema no llama a nadie por su cuenta: el
  * monitorista canaliza y aqui queda constancia (api/ficha_evidencia.py). */
 const DESTINOS = {
-  proteccion_universitaria: 'Protección Universitaria',
+  proteccion_universitaria: 'Seguridad institucional',
   '911_c5': '911 / C5 Edomex',
   c4_municipal: 'C4 municipal',
   fiscalia: 'Fiscalía (denuncia)',

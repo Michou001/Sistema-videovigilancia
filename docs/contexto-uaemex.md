@@ -1,4 +1,11 @@
-# Contexto UAEMéx: qué problema atiende GOSS IP y con qué fuentes
+# Caso de estudio UAEMéx y defensa en InnovaTICs
+
+GOSS IP es una plataforma para instalaciones institucionales en general; la
+UAEMéx es su **caso de estudio**: el entorno de referencia para diseñarlo y
+evaluarlo. **No es un cliente confirmado** y la universidad no ha autorizado ni
+adoptado el proyecto. Este documento reúne las fuentes del caso y los
+argumentos para defenderlo ante el jurado (categoría Gobierno y Sociedad
+Digital).
 
 Fuentes consultadas el 7 de octubre de 2026. Cada dato lleva su fecha y su
 enlace; antes de citarlo en la defensa conviene abrir el enlace de nuevo.
@@ -39,14 +46,16 @@ es el precedente de cómo un tercero comparte video con el C5.
 2. La API cruza contra lista negra y reglas de zona/horario y fija la severidad.
 3. Alerta con folio, foto y clip en el dashboard; las críticas llegan por Telegram.
 4. El monitorista la atiende o la descarta, con nota.
-5. **Canalizar**: registra a quién pasó el caso (Protección Universitaria,
-   911/C5, C4 municipal, Fiscalía) y el folio externo. Queda en la bitácora.
+5. **Canalizar**: registra a quién pasó el caso (seguridad institucional
+   —en la UAEMéx, Seguridad Institucional—, 911/C5, C4 municipal, Fiscalía) y
+   el folio externo. Queda en la bitácora.
 6. **Ficha de evidencia**: ZIP con ficha imprimible, foto, clip y huellas
    SHA-256 (ficha incluida) para entregar a la autoridad; las huellas quedan en
    la bitácora. Prueban que el paquete no cambió después de descargarlo, no
    sustituyen una cadena de custodia.
 7. Retención: fotos de eventos normales 7 días, eventos 30, clips 90, alertas
-   y su foto 1 año.
+   y su foto 1 año. De un rostro sin coincidencia no se guarda ni la foto ni el
+   vector ([privacidad](privacidad.md)).
 
 El sistema no llama a la policía por su cuenta ni identifica a nadie como
 culpable. Su objetivo es acortar el tiempo entre el hecho y que el guardia lo
@@ -64,3 +73,41 @@ confirma que la otra instancia la recibió.
 
 Los 30 y 45 segundos son parámetros de ensayo, no valores validados: se
 ajustan al plantel después de medir falsos positivos en campo.
+
+## 5. Defensa ante el jurado
+
+### Qué resuelve, para quién y por qué
+
+- **Qué resuelve:** apoya la detección, priorización y revisión de eventos
+  relevantes en instalaciones con muchas cámaras y poco personal para mirarlas.
+- **Para quién:** el personal de supervisión y seguridad de instituciones con
+  cámaras IP compatibles (escuelas, edificios públicos); la UAEMéx como caso.
+- **Por qué hace falta:** tener cámaras no garantiza que un evento se vea ni se
+  atienda a tiempo; la mayor parte del video se revisa después.
+- **Qué ofrece:** analítica automática, alertas con evidencia verificable,
+  revisión humana obligatoria con resultado registrado, canalización y
+  administración por roles.
+- **Qué lo diferencia:** la integración modular y adaptable de esas piezas,
+  procesando en equipos de la institución y con cámaras existentes. Que eso sea
+  más útil o más económico que las alternativas es una **hipótesis** con plan
+  de medición ([validación §13–14](validacion-innovatics.md#13-cómo-se-mide-la-utilidad)).
+
+### Alcance de hoy
+
+Prototipo funcional con validación técnica parcial: se puede demostrar en vivo
+la lectura de placas de cerca, el cruce con un registro simulado, la alerta con
+folio, foto y clip, la revisión y la canalización, la ficha de evidencia, las
+reglas por zona y el aviso de cámara caída. **No** es un piloto autorizado ni
+un sistema listo para producción ([etapas](validacion-innovatics.md#12-etapas-de-madurez-dónde-está-goss-ip)).
+
+### Preguntas difíciles y respuesta honesta
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿No existe ya esto (Hikvision, Milestone, Axis)? | Sí existen plataformas maduras. No inventamos la lectura de placas ni la comparación facial; integramos analítica, revisión humana y trazabilidad en un flujo, con cámaras existentes y procesamiento local. Si eso supera a las alternativas es lo que el piloto debe medir ([comparación](validacion-innovatics.md#14-comparación-con-soluciones-existentes)). |
+| ¿La IA decide a quién detener? | No. Genera una alerta preliminar; una persona la revisa, la clasifica y, si corresponde, la canaliza. Ninguna coincidencia dispara una acción por sí sola. |
+| ¿Qué tan preciso es? | En ensayo, 35/35 lecturas de placa en la prueba de ángulos y lecturas correctas en el stand a 1–2 m. No hay todavía una precisión de campo con denominador; a más de ~3 m con lente gran angular la lectura no es confiable. |
+| ¿Y la privacidad? | Procesamiento local, rostros de quien no coincide sin guardar, baja que borra la biometría, retención automática, roles con verificación en dos pasos y bitácora. Procesar localmente no exime de la ley: el aviso y la base jurídica los define la institución. |
+| ¿La UAEMéx ya lo usa? | No. Es el caso de estudio; un piloto requiere su autorización. |
+| ¿Cuánto cuesta? | Software propio, sin licencia por cámara de terceros, pero dos modelos tienen licencias que restringen el uso comercial y habría que cotizarlas o reemplazarlos ([licencias](licencias.md)). El costo por cámara depende de la capacidad por GPU, aún no medida en producción. |
+| ¿Qué pasa si falla la red o la API? | El worker guarda los eventos en disco y los reenvía; una cámara caída genera aviso; un detector que falla no detiene a los demás (cubierto por pruebas automatizadas). |

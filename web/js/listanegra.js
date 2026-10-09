@@ -104,6 +104,8 @@ $('formRostro').addEventListener('submit', async (e) => {
   fd.append('reason', $('motivoRostro').value);
   fd.append('legal_basis', $('fundamento').value);
   fd.append('foto', archivo);
+  const dias = parseInt($('vigenciaRostro').value, 10);
+  if (dias) fd.append('expires_at', new Date(Date.now() + dias * 86400000).toISOString());
 
   const boton = $('formRostro').querySelector('button[type=submit]');
   boton.disabled = true;

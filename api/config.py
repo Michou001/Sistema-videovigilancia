@@ -32,6 +32,17 @@ def _roles_2fa(valor: str) -> frozenset[str]:
     return frozenset(pedidos & roles)
 
 
+def ruta_guardable(ruta: Path) -> str:
+    """Como se guarda en la base la ruta de un archivo de evidencia: relativa a
+    la raiz del proyecto si esta dentro (portable entre equipos), absoluta si
+    SNAPSHOT_DIR/CLIPS_DIR apuntan a otro disco. Quien la lee hace
+    `BASE_DIR / ruta`, que con una ruta absoluta devuelve la misma ruta."""
+    try:
+        return ruta.relative_to(BASE_DIR).as_posix()
+    except ValueError:
+        return ruta.resolve().as_posix()
+
+
 def _carpeta(variable: str, defecto: str) -> Path:
     """Carpeta de evidencia. Relativa a la raiz del proyecto si no es
     absoluta: las rutas de evidencia se guardan relativas a la raiz."""
@@ -54,6 +65,13 @@ class ApiConfig:
     """Roles que DEBEN tener la verificacion en dos pasos (EXIGIR_2FA=admin,operator,
     o "todos"). Quien no la tenga entra, pero solo puede darla de alta: el resto
     de la API le responde 403 hasta que lo haga. Vacio = opcional para todos."""
+
+    fotos_rostro_sin_coincidencia: bool = field(
+        default_factory=lambda: os.getenv("FOTOS_ROSTRO_SIN_COINCIDENCIA", "").strip().lower()
+        in {"1", "true", "si", "sí", "yes"})
+    """Conservar la foto de un rostro que NO coincidio con la lista. Por defecto
+    no: de quien solo paso frente a la camara queda el evento (hora, camara),
+    no su cara. Activarlo exige declararlo en el aviso de privacidad."""
 
     ingest_token: str = field(default_factory=lambda: os.getenv("API_TOKEN", ""))
     """Token que el worker de borde presenta para publicar eventos. Es un

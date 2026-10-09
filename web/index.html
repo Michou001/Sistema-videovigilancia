@@ -485,8 +485,9 @@
 
     <div id="tabRostros" style="display:none">
       <p class="sub" style="color:var(--aviso)">
-        Los rostros son <strong>datos personales sensibles</strong> (LFPDPPP).
-        Cada alta exige declarar su fundamento legal y queda en la bitácora.
+        Los rostros son <strong>datos personales sensibles</strong> (biométricos).
+        Cada alta exige declarar su fundamento y queda en la bitácora. Una
+        coincidencia es un aviso para revisión humana, no una identificación.
       </p>
       <form id="formRostro">
         <div class="campo">
@@ -499,11 +500,22 @@
         </div>
         <div class="campo">
           <label for="fundamento">Fundamento legal</label>
-          <input id="fundamento" placeholder="Carpeta de investigación, orden judicial…" required>
+          <input id="fundamento" placeholder="Acuerdo de la autoridad institucional, consentimiento del participante…" required>
         </div>
         <div class="campo">
           <label for="fotoRostro">Foto (rostro frontal, buena luz)</label>
           <input id="fotoRostro" type="file" accept="image/*" required>
+        </div>
+        <div class="campo">
+          <label for="vigenciaRostro">Vigencia</label>
+          <select id="vigenciaRostro">
+            <option value="">Sin vencimiento</option>
+            <option value="7">7 días</option>
+            <option value="30" selected>30 días</option>
+            <option value="90">90 días</option>
+            <option value="365">1 año</option>
+          </select>
+          <div class="ayuda">Al vencer deja de alertar. Al darla de baja se borran su rostro y su foto.</div>
         </div>
         <button type="submit"><i data-lucide="plus"></i>Agregar persona</button>
         <div class="error" id="errorRostro"></div>

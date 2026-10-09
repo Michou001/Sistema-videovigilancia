@@ -1,31 +1,74 @@
-# GOSS IP — Sistema de Videovigilancia
+# GOSS IP
 
-Detección de **placas mexicanas**, **rostros**, **movimiento anómalo**,
-**caídas y posturas**, **reglas por zona** y **sabotaje de cámaras** sobre
-video en vivo de cámaras IP, con cruce contra lista negra, alertas en tiempo
-real, clips de evidencia y avisos al celular, en una plataforma web.
+**Plataforma de análisis inteligente de videovigilancia para la gestión
+preventiva de incidentes en instalaciones institucionales.**
 
-> **Caso de despliegue institucional / InnovaTICs:** la propuesta para un campus
-> universitario se documenta en
-> **[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
-> El plan de pruebas y estabilización para la final está en
-> **[docs/validacion-innovatics.md](docs/validacion-innovatics.md)**.
+## El problema
 
-| Módulo | Estado |
-|---|---|
-| Placas mexicanas (YOLOv9 + OCR de placas + formatos NOM-001-SCT-2-2016) | Funcionando; 35/35 lecturas en pruebas de ángulo ([ADR-001](docs/adr/ADR-001-lectura-de-placas.md), [placas mexicanas](docs/placas-mexicanas.md)) |
-| Rostros (InsightFace, ArcFace 512-d) | Funcionando en cámara real; umbral pendiente de calibrar con personas |
-| Movimiento anómalo (YOLO11 + ByteTrack) | Funcionando; umbrales pendientes de validar con un incidente real |
-| Pose (YOLO11-pose): caída, manos arriba, posible agresión | Probado con el modelo real; pendiente de validar en campo |
-| Zonas y reglas: intrusión con horario, cruce de línea, merodeo, conteo | Funcionando, con editor en el dashboard |
-| Eventos de la cámara Hikvision (sabotaje, pérdida de video) y cámaras caídas | Funcionando |
-| Clips de video de las alertas y avisos por Telegram / correo / WhatsApp / webhook | Funcionando |
-| Búsqueda por descripción ("camioneta blanca") | Opcional; probado con el modelo real en español |
-| Video en vivo por WebRTC (go2rtc) con cajas dibujadas en el navegador | Opcional; MJPEG como respaldo automático |
-| Armas blancas (YOLO11-COCO) | Apagado por defecto: no detectó en prueba real (ver abajo) |
-| Varias cámaras en un solo proceso con modelos compartidos | Probado con 2 Hikvision reales; con más de 2, un proceso por cámara rinde 67 % más ([medición](docs/evidencias/README.md)) |
-| **Catálogo de cámaras**: buscar (ONVIF, puertos, MAC), diagnosticar (ISAPI/ONVIF/RTSP), recomendar instalación y dar de alta desde el navegador | Funcionando; probado con una cámara simulada en las pruebas, pendiente con la Hikvision del stand |
-| PostgreSQL + Redis (varios procesos de API), Docker, HTTPS | Funcionando |
+Una institución con decenas de cámaras no tiene quién mire todas a la vez.
+Instalar cámaras no garantiza que un evento relevante (un vehículo con reporte,
+alguien en un área restringida a deshoras, una cámara que dejó de transmitir)
+sea **visto, evaluado y canalizado** a tiempo al responsable. La mayor parte del
+video solo se revisa después, cuando ya pasó algo.
+
+## Qué propone GOSS IP
+
+Analizar el video de las cámaras IP que la institución ya tiene, **en sus
+propios equipos**, y convertir lo relevante en **alertas priorizadas y
+verificables** para que una persona decida qué hacer:
+
+1. las cámaras capturan video;
+2. los modelos analizan los cuadros en un equipo local;
+3. el sistema identifica un evento o una coincidencia;
+4. se genera una **alerta preliminar** con foto, clip y folio;
+5. el monitorista revisa la evidencia;
+6. la clasifica: confirmada, falso aviso, indeterminada, duplicada o ensayo;
+7. si corresponde, la **canaliza** al responsable institucional (queda en la bitácora);
+8. el personal autorizado decide las acciones conforme a sus protocolos.
+
+**La IA no decide.** No determina culpabilidad ni peligrosidad, no llama a la
+policía y ninguna coincidencia facial o vehicular dispara por sí sola una
+confrontación, detención o sanción. Una alerta es un aviso para revisión, no un
+incidente confirmado.
+
+**Para quién:** el personal de supervisión y seguridad de instituciones
+educativas, edificios públicos y otras instalaciones con cámaras IP compatibles
+y personal de monitoreo. **Caso de estudio:** un campus de la UAEMéx
+([contexto y fuentes](docs/contexto-uaemex.md)). La universidad no ha
+autorizado ni adoptado el proyecto; es el entorno de referencia para diseñarlo
+y evaluarlo.
+
+**Qué ofrece y qué no inventa.** La lectura de placas, la comparación facial y
+la detección de objetos ya existen. La propuesta es **integrarlas** en una
+plataforma modular y configurable: cámaras existentes, procesamiento local,
+reglas por zona y horario, alertas centralizadas con evidencia, revisión humana
+obligatoria, control de acceso por roles con verificación en dos pasos,
+bitácora y retención configurable. Que esa integración sea más útil o más
+económica que las alternativas comerciales es una **hipótesis por validar**
+([comparación y métricas](docs/validacion-innovatics.md#14-comparación-con-soluciones-existentes)).
+
+## Estado actual
+
+**Prototipo funcional, con validación técnica parcial** (pruebas automatizadas,
+ensayos en laboratorio y en el stand con dos cámaras Hikvision). **No** es un
+piloto institucional autorizado ni un sistema listo para producción; lo que
+falta para cada etapa está en
+[docs/validacion-innovatics.md](docs/validacion-innovatics.md).
+
+| Módulo | Estado | Evidencia y límites |
+|---|---|---|
+| Placas mexicanas (YOLOv9 + OCR + formatos NOM-001-SCT-2-2016) | Implementado, probado en ensayo | 35/35 lecturas en la prueba de ángulos ([ADR-001](docs/adr/ADR-001-lectura-de-placas.md)); en el stand, lecturas correctas a 1–2 m. Con lente de 2.8 mm y a más de ~3 m la placa queda muy pequeña: **requiere validación de campo** y, según la instalación, otro lente |
+| Alertas, revisión humana, canalización y ficha de evidencia (SHA-256) | Implementado y probado | Ciclo completo cubierto por pruebas automatizadas; métricas de revisión en `/api/alerts/metricas` |
+| Reglas por zona y horario (intrusión, cruce de línea, merodeo, conteo) | Implementado, pruebas automatizadas | Umbrales (p. ej. merodeo de 30–45 s) son parámetros de ensayo; falta medir falsos positivos en sitio |
+| Cámaras Hikvision: RTSP, eventos ISAPI, reconexión, aviso de cámara caída | Implementado, probado con 2 cámaras reales | Reconexión cubierta por pruebas; comportamiento en red institucional por validar |
+| Comparación facial (InsightFace, 512-d) | Implementado, **apagado por defecto** | Funciona en cámara real; el umbral no está calibrado con población real. Solo con autorización y referencias con fundamento ([privacidad](docs/privacidad.md)) |
+| Movimiento súbito y caída estimada | **Experimental** | Señales para revisión; sin validación estadística |
+| Pose: caída, manos arriba, posible agresión | **Experimental, apagado por defecto** | No apto para seguridad operativa hasta validarlo en campo |
+| Armas blancas | **Deshabilitado** | El modelo generalista no detectó en prueba real |
+| Clips de alertas y avisos (Telegram, correo, WhatsApp, webhook) | Implementado | Telegram probado con el bot del equipo; por defecto el aviso no lleva foto |
+| Búsqueda por descripción, video WebRTC | Opcional, apagado por defecto | Probados en laboratorio |
+| Seguridad: roles, verificación en dos pasos, HTTPS, bitácora, CI de seguridad | Implementado | [docs/seguridad-red.md](docs/seguridad-red.md) |
+| Varias cámaras, PostgreSQL + Redis, Docker | Implementado | Medido con 1 y 4 cámaras en una RTX 4050 ([evidencias](docs/evidencias/README.md)); capacidad por nodo en producción sin certificar |
 
 ---
 
@@ -66,7 +109,7 @@ lista negra, el horario de las reglas y la severidad los decide la API, que es
 quien tiene la base de datos; por eso la lista negra y las reglas se cambian
 sin tocar los workers.
 
-### Despliegue físico por campus
+### Despliegue físico
 
 El software no exige que todas las cámaras estén conectadas al mismo router ni
 que pertenezcan físicamente al mismo edificio. La propuesta institucional usa:
@@ -80,9 +123,9 @@ que pertenezcan físicamente al mismo edificio. La propuesta institucional usa:
 - API, base de datos y auditoría centralizadas.
 
 Para alturas iniciales de cámara, tipos de punto, PoE, cálculo de ancho de
-banda, segmentación, redundancia, crecimiento por campus y ficha de
+banda, segmentación, redundancia, crecimiento por edificio o campus y ficha de
 levantamiento por cámara:
-**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
+**[docs/arquitectura-despliegue.md](docs/arquitectura-despliegue.md)**.
 
 ### Estructura
 
@@ -118,11 +161,12 @@ levantamiento por cámara:
 │                        dataset_alertas, exportar_dataset, purgar_datos, respaldo,
 │                        metricas, placa_demo, grabar_video, ...
 ├── docker/              Imágenes, Caddyfile, go2rtc
-├── tests/               277 pruebas sin cámara ni GPU
+├── tests/               301 pruebas sin cámara ni GPU
 ├── docs/                Hikvision, despliegue, campus, privacidad, licencias,
 │                        reentrenamiento, validación, evidencias medidas
 ├── demo/                Placa de prueba imprimible; videos del plan de contingencia
-└── entrega/             Presentación y memoria técnica de la Fase 2
+├── 2_documentacion_fase2/  Memoria técnica, portafolio de evidencias, bitácora del Bootcamp
+└── 3_mercadotecnia/       Presentación, loop del logo para el stand y presskit
 ```
 
 ---
@@ -161,7 +205,8 @@ iniciar_api.bat
 iniciar_worker.bat
 ```
 
-Dashboard en `http://localhost:8000`, documentación de la API en `/docs`.
+Dashboard en `http://localhost:8000`. La documentación interactiva de la API
+(`/docs`) se activa con `API_DOCS=true` en el `.env`; en producción va apagada.
 
 Antes de cargar modelos:
 
@@ -237,7 +282,16 @@ python -m edge.worker --carpeta camaras
 
 ---
 
-## Cruce contra lista negra y reglas
+## Cruce contra el registro institucional de alertas y reglas
+
+La "lista negra" es un **registro institucional de alertas**: placas o
+personas que la institución responsable decidió vigilar, cada una con motivo,
+fundamento, vigencia y autor en la bitácora. No es una clasificación automática
+de personas peligrosas, y una coincidencia solo abre una alerta para revisión
+humana. Quién puede dar de alta, con qué soporte y cuándo se borra:
+[docs/privacidad.md](docs/privacidad.md#registro-institucional-de-alertas-lista-negra).
+Para demostraciones se usan solo registros simulados o de participantes que lo
+autorizaron.
 
 | Detección | Estrategia | Resultado |
 |---|---|---|
@@ -269,9 +323,11 @@ Detalle:
 
 ## Reconocimiento facial
 
-InsightFace `buffalo_l` con embeddings de 512 dimensiones. Requiere
-calibración de umbral y fundamento legal para altas. Los embeddings de personas
-no registradas no se conservan.
+InsightFace `buffalo_l` con embeddings de 512 dimensiones, **apagado por
+defecto** (`ENABLE_FACES`). Requiere calibrar el umbral con población real y
+fundamento para cada alta. De las personas que no coinciden con el registro no
+se conserva ni el vector ni la foto (solo el evento: hora y cámara); al dar de
+baja a alguien se borran su vector y su foto de referencia.
 
 > `buffalo_l` tiene restricciones de uso: ver
 > **[docs/licencias.md](docs/licencias.md)**.
@@ -281,8 +337,10 @@ no registradas no se conservan.
 ## Movimiento, caídas y posturas
 
 YOLO11 + tracking y YOLO11-pose permiten estimar movimiento súbito, caídas,
-manos arriba y posible agresión. Son señales para revisión del operador, no
-sentencias automáticas.
+manos arriba y posible agresión. **Son experimentales**: señales para revisión
+del operador, sin validación estadística en campo, y no aptas todavía para
+seguridad operativa. La pose viene apagada (`ENABLE_POSE=false`); el
+seguimiento de movimiento queda encendido porque lo usan las reglas por zona.
 
 ---
 
@@ -305,6 +363,9 @@ hasta contar con un modelo y dataset validados.
 ## Seguridad y privacidad
 
 - bcrypt y JWT revocable;
+- verificación en dos pasos (TOTP: Google/Microsoft Authenticator), exigible por rol;
+- el dashboard solo escucha en el propio equipo salvo que se abra con HTTPS;
+- CI de seguridad: pip-audit, gitleaks y Trivy en cada push;
 - cookie HttpOnly/SameSite para lectura;
 - autorización para cambios;
 - CSP estricta;
@@ -314,8 +375,9 @@ hasta contar con un modelo y dataset validados.
 - retención por capas.
 
 Ver:
-**[docs/privacidad.md](docs/privacidad.md)** y
-**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
+**[docs/seguridad-red.md](docs/seguridad-red.md)** (qué se expone en la red y
+cómo se cierra), **[docs/privacidad.md](docs/privacidad.md)** y
+**[docs/arquitectura-despliegue.md](docs/arquitectura-despliegue.md)**.
 
 ---
 
@@ -325,7 +387,7 @@ Ver:
 python tests/correr_todas.py
 ```
 
-**277 pruebas en 24 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
+**301 pruebas en 26 archivos**, sin cámara ni GPU: placas mexicanas, tracking,
 confirmación temporal, rostros, pose, zonas y horarios, ISAPI, clips,
 notificaciones (servicios simulados), cámaras caídas, búsqueda, reentrenamiento,
 WebRTC, seguridad, retención, catálogo de cámaras (con una cámara simulada
@@ -357,11 +419,12 @@ almacenamiento. Ver
 | `python tools/metricas.py --resumen --desde AAAA-MM-DD` | Alertas, tiempo de atención, placas corregidas, caídas y recuperación, desde la base de datos |
 | `python tools/placa_demo.py` | Placa de prueba imprimible (serie sin entidad asignada), validada con el detector y el OCR |
 | `python tools/grabar_video.py --segundos 90` | Graba la cámara en el ensayo, para usar el video como cámara si en la sede falla la real |
-| `python tools/marca/loop_logo.py entrega/GOSS_IP_Loop_Stand.mp4` | Loop del logo para el monitor del stand (12 s, 1080p, sin corte); la frase se cambia en el script |
+| `python tools/marca/loop_logo.py 3_mercadotecnia/loop/GOSS_IP_Loop_Stand.mp4` | Loop del logo para el monitor del stand (12 s, 1080p, sin corte); la frase se cambia en el script |
 
-Entregables en [entrega/](entrega/): presentación, memoria técnica, portafolio
-de evidencias, bitácora del Bootcamp y el loop del stand
-(`GOSS_IP_Loop_Stand.html` lo reproduce a pantalla completa sin internet).
+Entregables de la Fase 2: memoria técnica, portafolio de evidencias y bitácora
+del Bootcamp en [2_documentacion_fase2/](2_documentacion_fase2/); presentación y
+loop del stand en [3_mercadotecnia/](3_mercadotecnia/)
+(`loop/GOSS_IP_Loop_Stand.html` lo reproduce a pantalla completa sin internet).
 Resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
 
 ---
@@ -372,4 +435,4 @@ Servidor 24/7, Docker, WebRTC, varias cámaras y checklist de producción:
 **[docs/despliegue.md](docs/despliegue.md)**.
 
 Diseño físico y red para campus:
-**[docs/arquitectura-campus-uaemex.md](docs/arquitectura-campus-uaemex.md)**.
+**[docs/arquitectura-despliegue.md](docs/arquitectura-despliegue.md)**.

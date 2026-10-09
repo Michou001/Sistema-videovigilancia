@@ -9,6 +9,7 @@ pasaron. No hace falta camara ni GPU.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -25,7 +26,12 @@ def main() -> int:
         r = subprocess.run([sys.executable, str(archivo)], cwd=CARPETA.parent,
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         resumen = next((linea for linea in reversed(r.stdout.splitlines())
-                        if "pruebas pasan" in linea), "sin resumen")
+                        if "pruebas pasan" in linea), None)
+        if resumen is None:
+            # Los archivos con unittest dejan su resumen ("Ran 5 tests") en stderr.
+            corridas = re.search(r"^Ran (\d+) tests?", r.stderr or "", re.M)
+            resumen = (f"{corridas.group(1)}/{corridas.group(1)} pruebas pasan"
+                       if corridas and r.returncode == 0 else "sin resumen")
         estado = "OK   " if r.returncode == 0 else "FALLA"
         print(f"  [{estado}] {archivo.name:32} {resumen.strip():22} ({time.perf_counter() - t0:.1f}s)")
         if r.returncode != 0:

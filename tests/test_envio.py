@@ -144,6 +144,29 @@ def test_jsonl_no_escribe_embedding():
         shutil.rmtree(carpeta, ignore_errors=True)
 
 
+def test_jsonl_viejo_se_borra_con_la_retencion_de_eventos():
+    carpeta = Path(tempfile.mkdtemp())
+    try:
+        viejo = carpeta / "eventos-cam-01-20200101.jsonl"
+        legado = carpeta / "eventos-20200102.jsonl"
+        otra_camara = carpeta / "eventos-cam-02-20200101.jsonl"
+        for f in (viejo, legado, otra_camara):
+            f.write_text("{}", encoding="utf-8")
+        sink = JsonlSink(carpeta, prefijo="eventos-cam-01", dias=30)
+        sink.enviar(_evento(1))
+        sink.cerrar()
+        assert not viejo.exists() and not legado.exists()
+        assert otra_camara.exists(), "cada camara purga solo lo suyo"
+        assert len(list(carpeta.glob("eventos-cam-01-*.jsonl"))) == 1, "el de hoy se queda"
+        # dias=0: sin limite, no borra nada.
+        sink = JsonlSink(carpeta, prefijo="eventos-cam-02", dias=0)
+        sink.enviar(_evento(2))
+        sink.cerrar()
+        assert otra_camara.exists()
+    finally:
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
 # --------------------------------------------------------------------------
 # Archivo de entorno
 

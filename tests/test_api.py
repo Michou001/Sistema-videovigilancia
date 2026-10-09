@@ -186,6 +186,88 @@ def test_foto_adjunta_se_guarda_en_la_api():
     assert c.get("/media/" + destino.name).status_code == 200
 
 
+def test_foto_de_rostro_sin_coincidencia_no_se_conserva():
+    """De quien solo paso frente a la camara queda el evento, no su cara."""
+    c, h = _cliente()
+    from api.config import get_config
+    cfg = get_config()
+    jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes([2]) * 64 + bytes([0xFF, 0xD9])
+    # Un rostro que no se parece a nadie de la lista (vector aleatorio).
+    ajeno = np.random.default_rng(99).normal(size=512).astype(np.float32).tolist()
+    # Mismo equipo: el worker ya dejo la foto en la carpeta de evidencia.
+    local = _evento("face", "rostro", embedding=ajeno)
+    archivo = cfg.snapshot_dir / f"{local['event_id']}.jpg"
+    archivo.write_bytes(jpeg)
+    local["snapshot_path"] = archivo.relative_to(RAIZ).as_posix()
+    # Otro equipo: la manda adjunta.
+    remoto = _evento("face", "rostro", embedding=ajeno,
+                     snapshot_b64=base64.b64encode(jpeg).decode())
+    _ingerir(c, local, remoto)
+    filas = {e["event_id"]: e for e in c.get("/api/events", params={"tipo": "face"}, headers=h).json()}
+    assert filas[local["event_id"]]["snapshot_path"] is None
+    assert filas[remoto["event_id"]]["snapshot_path"] is None
+    assert not archivo.exists(), "la foto que dejo el worker se borra"
+    assert not (cfg.snapshot_dir / f"{remoto['event_id']}.jpg").exists()
+
+    # Si la institucion lo declara y lo activa, se conserva.
+    cfg.fotos_rostro_sin_coincidencia = True
+    try:
+        otro = _evento("face", "rostro", embedding=ajeno,
+                       snapshot_b64=base64.b64encode(jpeg).decode())
+        _ingerir(c, otro)
+        destino = cfg.snapshot_dir / f"{otro['event_id']}.jpg"
+        _archivos_creados.append(destino)
+        assert destino.exists()
+    finally:
+        cfg.fotos_rostro_sin_coincidencia = False
+
+
+def test_baja_de_rostro_borra_vector_y_foto():
+    """La baja conserva la trazabilidad pero no el rostro de la persona."""
+    c, h = _cliente()
+    from api.config import get_config
+    carpeta = get_config().snapshot_dir.parent / "referencias"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    foto = carpeta / "rostro-baja-prueba.jpg"
+    foto.write_bytes(b"x")
+    vector = np.ones(512, dtype=np.float32)
+    with Session(engine) as s:
+        r = BlacklistFace(label="Baja de prueba", vector=vector.tobytes(), reason="prueba",
+                          legal_basis="prueba automatizada",
+                          photo_path=foto.relative_to(RAIZ).as_posix())
+        s.add(r)
+        s.commit()
+        rid = r.id
+    assert c.delete(f"/api/blacklist/faces/{rid}", headers=h).status_code == 204
+    with Session(engine) as s:
+        r = s.get(BlacklistFace, rid)
+        assert not r.active and r.photo_path is None
+        assert not np.frombuffer(r.vector, dtype=np.float32).any(), "el vector se borra"
+        assert r.label == "Baja de prueba" and r.legal_basis, "queda la trazabilidad"
+    assert not foto.exists()
+
+
+def test_evidencia_fuera_del_proyecto_no_rompe_la_ingesta():
+    """SNAPSHOT_DIR en otro disco: antes cada evento con foto daba error 500."""
+    c, h = _cliente()
+    from api.config import get_config
+    cfg = get_config()
+    anterior = cfg.snapshot_dir
+    fuera = Path(tempfile.mkdtemp())
+    cfg.snapshot_dir = fuera
+    try:
+        jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes([3]) * 64 + bytes([0xFF, 0xD9])
+        ev = _evento(valor="DIS-777", snapshot_b64=base64.b64encode(jpeg).decode())
+        _ingerir(c, ev)
+        fila = c.get("/api/events", params={"q": "DIS777"}, headers=h).json()[0]
+        assert Path(fila["snapshot_path"]).is_absolute()
+        assert (fuera / f"{ev['event_id']}.jpg").read_bytes() == jpeg
+        assert c.get("/media/" + Path(fila["snapshot_path"]).name).status_code == 200
+    finally:
+        cfg.snapshot_dir = anterior
+        shutil.rmtree(fuera, ignore_errors=True)
+
+
 def test_latido_marca_la_camara_en_linea():
     c, h = _cliente()
     r = c.post("/api/events/heartbeat", params={"camera_id": "cam-latido"}, headers=WORKER,
@@ -268,7 +350,7 @@ def test_canalizar_y_ficha_de_evidencia():
     assert f"{hashlib.sha256(z.read('ficha.html')).hexdigest()}  ficha.html" in sumas, "la ficha va al manifiesto"
     ficha = z.read("ficha.html").decode()
     assert folio in ficha and "CNL-911" in ficha and "F-2026-1234" in ficha
-    assert "911 / C5 Edomex" in ficha and "Protección Universitaria" in ficha
+    assert "911 / C5 Edomex" in ficha and "Seguridad institucional" in ficha
     assert "Alerta canalizada a otra instancia" in ficha and huella in ficha
     # La leyenda dice lo que paso, no asume una verificacion.
     assert "La atendió admin" in ficha and "verificó" not in ficha

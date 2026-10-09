@@ -1,222 +1,211 @@
 # Privacidad y protección de datos
 
-Este sistema trata **datos personales** y, en el caso de los rostros, **datos
-personales sensibles**. Este documento explica qué se recoge, cuánto tiempo se
-conserva y qué obligaciones legales aplican.
+GOSS IP trata **datos personales** (imágenes de personas, placas vehiculares)
+y, si se activa la comparación facial, **datos personales sensibles**
+(biométricos). Este documento describe lo que el software hace realmente con
+esos datos, cuánto tiempo los conserva y qué debe resolver la institución antes
+de usarlo.
 
-> No es asesoría legal. Antes de instalarlo en un sitio real, esto debe
-> revisarlo alguien del área jurídica de la institución.
+> No es asesoría legal ni una declaración de cumplimiento. El responsable del
+> tratamiento es la **institución que opere el sistema**, no el software; antes
+> de instalarlo en un sitio real debe revisarlo su área jurídica y su unidad de
+> transparencia o protección de datos. Que el video se procese en equipos
+> locales **reduce transferencias**, pero **no exime** de ninguna obligación.
 
 ---
 
-## Qué datos trata el sistema
+## Procesar, guardar, transferir y entrenar no son lo mismo
+
+| Acción | Qué ocurre en GOSS IP |
+|---|---|
+| **Procesar** | Cada cuadro se analiza en memoria en el equipo del worker (placas, rostros, personas, vehículos). El video en vivo del dashboard tampoco toca el disco. |
+| **Guardar** | Solo se conservan eventos, sus fotos, los clips de alertas y la bitácora, con los plazos de la tabla de abajo. No hay grabación continua. |
+| **Transferir** | No sale nada del equipo salvo lo que se configure: avisos externos (Telegram, correo, WhatsApp, webhook), respaldos en la nube y, si se usan, los mosaicos del mapa (solo coordenadas, no video). |
+| **Entrenar** | Ningún modelo se reentrena solo. Con `DATASET_ENABLED=true` se guardan cuadros de alertas para afinar modelos con el veredicto de los operadores; viene apagado. |
+
+---
+
+## Qué datos trata el sistema y cuánto tiempo los guarda
+
+Los plazos son los valores por defecto y se cambian por variables de entorno.
 
 | Dato | Categoría | ¿Se guarda? |
 |---|---|---|
-| Placa vehicular (texto) | Personal — identifica al titular | Sí, 30 días |
-| Foto del vehículo | Personal | 7 días si no hay coincidencia |
-| **Embedding facial** | **Personal SENSIBLE (biométrico)** | **Solo si coincide con lista negra** |
-| Foto de rostro | **Personal SENSIBLE** | Solo si coincide |
-| Detección de arma | Personal (vinculado a quien la porta) | 1 año |
-| Registros de operadores | Personal | Mientras dure la cuenta |
-| **Video en vivo del dashboard** | Personal (imagen de quien pase) | **No. Solo en memoria** |
-| Clip de video de una alerta (~20 s) | Personal (imagen de quien pase) | Solo de alertas, 90 días |
-| Aviso por Telegram/correo/WhatsApp | Personal (texto de la alerta) | Lo guarda el servicio externo |
-| Vector de búsqueda por descripción (opcional) | Personal (apariencia, derivado de la foto) | Lo que viva su foto |
-| Cuadro de entrenamiento (opcional) | Personal (imagen de quien pase) | Solo alertas, 30 días, en el worker |
+| Placa vehicular (texto) sin coincidencia | Personal | 30 días (`RETENCION_EVENTOS_DIAS`) |
+| Placa con alerta | Personal | Con su alerta: 365 días (`RETENCION_ALERTAS_DIAS`) |
+| Foto de un evento sin coincidencia (vehículo, persona en una zona) | Personal | 7 días (`RETENCION_FOTOS_DIAS`) |
+| **Rostro sin coincidencia** | **Sensible** | **No se guarda ni el vector ni la foto.** Queda el evento (hora y cámara), 30 días. Conservar la foto exige `FOTOS_ROSTRO_SIN_COINCIDENCIA=true` y declararlo en el aviso de privacidad |
+| **Vector facial que coincidió** | **Sensible** | 7 días (`RETENCION_EMBEDDINGS_DIAS`) |
+| Foto de un rostro que coincidió | Sensible | Con su alerta: 365 días |
+| Referencia del registro de alertas (foto y vector de la persona) | Sensible | Mientras el registro esté de alta; **se borran al darlo de baja** |
+| Lecturas de placa corregidas por un operador | Personal | 180 días (`RETENCION_CORREGIDOS_DIAS`) |
+| Clip de una alerta (~20 s) | Personal (todos los que pasaban) | 90 días (`RETENCION_CLIPS_DIAS`) |
+| Bitácora de auditoría | Personal (operadores) | 730 días (`RETENCION_AUDITORIA_DIAS`) |
+| Copia de depuración del worker (`data/eventos-*.jsonl`, sin vectores) | Personal | 30 días, igual que los eventos |
+| Eventos pendientes de envío (`data/spool/`) | Personal | Hasta que la API los recibe |
+| Video en vivo del dashboard | Personal | **No.** Solo en memoria |
+| Vector de búsqueda por descripción (opcional) | Personal (apariencia) | Lo que viva su foto |
+| Cuadros para reentrenar (opcional) | Personal | Solo alertas, 30 días (`RETENCION_DATASET_DIAS`) |
+| Cuentas de operadores | Personal | Mientras exista la cuenta |
 
----
-
-## La decisión de diseño más importante
-
-**Los embeddings faciales de personas que NO están en la lista negra no se
-guardan nunca.** Se calculan en memoria, se comparan, y se descartan.
-
-El motivo es directo: ese vector ya cumplió su única función. Conservarlo
-convertiría el sistema en una base de datos biométrica de todas las personas
-que pasan frente a la cámara — alumnos, profesores, visitantes — sin ninguna
-finalidad que lo justifique. Bajo la LFPDPPP eso es tratamiento de datos
-sensibles sin base legal, y además crea un activo que habría que proteger.
-
-Lo que no se guarda no se puede filtrar, no se puede robar y no hay que
-protegerlo.
-
-Implementado en [api/routers/events.py](../api/routers/events.py).
-
----
-
-## Política de retención
-
-Configurable por variables de entorno; los valores por defecto son:
-
-| Dato | Plazo | Variable |
-|---|---|---|
-| Fotos de eventos sin coincidencia | 7 días | `RETENCION_FOTOS_DIAS` |
-| Eventos sin coincidencia (solo texto) | 30 días | `RETENCION_EVENTOS_DIAS` |
-| Alertas y su evidencia | 365 días | `RETENCION_ALERTAS_DIAS` |
-| Clips de video de las alertas | 90 días | `RETENCION_CLIPS_DIAS` |
-| Embeddings que sí coincidieron | 7 días | `RETENCION_EMBEDDINGS_DIAS` |
-| Lecturas de placa corregidas por un operador | 180 días | `RETENCION_CORREGIDOS_DIAS` |
-| Bitácora de auditoría | 730 días | `RETENCION_AUDITORIA_DIAS` |
-
-La distinción entre las dos primeras filas es deliberada: para responder *"¿pasó
-el coche ABC-123 por aquí el martes?"* basta una línea de texto de 50 bytes. La
-foto de ese coche no aporta a esa respuesta y sí es un dato personal de alguien
-que no hizo nada. Por eso la foto se va a los 7 días y el texto sobrevive hasta
-los 30 — el tiempo típico en que se reporta un robo.
-
-La purga corre **automáticamente cada 24 horas** dentro de la API, y también
-puede ejecutarse a mano:
+La purga corre **automáticamente cada 24 horas** dentro de la API y también a
+mano:
 
 ```bash
 python tools/purgar_datos.py --simular   # cuenta sin borrar
 python tools/purgar_datos.py             # aplica
 ```
 
----
+La distinción entre texto y foto es deliberada: para responder *"¿pasó el coche
+ABC-123 el martes?"* basta una línea de texto; la foto de ese coche no aporta a
+esa respuesta y sí es un dato de alguien que no hizo nada.
 
-## Obligaciones al instalarlo en un sitio real
+### Lo que la purga automática NO cubre
 
-Bajo la **LFPDPPP** (Ley Federal de Protección de Datos Personales en Posesión
-de los Particulares) y su reglamento:
-
-1. **Aviso de privacidad visible en el punto de captura.** Un letrero en la
-   entrada del estacionamiento, legible antes de entrar, indicando que hay
-   videovigilancia con reconocimiento de placas y rostros, quién es el
-   responsable y dónde consultar el aviso completo.
-2. **Consentimiento expreso para datos biométricos.** El tratamiento de datos
-   sensibles exige consentimiento *expreso y por escrito* del titular. Esto es
-   lo que en la práctica limita el reconocimiento facial a personas que ya
-   están en una lista con fundamento — no a la población general.
-3. **Finalidad acotada y declarada.** "Seguridad del estacionamiento" es una
-   finalidad; "análisis de comportamiento de los alumnos" sería otra distinta y
-   requeriría su propia base legal.
-4. **Derechos ARCO.** Las personas pueden pedir Acceso, Rectificación,
-   Cancelación y Oposición sobre sus datos. Debe existir un procedimiento y un
-   responsable designado.
-5. **Fundamento documentado por cada alta en lista negra.** El sistema lo exige
-   en el campo `legal_basis`, que es obligatorio y no acepta valores vacíos.
-6. **Medidas de seguridad.** Contraseñas con bcrypt, acceso por roles, la base
-   de datos fuera del alcance de la red pública.
+- **Respaldos** (`tools/respaldo.py`): copian la base de datos y, con
+  `--con-evidencia`, las fotos. Con `--nube` se copian a OneDrive, lo que es una
+  **transferencia a un tercero**. Los respaldos deben tener su propio plazo y
+  borrarse a mano o con la política de la institución.
+- **Grabaciones de contingencia** (`tools/grabar_video.py`): video continuo que
+  se graba a mano para una demostración. Debe borrarse al terminar el evento y
+  hacerse solo con personas que lo autorizaron.
+- Los registros que las plataformas externas guardan de cada aviso (Telegram,
+  correo, WhatsApp) quedan bajo las políticas de esas plataformas.
 
 ---
 
-## Consideraciones específicas de un entorno escolar
+## Decisiones de minimización
 
-Un estacionamiento escolar tiene un agravante: **puede haber menores de edad.**
-El tratamiento de datos personales de menores tiene requisitos reforzados y el
-consentimiento debe darlo quien ejerce la patria potestad.
+**El rostro de quien no coincide con el registro no se conserva.** El vector se
+calcula en memoria, se compara y se descarta; la foto del rostro se borra en
+cuanto la API confirma que no hubo coincidencia
+([api/routers/events.py](../api/routers/events.py)). Conservarlos convertiría
+el sistema en una base biométrica de todas las personas que pasan frente a la
+cámara (alumnos, personal, visitantes) sin finalidad que lo justifique.
 
-Recomendación práctica para el proyecto: **limita el reconocimiento facial a la
-demostración técnica** y deja el sistema en producción operando solo con
-placas, salvo que la institución obtenga los consentimientos correspondientes.
-La detección de armas no identifica a nadie y no tiene ese problema.
+**La baja de una persona borra su rostro.** La fila del registro se queda
+(etiqueta, motivo, fundamento, quién la dio de alta) porque las alertas
+históricas la referencian y la bitácora debe poder explicar por qué hubo una
+coincidencia; el vector y la foto de referencia se eliminan
+([api/routers/faces.py](../api/routers/faces.py)).
+
+**No hay grabación continua ni seguimiento de trayectorias.** No hay un "quién
+es esta persona" ni perfiles de movimiento: solo un "¿es alguna de las
+registradas?". Agregar cualquiera de esas funciones cambia por completo el
+perfil legal del sistema.
+
+---
+
+## Registro institucional de alertas (lista negra)
+
+La función existe y se conserva técnicamente, pero su uso real depende de bases
+de datos **autorizadas** y de criterios que fije la institución responsable. No
+es una clasificación automática de personas peligrosas: una coincidencia abre
+una alerta para que una persona la revise.
+
+| Aspecto | Qué hace hoy el software | Qué debe definir la institución |
+|---|---|---|
+| Procedencia | Altas manuales desde el dashboard; no hay importación de bases externas | De dónde puede venir un registro (reporte interno, orden de autoridad competente). **No conectar fuentes policiales, gubernamentales o de terceros sin autorización expresa y fundamento legal** |
+| Autoridad para dar de alta | Solo el rol administrador, con verificación en dos pasos si `EXIGIR_2FA` lo pide | Quién aprueba cada alta; hoy no existe un flujo de aprobación separado de la captura |
+| Justificación | Motivo y fundamento obligatorios (texto libre; para rostros, campo `legal_basis`) | Qué soporte documental vale como fundamento; el sistema no lo verifica |
+| Caducidad | Vigencia opcional (placas y rostros); vencido, deja de alertar | Plazo máximo por tipo de registro |
+| Corrección y eliminación | Baja desde el dashboard; en rostros borra vector y foto; las lecturas de placa se pueden corregir | Procedimiento para solicitudes de acceso, rectificación, cancelación y oposición |
+| Verificación de coincidencias | Placa exacta = crítica; placa a un carácter = "Posible placa…" (advertencia); rostro por similitud con umbral configurable | Qué revisa el monitorista antes de canalizar |
+| Falsos positivos | El operador marca "falso aviso"; las métricas muestran confirmadas sobre revisadas | Umbral aceptable y revisión periódica |
+| Acceso | Lectura de evidencia solo con sesión; altas y bajas solo administradores | Quién tiene cada rol |
+| Trazabilidad | Bitácora de altas, bajas, búsquedas, descargas de evidencia y canalizaciones | Quién audita la bitácora y cada cuánto |
+
+**Para demostraciones:** solo registros simulados (la placa de prueba
+`ZTP-482-A` usa una serie sin entidad asignada) o datos de participantes que
+firmaron su autorización. Nunca personas reales sin su consentimiento.
+
+---
+
+## Marco jurídico: qué debe revisar la institución
+
+La ley aplicable depende de **quién es el responsable del tratamiento**:
+
+- **Institución pública** (una universidad pública autónoma, un ayuntamiento,
+  una dependencia estatal): es **sujeto obligado** y le aplica la normativa de
+  protección de datos en posesión de sujetos obligados. A nivel general, la Ley
+  General publicada en el DOF el 20 de marzo de 2025
+  ([texto vigente](https://www.diputados.gob.mx/LeyesBiblio/pdf/LGPDPPSO.pdf));
+  en el Estado de México, la Ley de Protección de Datos Personales en Posesión
+  de Sujetos Obligados del Estado de México y Municipios (2017), más las
+  políticas internas de la institución. **El régimen estatal está en
+  transición:** en 2025 el Congreso mexiquense aprobó extinguir el INFOEM y el
+  nuevo modelo seguía pendiente de leyes secundarias a inicios de 2026
+  ([El Universal](https://www.eluniversal.com.mx/metropoli/avalan-la-extincion-del-instituto-de-transparencia-del-edomex/),
+  [El Sol de Toluca](https://oem.com.mx/elsoldetoluca/local/nuevo-modelo-de-transparencia-quedara-listo-antes-de-junio-28354527)).
+  Hay que confirmar la autoridad garante vigente al momento de instalarlo.
+- **Institución privada:** Ley Federal de Protección de Datos Personales en
+  Posesión de los Particulares y su reglamento.
+
+En cualquiera de los dos casos, como mínimo:
+
+1. **Aviso de privacidad** visible en el punto de captura (que hay
+   videovigilancia con lectura de placas y, si aplica, comparación facial;
+   quién es el responsable y dónde consultar el aviso completo).
+2. **Finalidad acotada y declarada.** "Seguridad de los accesos" es una
+   finalidad; "analizar el comportamiento de los alumnos" sería otra distinta.
+3. **Base para los datos biométricos.** Si se activa la comparación facial,
+   el fundamento (consentimiento, mandato legal u otra base) debe analizarlo
+   el área jurídica; por eso viene apagada.
+4. **Derechos ARCO** con un procedimiento y un responsable designado.
+5. **Medidas de seguridad** documentadas: roles, verificación en dos pasos,
+   HTTPS, red de cámaras aislada, bitácora ([seguridad-red.md](seguridad-red.md)).
+6. **Plazos de conservación**, incluidos los respaldos.
+
+**Menores de edad.** Las preparatorias de una universidad, o cualquier escuela,
+pueden tener menores. Sus datos tienen protección reforzada. Recomendación:
+operar con lectura de placas y reglas por zona, y dejar la comparación facial
+apagada salvo autorización expresa.
 
 ---
 
 ## La vista en vivo del dashboard
 
-El apartado de Monitoreo muestra las cámaras en tiempo real. Es video de
-personas, así que se trata con las mismas reglas que el resto:
+- **Los cuadros no tocan el disco.** La única copia vive en memoria de la API y
+  la sobreescribe el cuadro siguiente. Lo que se conserva como evidencia son las
+  capturas de los eventos, con su plazo.
+- **No hay grabación continua.** Lo único que se graba es el clip alrededor de
+  una alerta.
+- **Solo circula mientras alguien mira.** Con el apartado cerrado o la pestaña
+  en segundo plano, el worker deja de enviar video.
+- **Ver requiere sesión**, con cookie `HttpOnly` y `SameSite=Strict`.
 
-- **Los frames no tocan el disco.** Nunca. La única copia vive en memoria de la
-  API y la sobreescribe el frame siguiente, unos 170 ms después. No hay archivo
-  que purgar porque no hay archivo. Lo que se conserva como evidencia son las
-  capturas de los eventos, que sí pasan por `data/snapshots` con su política de
-  retención.
-- **No hay grabación continua.** No se puede retroceder ni revisar "qué pasó
-  hace diez minutos" en el video. Lo único que se graba es un clip de unos
-  segundos alrededor de una **alerta** (ver abajo); de lo demás queda el
-  histórico de eventos, que es lo que sí tiene fundamento conservar.
-- **Solo circula mientras alguien mira.** Al cerrar el apartado, o con la
-  pestaña en segundo plano, el flujo se corta y el worker deja de enviar. Con
-  el dashboard cerrado no sale un solo frame de la red de las cámaras.
-- **Pasado el plazo, la API suelta el último frame** de una cámara que dejó de
-  enviar. No es higiene de memoria: es no quedarse con la última imagen de una
-  persona indefinidamente porque el worker murió en mal momento.
-- **Ver requiere sesión.** El flujo valida la sesión antes de entregar el
-  primer byte. Como un `<img>` no puede mandar cabeceras, la sesión viaja en
-  una cookie `HttpOnly` y `SameSite=Strict` que pone el login: no queda en el
-  DOM, ni en el historial, ni la puede leer un script. Caduca con `JWT_HOURS`
-  y nunca es el token de ingesta del worker.
-
-Si por política el video no debe salir de la red de las cámaras,
-`PREVIEW_ENABLED=false` en el `.env` del worker lo desactiva. Los eventos y sus
-capturas siguen llegando igual.
-
----
+`PREVIEW_ENABLED=false` en el worker desactiva la vista en vivo si la política
+lo exige; los eventos siguen llegando.
 
 ## Clips de video de las alertas
 
-Cuando la API decide que un evento es alerta (advertencia o crítica), el worker
-arma un clip con los segundos anteriores y posteriores (`CLIP_PRE_S`,
-`CLIP_POST_S`, 10 + 10 por defecto) y lo sube a la API. Para un parte o una
-denuncia, el clip es lo que muestra qué pasó.
+Cuando un evento es alerta, el worker arma un clip con los segundos anteriores
+y posteriores (`CLIP_PRE_S`, `CLIP_POST_S`, 10 + 10) y lo sube a la API. Solo de
+alertas, con plazo propio de 90 días (el clip muestra a todos los que pasaban),
+mismo acceso que las fotos. `CLIP_ENABLED=false` lo desactiva.
 
-- **Solo de alertas.** El worker guarda en memoria los últimos segundos de
-  video, comprimidos, y los va sobrescribiendo. Si no hay alerta, nada llega a
-  disco.
-- **Plazo propio, más corto que la alerta** (`RETENCION_CLIPS_DIAS`, 90 días):
-  el clip muestra a todos los que pasaban, no solo al involucrado. La alerta y
-  su foto siguen su propio plazo. Un clip sin alerta que lo referencie se borra
-  en la purga.
-- **Mismo acceso que las fotos:** solo con sesión, desde `/media`.
-- `CLIP_ENABLED=false` en el `.env` del worker lo desactiva.
+## Avisos fuera del dashboard
 
----
+Telegram, correo, WhatsApp y webhook (`NOTIFY_*`) son una **transferencia a un
+tercero**:
 
-## Notificaciones fuera del dashboard
-
-Telegram, correo, WhatsApp y webhook (variables `NOTIFY_*`) llevan la alerta al
-celular del responsable. Eso es una **transferencia de datos personales a un
-tercero** (Telegram, el proveedor de correo, Twilio/Meta), así que:
-
-- **Por defecto no se manda la foto** (`NOTIFY_INCLUDE_PHOTO=false`): el aviso
-  lleva título, cámara, hora y folio; la evidencia se consulta en el dashboard.
-  Actívala solo si el aviso de privacidad contempla esa transferencia. WhatsApp
-  y el webhook nunca llevan foto.
-- **Solo alertas críticas** por defecto (`NOTIFY_MIN_SEVERITY`), más la caída y
-  recuperación de cámaras. Los avisos de coincidencias históricas (al dar de
-  alta una placa) no se notifican.
-- Los tokens y contraseñas viven en el `.env` del servidor: no se ven ni se
-  cambian desde el navegador, y se ocultan de los mensajes de error y del log.
-- Las pruebas de envío quedan en la bitácora.
-
----
+- **Por defecto el aviso no lleva foto** (`NOTIFY_INCLUDE_PHOTO=false`): título,
+  cámara, hora y folio; la evidencia se consulta en el dashboard. Activarla
+  exige que el aviso de privacidad contemple esa transferencia. WhatsApp y el
+  webhook nunca llevan foto.
+- Por defecto solo alertas críticas (`NOTIFY_MIN_SEVERITY`) y caídas de cámara.
+- Los tokens viven en el `.env` del servidor y no se muestran en el navegador.
 
 ## Búsqueda por descripción (opcional)
 
-Con `SEMANTIC_SEARCH=true`, la API calcula de cada captura un vector que
-permite buscar "camioneta blanca" o "persona con mochila roja". Buscar a
-alguien por cómo se ve es sensible, así que:
+Con `SEMANTIC_SEARCH=true` la API calcula de cada captura un vector para buscar
+"camioneta blanca". No es reconocimiento facial, vive lo que vive la foto y cada
+búsqueda queda en la bitácora. Viene apagada.
 
-- **No es reconocimiento facial.** El vector describe la escena (colores,
-  ropa, tipo de vehículo); no identifica a una persona ni se compara contra
-  la lista negra.
-- **Vive lo que vive la foto.** Cuando la retención borra una captura (7 días
-  en eventos normales), se borra también su vector.
-- **Cada búsqueda queda en la bitácora** con quién la hizo y qué escribió.
-- Viene apagada. Actívala solo si el aviso de privacidad contempla la
-  búsqueda en el histórico de imágenes.
+## Cuadros para reentrenar (opcional)
 
-## Cuadros para reentrenar los modelos (opcional)
-
-Con `DATASET_ENABLED=true` en el worker se guardan los cuadros de las alertas
-para que, con el veredicto de los operadores, se afinen los modelos
-([reentrenamiento.md](reentrenamiento.md)). Se quedan en la máquina del worker,
-solo de alertas, y se borran a los `RETENCION_DATASET_DIAS` (30). El ZIP que
-se arma para entrenar se guarda cifrado y se borra al terminar. Viene apagado.
-
----
-
-## Lo que este sistema NO hace, a propósito
-
-- **No guarda video continuo.** Solo recortes de eventos concretos. La vista
-  en vivo del dashboard no se graba en ningún punto.
-- **No identifica a personas que no estén en la lista negra.** No hay un
-  "quién es esta persona" — solo un "¿es alguna de estas?".
-- **No rastrea trayectorias** ni construye perfiles de movimiento.
-- **No expone los embeddings** por ningún endpoint, ni los escribe en logs.
-
-Estas ausencias son decisiones de diseño, no funciones pendientes. Agregar
-cualquiera de ellas cambia por completo el perfil legal del sistema.
+Con `DATASET_ENABLED=true` el worker guarda los cuadros de las alertas para
+afinar los modelos con el veredicto de los operadores
+([reentrenamiento.md](reentrenamiento.md)). Solo alertas, en el equipo del
+worker, 30 días; el ZIP de entrenamiento se cifra y se borra al terminar. Viene
+apagado.

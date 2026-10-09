@@ -32,11 +32,12 @@ from pydantic import BaseModel
 from sqlmodel import col, select
 
 from api.auditoria import registrar
-from api.config import BASE_DIR, get_config
+from api.config import BASE_DIR, get_config, ruta_guardable
 from api.deps import Admin, OperadorActual, SesionBD
 from api.matching import lista_negra
 from api.models import BlacklistFace, FechasEnUtc
 from api.retroactive import reescanear_rostro
+from shared.fechas import a_utc, ahora_utc
 
 log = logging.getLogger(__name__)
 
@@ -88,10 +89,15 @@ async def agregar(
     legal_basis: str = Form(..., min_length=3, max_length=300),
     severity: str = Form("critical"),
     foto: UploadFile = File(...),
+    expires_at: Optional[datetime] = Form(
+        None, description="Vigencia del registro (ISO 8601). Vencido, deja de alertar."),
 ):
     if severity not in {"critical", "warning"}:
         raise HTTPException(422,
                             "severity debe ser 'critical' o 'warning'")
+    expires_at = a_utc(expires_at)
+    if expires_at is not None and expires_at <= ahora_utc():
+        raise HTTPException(422, "La vigencia debe ser una fecha futura")
 
     # Se lee como maximo un byte mas del limite: un archivo enorme no llega
     # completo a memoria para luego rechazarlo.
@@ -125,6 +131,7 @@ async def agregar(
         legal_basis=legal_basis,
         severity=severity,
         created_by=admin.username,
+        expires_at=expires_at,
     )
     session.add(registro)
     session.commit()
@@ -136,7 +143,7 @@ async def agregar(
     carpeta.mkdir(parents=True, exist_ok=True)
     ruta = carpeta / f"rostro-{registro.id}.jpg"
     cv2.imwrite(str(ruta), imagen)
-    registro.photo_path = ruta.relative_to(BASE_DIR).as_posix()
+    registro.photo_path = ruta_guardable(ruta)
     # El fundamento legal va a la bitacora: es lo que se pide en una auditoria.
     registrar(session, "lista_negra.alta_rostro", usuario=admin.username,
               objetivo=f"{label} (#{registro.id})",
@@ -158,13 +165,27 @@ async def agregar(
 
 @router.delete("/{registro_id}", status_code=status.HTTP_204_NO_CONTENT)
 def desactivar(registro_id: int, session: SesionBD, admin: Admin, request: Request):
-    """Baja logica: los eventos historicos siguen apuntando a este registro."""
+    """Baja: se BORRAN el vector biometrico y la foto de referencia.
+
+    Queda la fila (etiqueta, motivo, fundamento, quien la dio de alta) porque
+    los eventos y alertas historicos la referencian y la bitacora debe poder
+    explicar por que hubo una coincidencia. Lo que identifica a la persona -- su
+    rostro -- no se conserva una vez que deja de tener fundamento.
+    """
     registro = session.get(BlacklistFace, registro_id)
     if registro is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese registro")
     registro.active = False
+    registro.vector = bytes(4 * (registro.dim or 512))   # ceros: ya no compara con nada
+    if registro.photo_path:
+        foto = (BASE_DIR / registro.photo_path).resolve()
+        carpeta = (get_config().snapshot_dir.parent / "referencias").resolve()
+        if foto.parent == carpeta:
+            foto.unlink(missing_ok=True)
+        registro.photo_path = None
     registrar(session, "lista_negra.baja_rostro", usuario=admin.username,
-              objetivo=f"{registro.label} (#{registro.id})", request=request)
+              objetivo=f"{registro.label} (#{registro.id})",
+              detalle={"datos_biometricos": "eliminados"}, request=request)
     session.commit()
     lista_negra.invalidar()
     log.info("Rostro '%s' desactivado por %s", registro.label, admin.username)

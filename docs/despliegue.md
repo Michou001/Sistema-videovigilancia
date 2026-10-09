@@ -5,7 +5,7 @@ monitoristas.
 
 Para red física, VLAN, switches PoE, fibra entre edificios, alturas de cámara,
 ancho de banda y escalamiento por campus, ver
-**[arquitectura-campus-uaemex.md](arquitectura-campus-uaemex.md)**.
+**[arquitectura-despliegue.md](arquitectura-despliegue.md)**.
 
 ---
 

@@ -1,8 +1,11 @@
-# Arquitectura de despliegue en campus — caso UAEMéx / InnovaTICs
+# Arquitectura de despliegue
 
-Este documento convierte GOSS IP de un prototipo de laboratorio a una propuesta de despliegue institucional. El caso de referencia es una facultad o campus de la UAEMéx, pero la arquitectura es reutilizable en otros conjuntos de edificios.
+Criterios para llevar GOSS IP de un prototipo de laboratorio a una instalación
+institucional: escuelas, edificios públicos u otros conjuntos de edificios con
+cámaras IP y personal de monitoreo. Los ejemplos usan como **caso de estudio**
+una facultad o campus de la UAEMéx; la arquitectura no depende de él.
 
-> Las alturas, lentes, rutas de cableado, VLAN, cuartos de telecomunicaciones y puntos exactos de cámara deben validarse mediante levantamiento físico con Infraestructura/TIC y Protección Universitaria. Este documento fija criterios de ingeniería y evita depender de supuestos sobre la red interna de la UAEMéx.
+> Las alturas, lentes, rutas de cableado, VLAN, cuartos de telecomunicaciones y puntos exactos de cámara deben validarse mediante levantamiento físico con el área de TI y la de seguridad de la institución (en el caso de estudio, Infraestructura/TIC y Seguridad Institucional de la UAEMéx). Este documento fija criterios de ingeniería y no supone nada sobre una red interna concreta.
 
 ## 1. Objetivo
 

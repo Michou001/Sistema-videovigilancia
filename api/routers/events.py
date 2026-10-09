@@ -35,7 +35,7 @@ from sqlmodel import Session, col, select
 
 from api.alertas import mensaje as mensaje_alerta
 from api.alertas import nueva_alerta
-from api.config import BASE_DIR, get_config
+from api.config import get_config, ruta_guardable
 from api.database import engine
 from api.deps import verificar_worker
 from api.hub import hub
@@ -45,6 +45,7 @@ from shared.events import (
     PATRON_CAMARA,
     DetectionEvent,
     EventoRechazado,
+    EventType,
     IngestResponse,
     MatchResult,
     Severity,
@@ -85,18 +86,34 @@ def _ruta_captura(evento: DetectionEvent) -> Optional[str]:
             destino = carpeta / nombre
             if not destino.exists():
                 destino.write_bytes(datos)
-            return destino.relative_to(BASE_DIR).as_posix()
+            return ruta_guardable(destino)
         log.warning("Captura adjunta invalida en el evento %s; se ignora", evento.event_id)
 
     if not evento.snapshot_path:
         return None
     nombre = Path(evento.snapshot_path).name
-    return (carpeta / nombre).relative_to(BASE_DIR).as_posix() if nombre else None
+    return ruta_guardable(carpeta / nombre) if nombre else None
+
+
+def _descartar_captura(evento: DetectionEvent) -> None:
+    """Borra la foto que el worker ya dejo en la carpeta de evidencia (mismo
+    equipo). Solo por nombre de archivo y dentro de esa carpeta."""
+    nombre = Path(evento.snapshot_path or "").name
+    if nombre:
+        (get_config().snapshot_dir / nombre).unlink(missing_ok=True)
 
 
 def _guardar(evento: DetectionEvent, resultado: MatchResult,
              session: Session) -> tuple[Event, Alert | None]:
-    captura = _ruta_captura(evento)
+    # MINIMIZACION: la cara de quien NO coincidio con la lista no se conserva
+    # (ni la foto ni el vector, ver abajo). Queda el evento: hora y camara.
+    rostro_sin_coincidencia = (evento.type == EventType.FACE
+                               and resultado.severity == Severity.INFO)
+    if rostro_sin_coincidencia and not get_config().fotos_rostro_sin_coincidencia:
+        _descartar_captura(evento)
+        captura = None
+    else:
+        captura = _ruta_captura(evento)
     fila = Event(
         event_id=evento.event_id,
         dedupe_key=evento.dedupe_key(),
@@ -392,7 +409,7 @@ async def subir_clip(event_id: str, request: Request) -> dict:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese evento")
             destino = cfg.clips_dir / f"{event_id}.{extension}"
             destino.write_bytes(datos)
-            ruta = destino.relative_to(BASE_DIR).as_posix()
+            ruta = ruta_guardable(destino)
             alertas = session.exec(select(Alert).where(Alert.event_id == event_id)).all()
             for alerta in alertas:
                 alerta.clip_path = ruta

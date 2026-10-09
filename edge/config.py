@@ -86,10 +86,11 @@ class EdgeConfig:
     no detecto. El codigo se deja listo para cuando exista un modelo entrenado
     especificamente para armas (ver la Fase 5 del README)."""
     enable_motion: bool = field(default_factory=lambda: _env_bool("ENABLE_MOTION", True))
-    enable_pose: bool = field(default_factory=lambda: _env_bool("ENABLE_POSE", True))
+    enable_pose: bool = field(default_factory=lambda: _env_bool("ENABLE_POSE", False))
     """Esqueleto de cada persona (YOLO11-pose): caida por el angulo del torso,
     manos arriba y posible agresion. Con pose, la caida ya no se estima por la
-    forma de la caja (ver edge/detectors/pose.py)."""
+    forma de la caja (ver edge/detectors/pose.py). EXPERIMENTAL: apagado por
+    defecto hasta validarlo en campo; sus alertas son senales para revision."""
     enable_zonas: bool = field(default_factory=lambda: _env_bool("ENABLE_ZONAS", True))
     """Reglas por zona definidas en el dashboard (intrusion, cruce de linea,
     merodeo, conteo). Usan las personas y vehiculos que sigue el detector de

@@ -15,6 +15,17 @@ No hay piloto ni permisos institucionales comprobados. La demo será con dos cá
 - No asignar números de beneficiarios o reducción por campus antes de conocer cobertura, aforo y línea base.
 - Documentar integración con seguridad/TI universitaria y mantenimiento posterior al equipo estudiantil.
 
+## Estado al 9 de octubre de 2026
+
+Atendidos en el código después de esta revisión: `.env.example` trae la
+comparación facial apagada; la baja de un rostro borra su vector y su foto; el
+alta de rostros admite vigencia; existe el resultado de la revisión
+(`confirmado`, `falso_aviso`, `indeterminado`, `duplicado`, `ensayo`) con
+métricas que lo usan como denominador; la ficha de evidencia ajusta su leyenda
+a la revisión registrada. Siguen abiertos: el flujo de aprobación de altas
+separado de la captura y la verificación del fundamento, que dependen de la
+institución.
+
 ## Hallazgos que requieren atención
 
 | Prioridad | Evidencia inspeccionada | Implicación / cambio propuesto |

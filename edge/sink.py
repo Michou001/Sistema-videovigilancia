@@ -16,7 +16,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -45,6 +45,15 @@ class ConsoleSink(Sink):
         )
 
 
+def _dias_retencion_eventos() -> int:
+    import os
+
+    try:
+        return int(os.getenv("RETENCION_EVENTOS_DIAS", "30"))
+    except ValueError:
+        return 30
+
+
 class JsonlSink(Sink):
     """Una linea JSON por evento, un archivo por dia.
 
@@ -54,9 +63,13 @@ class JsonlSink(Sink):
     el archivo del dia en que se inicio.
     """
 
-    def __init__(self, carpeta: Path, prefijo: str = "eventos") -> None:
+    def __init__(self, carpeta: Path, prefijo: str = "eventos",
+                 dias: Optional[int] = None) -> None:
         self.carpeta = carpeta
         self.prefijo = prefijo
+        # Lleva placas y horas: es un dato personal como cualquier evento y
+        # sigue su mismo plazo (RETENCION_EVENTOS_DIAS). Antes no se borraba.
+        self.dias = dias if dias is not None else _dias_retencion_eventos()
         self.carpeta.mkdir(parents=True, exist_ok=True)
         self._fecha: Optional[str] = None
         self._f = None
@@ -68,7 +81,26 @@ class JsonlSink(Sink):
                 self._f.close()
             self._f = (self.carpeta / f"{self.prefijo}-{hoy}.jsonl").open("a", encoding="utf-8")
             self._fecha = hoy
+            self.purgar_viejos()
         return self._f
+
+    def purgar_viejos(self) -> int:
+        """Borra los archivos de este prefijo (y los del formato anterior, sin
+        camara en el nombre) con mas de `dias` dias. 0 = no borrar."""
+        if not self.dias or self.dias <= 0:
+            return 0
+        limite = (datetime.now() - timedelta(days=self.dias)).strftime("%Y%m%d")
+        borrados = 0
+        for f in self.carpeta.glob("eventos-*.jsonl"):
+            fecha = f.stem.rsplit("-", 1)[-1]
+            mio = f.stem.startswith(self.prefijo + "-") or f.stem.count("-") == 1
+            if mio and len(fecha) == 8 and fecha.isdigit() and fecha < limite:
+                try:
+                    f.unlink()
+                    borrados += 1
+                except OSError:
+                    pass
+        return borrados
 
     def enviar(self, evento: DetectionEvent) -> None:
         datos = evento.model_dump(mode="json")

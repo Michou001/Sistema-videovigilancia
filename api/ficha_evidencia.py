@@ -31,7 +31,7 @@ from api.routers.media import ruta_evidencia
 from shared.zonas import zona_horaria
 
 DESTINOS = {
-    "proteccion_universitaria": "Protección Universitaria",
+    "proteccion_universitaria": "Seguridad institucional",
     "911_c5": "911 / C5 Edomex",
     "c4_municipal": "C4 municipal",
     "fiscalia": "Fiscalía (denuncia)",
