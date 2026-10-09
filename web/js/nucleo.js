@@ -58,10 +58,12 @@ export async function api(ruta, opciones = {}) {
     },
   });
   // Un 401 del login es "contrasena incorrecta", no "sesion expirada".
-  if (r.status === 401 && estado.token && ruta !== '/api/auth/login') {
+  if (r.status === 401 && estado.token && !ruta.startsWith('/api/auth/login')) {
     emitir('sesion-expirada');
     throw new Error('Sesión expirada');
   }
+  // Su rol exige verificacion en dos pasos y aun no la activo.
+  if (r.status === 403 && r.headers.get('X-Requiere-2FA')) emitir('requiere-2fa');
   if (!r.ok) {
     let detalle = 'Error ' + r.status;
     try {

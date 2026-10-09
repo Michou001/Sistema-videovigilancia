@@ -37,6 +37,7 @@ import './mapa.js';
 import './titulos.js';
 import './acceso.js';
 import './galeria.js';
+import { abrir2fa } from './doble_factor.js';
 
 iconos();
 
@@ -46,23 +47,61 @@ let temporizadorStats = null;
 /* Sesion                                                              */
 /* ------------------------------------------------------------------ */
 
+/* Login en dos pasos: con la verificacion activa, la contrasena correcta
+ * devuelve un desafio (no una sesion) que se canjea con el codigo de la app. */
+let desafio2fa = '';
+
+function pasoLogin(codigo) {
+  $('pasoPassword').hidden = codigo;
+  $('pasoCodigo').hidden = !codigo;
+  $('formLogin').querySelector('[data-accion=login-volver]').hidden = !codigo;
+  $('usuario').required = !codigo;
+  $('password').required = !codigo;
+  $('codigo2fa').required = codigo;
+  $('codigo2fa').value = '';
+  $(codigo ? 'codigo2fa' : 'password').focus();
+}
+
+accion('login-volver', () => {
+  desafio2fa = '';
+  $('errorLogin').textContent = '';
+  pasoLogin(false);
+});
+
 $('formLogin').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('errorLogin').textContent = '';
   const boton = $('formLogin').querySelector('button[type=submit]');
   boton.disabled = true;
   try {
-    const s = await api('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username: $('usuario').value, password: $('password').value }),
-    });
+    const s = desafio2fa
+      ? await api('/api/auth/login/2fa', {
+        method: 'POST',
+        body: JSON.stringify({ desafio: desafio2fa, codigo: $('codigo2fa').value }),
+      })
+      : await api('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: $('usuario').value, password: $('password').value }),
+      });
+    $('password').value = '';
+    if (s.requiere_2fa) {
+      desafio2fa = s.desafio;
+      pasoLogin(true);
+      return;
+    }
+    desafio2fa = '';
+    pasoLogin(false);
     estado.token = s.token;
     almacen.guardar('token', s.token);
     estado.usuario = s;
-    $('password').value = '';
     await arrancar();
   } catch (err) {
     $('errorLogin').textContent = err.message;
+    // El desafio caduca a los 5 minutos o si cambian las credenciales.
+    if (desafio2fa && /expir/i.test(err.message)) {
+      desafio2fa = '';
+      pasoLogin(false);
+    }
   } finally {
     boton.disabled = false;
   }
@@ -97,6 +136,13 @@ async function arrancar() {
   $('login').style.display = 'none';
   $('app').style.display = 'block';
   const u = estado.usuario;
+  // Su rol exige la verificacion en dos pasos y aun no la tiene: la API no
+  // le va a responder nada mas, asi que se le pide darla de alta primero.
+  if (u.debe_activar_2fa) {
+    $('quien').textContent = u.display_name;
+    await abrir2fa();
+    return;
+  }
   $('quien').textContent = u.display_name + ' · ' + (NOMBRES_ROL[u.role] || u.role);
 
   // Mostrar u ocultar segun el rol. Quien decide lo que se puede hacer es la

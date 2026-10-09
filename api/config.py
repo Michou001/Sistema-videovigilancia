@@ -24,6 +24,14 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _roles_2fa(valor: str) -> frozenset[str]:
+    roles = {"viewer", "operator", "admin"}
+    pedidos = {r.strip().lower() for r in valor.split(",") if r.strip()}
+    if pedidos & {"todos", "all", "*"}:
+        return frozenset(roles)
+    return frozenset(pedidos & roles)
+
+
 def _carpeta(variable: str, defecto: str) -> Path:
     """Carpeta de evidencia. Relativa a la raiz del proyecto si no es
     absoluta: las rutas de evidencia se guardan relativas a la raiz."""
@@ -41,6 +49,11 @@ class ApiConfig:
 
     jwt_secret: str = field(default_factory=lambda: os.getenv("JWT_SECRET", ""))
     jwt_hours: int = field(default_factory=lambda: _env_int("JWT_HOURS", 12))
+
+    exigir_2fa: frozenset[str] = field(default_factory=lambda: _roles_2fa(os.getenv("EXIGIR_2FA", "")))
+    """Roles que DEBEN tener la verificacion en dos pasos (EXIGIR_2FA=admin,operator,
+    o "todos"). Quien no la tenga entra, pero solo puede darla de alta: el resto
+    de la API le responde 403 hasta que lo haga. Vacio = opcional para todos."""
 
     ingest_token: str = field(default_factory=lambda: os.getenv("API_TOKEN", ""))
     """Token que el worker de borde presenta para publicar eventos. Es un
