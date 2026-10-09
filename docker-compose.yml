@@ -22,6 +22,17 @@ x-comun: &comun
   logging:
     driver: json-file
     options: { max-size: "20m", max-file: "5" }
+  # Ningun proceso puede ganar privilegios despues de arrancar (setuid, sudo):
+  # si alguien logra ejecutar codigo dentro de un contenedor, se queda con el
+  # usuario sin privilegios con el que arranco.
+  security_opt: ["no-new-privileges:true"]
+
+# Contenedores propios (api, worker) corren como el usuario `goss` y no
+# necesitan ninguna capacidad del kernel: se quitan todas. El equivalente en
+# compose de las politicas de admision de Kubernetes que piden "no root, sin
+# capacidades, sistema de archivos de solo lectura".
+x-sin-privilegios: &sin-privilegios
+  cap_drop: [ALL]
 
 services:
   postgres:
@@ -48,8 +59,11 @@ services:
       interval: 10s
 
   api:
-    <<: *comun
+    <<: [*comun, *sin-privilegios]
     build: { context: ., dockerfile: docker/Dockerfile.api }
+    # Codigo inmutable: solo se escribe en los volumenes de datos y en /tmp.
+    read_only: true
+    tmpfs: ["/tmp"]
     env_file:
       - path: docker/api.env        # NOTIFY_*, RETENCION_*, SEMANTIC_SEARCH... (opcional)
         required: false
@@ -59,6 +73,8 @@ services:
       API_WORKERS: ${API_WORKERS:-2}
       API_TOKEN: ${API_TOKEN:?Define API_TOKEN en docker/compose.env}
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en docker/compose.env}
+      TOTP_KEY: ${TOTP_KEY:?Define TOTP_KEY en docker/compose.env}
+      EXIGIR_2FA: ${EXIGIR_2FA:-admin,operator}
       # Solo Caddy llega a la API (no se publica ningun puerto): se confia en
       # sus cabeceras X-Forwarded-* para la IP real y el HTTPS.
       FORWARDED_ALLOW_IPS: "*"
@@ -73,7 +89,7 @@ services:
       redis: { condition: service_healthy }
 
   worker:
-    <<: *comun
+    <<: [*comun, *sin-privilegios]
     build: { context: ., dockerfile: docker/Dockerfile.worker }
     environment:
       # Pisan lo que diga cada camaras/*.env: dentro de Docker la API es "api".
@@ -96,7 +112,7 @@ services:
               capabilities: [gpu]
 
   go2rtc:
-    <<: *comun
+    <<: [*comun, *sin-privilegios]
     image: alexxit/go2rtc:1.9.9
     volumes:
       - ./docker/go2rtc.yaml:/config/go2rtc.yaml:ro
@@ -109,6 +125,11 @@ services:
   caddy:
     <<: *comun
     image: caddy:2-alpine
+    # Solo necesita abrir los puertos 80/443; ninguna otra capacidad.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: ["/tmp"]
     environment:
       SITIO: ${SITIO:-localhost}
     ports:
