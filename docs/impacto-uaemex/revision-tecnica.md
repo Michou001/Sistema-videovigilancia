@@ -44,7 +44,7 @@ Revisión estática puntual de `api/ficha_evidencia.py` y `api/routers/alerts.py
 - `SHA256SUMS.txt` contiene las huellas de foto y clip; **no incluye `ficha.html`**. Si se promete integridad de todo el paquete, incluir la ficha terminada en el manifiesto y conservar una referencia confiable. Las huellas por sí solas no acreditan autenticidad de origen ni una cadena de custodia completa.
 - Cuando faltan ambos medios, la ficha afirma que ya no están en disco «(retención)». La ausencia también puede deberse a que nunca hubo captura, una ruta inválida u otro error. Describir «no disponible» salvo que la causa de eliminación esté documentada.
 
-Estos puntos quedan pendientes de integrar; no se reescribió la implementación ni se ejecutaron los endpoints nuevos. La corrección de CI tiene un alcance independiente y acotado.
+Los tres puntos se atendieron después en `1e5090e`: la leyenda depende de la revisión registrada, `ficha.html` entra en el manifiesto y la ausencia de medios se describe como «no disponible». La corrección de CI tiene un alcance independiente y acotado.
 
 También se leyó `docs/contexto-uaemex.md`, añadido en `6bb9501`. Sus fuentes periodísticas nuevas no quedaron verificadas individualmente en esta revisión. Antes de usarlo en la defensa: formular «no se encontró una estadística pública por plantel» en lugar de afirmar su inexistencia; presentar «acorta el tiempo» como objetivo hasta medirlo; y señalar que los umbrales de merodeo de 30/45 segundos son parámetros de ensayo, no valores validados por las noticias citadas. Una noticia de 2023 no determina por sí sola las zonas ni horarios de riesgo actuales. Las cifras municipales y de percepción no son tasas de incidentes universitarios.
 
