@@ -17,6 +17,7 @@ Lo que se protege:
 
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 # El dashboard NO carga codigo de ningun CDN: las librerias (iconos, mapa) van
@@ -27,10 +28,27 @@ from typing import Iterable
 CDN_SCRIPTS: tuple[str, ...] = ()
 CDN_ESTILOS: tuple[str, ...] = ()
 MOSAICOS_MAPA = ("https://tile.openstreetmap.org", "https://*.tile.openstreetmap.org")
+_HOST_VALIDO = re.compile(
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?\Z"
+)
+
+
+def _host_para_csp(host: str) -> str:
+    """Evita que un Host no confiable inserte directivas en la CSP."""
+    if not _HOST_VALIDO.fullmatch(host) or ".." in host:
+        return ""
+    try:
+        puerto = host.rsplit(":", 1)[1] if ":" in host else ""
+        if puerto.isdecimal() and not 1 <= int(puerto) <= 65535:
+            return ""
+    except (ValueError, IndexError):
+        return ""
+    return host
 
 
 def politica_csp(host: str, extra_connect: Iterable[str] = ()) -> str:
     conexiones = ["'self'"]
+    host = _host_para_csp(host)
     if host:
         conexiones += [f"ws://{host}", f"wss://{host}"]
     conexiones += list(extra_connect)

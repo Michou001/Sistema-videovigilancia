@@ -59,8 +59,8 @@ def evidencia(nombre: str, _: OperadorLectura) -> FileResponse:
         ruta,
         media_type=_TIPOS.get(extension, "application/octet-stream"),
         headers={
-            # "private": ningun proxy intermedio debe guardar copia de una foto
-            # de evidencia. El navegador del operador si, un rato.
-            "Cache-Control": "private, max-age=3600",
+            # Una sesion revocada no debe dejar fotos de personas y vehiculos
+            # reutilizables desde la cache del navegador.
+            "Cache-Control": "private, no-store",
         },
     )

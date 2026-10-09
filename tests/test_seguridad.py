@@ -100,6 +100,7 @@ def test_evidencia_exige_sesion():
     r = c.get(f"/media/{archivo.name}")
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
     assert "private" in r.headers["cache-control"]
+    assert "no-store" in r.headers["cache-control"]
     # Tambien con la cabecera, sin cookie.
     assert TestClient(app).get(f"/media/{archivo.name}", headers=h).status_code == 200
 
