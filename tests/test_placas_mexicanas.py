@@ -256,6 +256,67 @@ def test_descarta_caja_real_717_y_lectura_unica():
     assert det._construir_evento(_track([("JHK123A", 0.95)] * 3)) is not None
 
 
+# --------------------------------------------------------------------------
+# Emision en cuanto la placa queda confirmada (sin esperar a que se vaya)
+
+class _FuturoPendiente:
+    def __init__(self, listo=False):
+        self.listo = listo
+
+    def done(self):
+        return self.listo
+
+    def result(self, timeout=None):
+        return None
+
+
+def test_emite_en_cuanto_se_confirma_sin_esperar_que_se_vaya():
+    det = _detector()
+    det.cfg.plate_min_readings = 2
+    track = _track([("JHK123A", 0.95), ("JHK123A", 0.96)])
+    ev = det._emitir_si_confirmada(track, 1002.0)
+    assert ev is not None and ev.value == "JHK-123-A"
+    # Una sola vez por track: ni en el siguiente frame ni al caducar.
+    assert det._emitir_si_confirmada(track, 1003.0) is None
+    assert track.state["emitido"]
+
+
+def test_no_emite_con_una_sola_lectura():
+    det = _detector()
+    det.cfg.plate_min_readings = 2
+    track = _track([("JHK123A", 0.99)])
+    assert det._emitir_si_confirmada(track, 1002.0) is None
+    assert not track.state.get("emitido")
+    # Llega la segunda lectura que coincide: ahora si.
+    track.state["lecturas"].append(("JHK123A", 0.97))
+    track.state["crudas"].append(("JHK123A", 0.97))
+    assert det._emitir_si_confirmada(track, 1003.0) is not None
+
+
+def test_espera_la_foto_hd_un_momento_y_luego_emite_sin_ella():
+    det = _detector()
+    det.cfg.plate_min_readings = 2
+    track = _track([("JHK123A", 0.95), ("JHK123A", 0.96)])
+    track.state["hd_future"] = _FuturoPendiente()
+    track.state["hd_pedido_ts"] = 1001.5
+    assert det._emitir_si_confirmada(track, 1002.0) is None, "aun puede llegar la HD"
+    assert det._emitir_si_confirmada(track, 1001.5 + det.ESPERA_HD_S + 0.1) is not None
+
+
+def test_duplicado_suprimido_no_se_reintenta_cada_frame():
+    det = _detector()
+    det.cfg.plate_min_readings = 2
+    det.cfg.plate_dedupe_s = 60
+    primero = _track([("JHK123A", 0.95), ("JHK123A", 0.96)])
+    assert det._emitir_si_confirmada(primero, 1002.0) is not None
+    segundo = _track([("JHK123A", 0.95), ("JHK123A", 0.96)])
+    segundo.track_id = 8
+    assert det._emitir_si_confirmada(segundo, 1003.0) is None
+    assert segundo.state["emitido"] and det._duplicados_suprimidos == 1
+    assert det._emitir_si_confirmada(segundo, 1004.0) is None
+    assert det._duplicados_suprimidos == 1
+
+
 def main() -> int:
     pruebas = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     fallos = 0

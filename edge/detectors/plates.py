@@ -104,6 +104,9 @@ class PlateDetector(Detector):
     OCR_CADA_N_FRAMES = 2       # por track, no global
     MAX_LECTURAS_POR_TRACK = 10  # pasadas de OCR por vehiculo
     MAX_OCR_POR_FRAME = 6        # techo aunque haya muchas placas visibles
+    # Cuanto se espera la foto HD antes de emitir en cuanto la placa queda
+    # confirmada: lo normal es que llegue en menos de un segundo.
+    ESPERA_HD_S = 2.0
 
     # Un recorte mas chico que esto no tiene resolucion para leerse.
     MIN_ANCHO_RECORTE = 30
@@ -196,17 +199,50 @@ class PlateDetector(Detector):
                 if self._leer_placa(track, frame.frame, ancho, alto):
                     presupuesto -= 1
 
-        # 4. Emitir eventos de los tracks que ya se fueron
+        # 4. Emitir en cuanto la placa queda confirmada, SIN esperar a que se
+        #    vaya: antes el evento salia hasta que el track caducaba (max_age
+        #    frames sin verla), y a 2-3 fps eso era 5-8 s despues de que la
+        #    placa salia de cuadro. Un coche detenido en la pluma, o una placa
+        #    sostenida frente a la camara, no generaba alerta mientras seguia ahi.
         eventos = []
+        for track in tracks:
+            evento = self._emitir_si_confirmada(track, frame.ts)
+            if evento is not None:
+                eventos.append(evento)
+
+        # 5. Los que se fueron sin haberse emitido (lecturas que solo se
+        #    juntaron al final): ultima oportunidad con todo lo que se vio.
         for track in self.tracker.recoger_expirados():
+            if track.state.get("emitido"):
+                continue
             evento = self._construir_evento(track)
             if evento is not None:
                 eventos.append(evento)
         return eventos
 
+    def _emitir_si_confirmada(self, track: Track, ahora: float) -> Optional[DetectionEvent]:
+        if track.state.get("emitido") or self._lectura_visible(track) is None:
+            return None
+        # No re-evaluar en cada frame si no hay lecturas nuevas.
+        n = len(track.state.get("crudas", []))
+        if track.state.get("evaluado_con") == n:
+            return None
+        # Dar tiempo a la foto HD (evidencia mas clara), con un limite.
+        futuro = track.state.get("hd_future")
+        pedido = track.state.setdefault("hd_pedido_ts", ahora)
+        if futuro is not None and not futuro.done() and ahora - pedido < self.ESPERA_HD_S:
+            return None
+        track.state["evaluado_con"] = n
+        evento = self._construir_evento(track)
+        if evento is not None or track.state.get("suprimido"):
+            track.state["emitido"] = True
+        return evento
+
     def vaciar(self) -> list[DetectionEvent]:
         eventos = []
         for track in self.tracker.cerrar():
+            if track.state.get("emitido"):
+                continue
             evento = self._construir_evento(track)
             if evento is not None:
                 eventos.append(evento)
@@ -244,6 +280,7 @@ class PlateDetector(Detector):
         # cambia nada a la precision de lectura.
         if self.snapshot_hd is not None and "hd_future" not in track.state:
             track.state["hd_future"] = self.snapshot_hd.pedir()
+            track.state["hd_pedido_ts"] = track.last_seen
 
         t0 = time.perf_counter()
         try:
@@ -405,6 +442,7 @@ class PlateDetector(Detector):
         if self.cfg.plate_dedupe_s > 0:
             previo = self._emitidas.get(clave)
             if previo is not None and (track.last_seen - previo) < self.cfg.plate_dedupe_s:
+                track.state["suprimido"] = True
                 self._duplicados_suprimidos += 1
                 log.info("Placa %s suprimida: duplicado a %.0fs del evento anterior "
                          "(track %d, el tracking se habia roto)",
