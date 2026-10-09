@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlmodel import Session, select
 
+from api.config import get_config
 from api.database import engine, get_session
 from api.models import Operator
 from api.security import COOKIE_SESION, decodificar_token, token_ingesta_valido
@@ -53,8 +54,23 @@ def operador_por_token(session: Session, token: Optional[str]) -> Optional[Opera
     return operador
 
 
+def falta_2fa(operador: Operator) -> bool:
+    """Su rol exige verificacion en dos pasos (EXIGIR_2FA) y aun no la activo."""
+    return operador.role in get_config().exigir_2fa and not operador.totp_activo
+
+
+def _exigir_2fa(operador: Operator, ruta: str) -> None:
+    """Sin la verificacion en dos pasos que su rol exige, solo puede usar
+    /api/auth/ (darla de alta, ver su sesion, salir). Todo lo demas, 403."""
+    if falta_2fa(operador) and not ruta.startswith("/api/auth/"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Activa la verificación en dos pasos para continuar.",
+                            headers={"X-Requiere-2FA": "1"})
+
+
 def operador_actual(
     session: SesionBD,
+    request: Request,
     authorization: Annotated[Optional[str], Header()] = None,
 ) -> Operator:
     """Valida el JWT del dashboard (cabecera Authorization) y devuelve el operador.
@@ -70,6 +86,7 @@ def operador_actual(
     if operador is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "Sesión inválida o expirada. Vuelve a iniciar sesión.")
+    _exigir_2fa(operador, request.url.path)
     return operador
 
 
@@ -94,6 +111,7 @@ def operador_lectura(request: Request) -> Operator:
         operador = operador_por_token(session, token_de_lectura(request))
         if operador is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesión inválida o expirada")
+        _exigir_2fa(operador, request.url.path)
         session.expunge(operador)
         return operador
 
@@ -108,8 +126,9 @@ def operador_de_websocket(websocket) -> Optional[Operator]:
              or websocket.query_params.get("token"))
     with Session(engine) as session:
         operador = operador_por_token(session, token)
-        if operador is not None:
-            session.expunge(operador)
+        if operador is None or falta_2fa(operador):
+            return None
+        session.expunge(operador)
         return operador
 
 

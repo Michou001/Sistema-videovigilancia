@@ -46,15 +46,27 @@
       <form class="tarjeta" id="formLogin">
         <h1 class="acceso-titulo">Iniciar sesión</h1>
         <p class="acceso-sub">Usa la cuenta que te asignó el administrador.</p>
-        <div class="campo">
-          <label for="usuario">Usuario</label>
-          <input id="usuario" autocomplete="username" required autofocus>
+        <div id="pasoPassword">
+          <div class="campo">
+            <label for="usuario">Usuario</label>
+            <input id="usuario" autocomplete="username" required autofocus>
+          </div>
+          <div class="campo">
+            <label for="password">Contraseña</label>
+            <input id="password" type="password" autocomplete="current-password" required>
+          </div>
         </div>
-        <div class="campo">
-          <label for="password">Contraseña</label>
-          <input id="password" type="password" autocomplete="current-password" required>
+        <div id="pasoCodigo" hidden>
+          <p class="acceso-sub"><i data-lucide="smartphone"></i><span>Abre tu app autenticadora y escribe el código de 6 dígitos de <b>GOSS IP</b>.</span></p>
+          <div class="campo">
+            <label for="codigo2fa">Código de verificación</label>
+            <input id="codigo2fa" inputmode="numeric" autocomplete="one-time-code" maxlength="16"
+                   placeholder="123 456" class="codigo-2fa">
+          </div>
+          <p class="ayuda">¿Sin el celular? Escribe uno de tus códigos de respaldo (por ejemplo <span class="mono">abcde-fghjk</span>).</p>
         </div>
         <button type="submit" class="login-submit">Entrar</button>
+        <button type="button" class="sec login-volver" data-accion="login-volver" hidden>Volver a la contraseña</button>
         <div class="error" id="errorLogin" role="alert"></div>
         <p class="login-acceso"><i data-lucide="shield-check"></i>Acceso restringido. Cada inicio de sesión y cada intento fallido quedan en la bitácora.</p>
       </form>
@@ -105,6 +117,7 @@
     <button class="sec" data-accion="abrir-lista-negra" data-rol="admin" title="Lista negra"><i data-lucide="ban"></i>Lista negra</button>
     <button class="sec" data-accion="abrir-admin" data-rol="admin" title="Administración"><i data-lucide="users"></i>Administración</button>
     <button class="sec" data-accion="abrir-password" title="Cambiar mi contraseña"><i data-lucide="key-round"></i></button>
+    <button class="sec" data-accion="abrir-2fa" title="Verificación en dos pasos"><i data-lucide="shield-check"></i></button>
     <button class="sec" data-accion="salir" title="Salir"><i data-lucide="log-out"></i>Salir</button>
   </header>
   </div><!-- /#barra -->
@@ -558,7 +571,7 @@
       </p>
       <div class="lista" style="max-height:300px">
         <table>
-          <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Último acceso</th><th></th></tr></thead>
+          <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>2 pasos</th><th>Último acceso</th><th></th></tr></thead>
           <tbody id="tablaUsuarios"></tbody>
         </table>
       </div>
@@ -679,6 +692,71 @@
     <button type="submit"><i data-lucide="save"></i>Guardar</button>
     <div class="error" id="errorPassword"></div>
   </form>
+</div>
+
+<!-- ============ MODAL VERIFICACION EN DOS PASOS ============ -->
+<div id="modal2fa" class="modal-overlay">
+  <div class="tarjeta doble-factor">
+    <div class="pestanas">
+      <span style="font-weight:700;display:flex;align-items:center;gap:8px">
+        <i data-lucide="shield-check"></i>Verificación en dos pasos
+      </span>
+      <span class="crece"></span>
+      <button class="sec" type="button" data-accion="cerrar-2fa" id="cerrar2fa"><i data-lucide="x"></i></button>
+    </div>
+    <div class="aviso-2fa" id="df2Exigido" hidden>
+      Tu rol exige la verificación en dos pasos. Actívala para seguir usando el sistema.
+    </div>
+
+    <!-- 1. Inactiva: confirmar contrasena para generar el QR -->
+    <form id="df2Inicio" hidden>
+      <p class="ayuda">Además de tu contraseña, al entrar se te pedirá un código de 6 dígitos que genera tu celular
+        cada 30 segundos, sin internet. Funciona con Google Authenticator, Microsoft Authenticator, Authy o similares.</p>
+      <div class="campo"><label for="df2Password">Confirma tu contraseña</label>
+        <input id="df2Password" type="password" required autocomplete="current-password"></div>
+      <button type="submit"><i data-lucide="qr-code"></i>Generar código QR</button>
+    </form>
+
+    <!-- 2. Escanear el QR y confirmar con un codigo -->
+    <form id="df2Qr" hidden>
+      <ol class="pasos-2fa">
+        <li>En la app, agrega una cuenta y escanea este código.</li>
+        <li>Escribe el código de 6 dígitos que aparece.</li>
+      </ol>
+      <div class="qr-2fa"><img id="df2Imagen" alt="Código QR para la app autenticadora" width="220" height="220"></div>
+      <p class="ayuda">¿No puedes escanear? Escribe esta clave en la app: <span class="mono" id="df2Secreto"></span></p>
+      <div class="campo"><label for="df2Codigo">Código de la app</label>
+        <input id="df2Codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required class="codigo-2fa"></div>
+      <button type="submit"><i data-lucide="check"></i>Activar</button>
+    </form>
+
+    <!-- 3. Codigos de respaldo: se ven UNA vez -->
+    <div id="df2Respaldo" hidden>
+      <p><b>Guarda estos códigos de respaldo.</b> Cada uno sirve una sola vez para entrar si pierdes el celular.
+        No se volverán a mostrar.</p>
+      <ul class="respaldo-2fa mono" id="df2Lista"></ul>
+      <div class="acciones-fila">
+        <button class="sec" type="button" data-accion="copiar-respaldo"><i data-lucide="copy"></i>Copiar</button>
+        <button class="sec" type="button" data-accion="descargar-respaldo"><i data-lucide="download"></i>Descargar .txt</button>
+        <span class="crece"></span>
+        <button type="button" data-accion="respaldo-guardado"><i data-lucide="check"></i>Ya los guardé</button>
+      </div>
+    </div>
+
+    <!-- 4. Activa: regenerar respaldo o desactivar -->
+    <form id="df2Activo" hidden>
+      <p class="ok-2fa"><i data-lucide="shield-check"></i>Activa. Te quedan <b id="df2Restantes">0</b> códigos de respaldo.</p>
+      <div class="campo"><label for="df2PassActivo">Contraseña</label>
+        <input id="df2PassActivo" type="password" required autocomplete="current-password"></div>
+      <div class="campo"><label for="df2CodActivo">Código de la app</label>
+        <input id="df2CodActivo" inputmode="numeric" autocomplete="one-time-code" maxlength="16" required class="codigo-2fa"></div>
+      <div class="acciones-fila">
+        <button class="sec" type="submit" data-que="respaldo"><i data-lucide="refresh-cw"></i>Nuevos códigos de respaldo</button>
+        <button class="peligro" type="submit" data-que="desactivar" id="df2Desactivar"><i data-lucide="shield-off"></i>Desactivar</button>
+      </div>
+    </form>
+    <div class="error" id="error2fa" role="alert"></div>
+  </div>
 </div>
 
 <!-- ============ MODAL ZONAS Y REGLAS ============ -->

@@ -29,6 +29,7 @@ anyio==4.15.1
 h11==0.16.0
 websockets==17.1
 cryptography==50.0.1
+segno==1.6.6
 PyYAML==6.0.3
 psutil==7.2.2
 typing_extensions==4.16.0
@@ -50,6 +51,11 @@ fast-plate-ocr==1.1.0
 open-image-models==0.6.0
 opencv-python==4.14.0.94
 opencv-python-headless==4.14.0.94
+
+# --- Avisos de seguridad (pip-audit) ----------------------------------------
+# Dependencias transitivas con vulnerabilidades corregidas en estas versiones.
+urllib3==2.8.0
+Werkzeug==3.1.9
 
 # --- Desarrollo --------------------------------------------------------------
 ruff==0.16.9

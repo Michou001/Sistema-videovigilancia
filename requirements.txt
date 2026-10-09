@@ -68,6 +68,7 @@ bcrypt>=4.0,<6              # directo, sin passlib: passlib ya no se mantiene y
 pyjwt>=2.9,<3
 httpx>=0.27,<1              # el worker envia eventos a la API
 cryptography>=42            # certificado TLS propio (tools/generar_certificado.py)
+segno>=1.6,<2               # QR del doble factor (TOTP); Python puro, sin dependencias
 
 # --- Rostros -----------------------------------------------------------------
 # InsightFace en vez de face_recognition/dlib: no necesita CMake ni Visual

@@ -44,10 +44,16 @@ async function cargarUsuarios() {
             `<option value="${rol}" ${rol === u.role ? 'selected' : ''}>${nombre}</option>`).join('')}
         </select>
       </td>
+      <td>${u.totp_activo
+        ? '<span class="etiqueta ok" title="Verificación en dos pasos activa"><i data-lucide="shield-check"></i>Activa</span>'
+        : '<span class="tenue">—</span>'}</td>
       <td class="tenue">${fechaCompleta(u.last_login)}</td>
       <td><div class="acciones-fila">
         <button class="sec chico" data-accion="restablecer-password" data-id="${Number(u.id)}"
                 data-usuario="${escapar(u.username)}" title="Restablecer contraseña"><i data-lucide="key-round"></i></button>
+        ${u.totp_activo && !yo ? `<button class="sec chico" data-accion="restablecer-2fa" data-id="${Number(u.id)}"
+                data-usuario="${escapar(u.username)}" title="Quitar verificación en dos pasos (celular perdido)">
+                <i data-lucide="shield-off"></i></button>` : ''}
         ${yo ? '' : `<button class="${u.active ? 'peligro' : 'sec'} chico" data-accion="activar-usuario"
                 data-id="${Number(u.id)}" data-activo="${u.active ? '1' : '0'}"
                 title="${u.active ? 'Desactivar' : 'Reactivar'}">
@@ -90,6 +96,18 @@ accion('restablecer-password', async (el) => {
   } catch (err) {
     alert(err.message);
   }
+});
+
+accion('restablecer-2fa', async (el) => {
+  if (!confirm(`¿Quitar la verificación en dos pasos de ${el.dataset.usuario}? `
+    + 'Úsalo solo si perdió el celular y sus códigos de respaldo. Se cerrarán sus sesiones.')) return;
+  try {
+    await api('/api/users/' + el.dataset.id, { method: 'PATCH', body: JSON.stringify({ restablecer_2fa: true }) });
+    confirmar('Verificación en dos pasos restablecida');
+  } catch (err) {
+    alert(err.message);
+  }
+  await cargarUsuarios();
 });
 
 $('formUsuario').addEventListener('submit', async (e) => {

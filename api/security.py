@@ -55,10 +55,36 @@ def crear_token(username: str, role: str, version: int = 0) -> str:
 
 
 def decodificar_token(token: str) -> Optional[dict]:
+    """Datos de un token de SESION vigente, o None.
+
+    Un token con "tipo" (el desafio del segundo paso) no es una sesion: se
+    rechaza aqui para que nadie entre con solo la contrasena.
+    """
     try:
-        return jwt.decode(token, get_config().jwt_secret, algorithms=[ALGORITMO])
+        datos = jwt.decode(token, get_config().jwt_secret, algorithms=[ALGORITMO])
     except jwt.PyJWTError:
         return None
+    return None if datos.get("tipo") else datos
+
+
+# El desafio del segundo paso: prueba de que la contrasena fue correcta, valida
+# unos minutos y solo para /api/auth/login/2fa.
+DESAFIO_2FA_MIN = 5
+
+
+def crear_desafio_2fa(username: str, version: int = 0) -> str:
+    ahora = datetime.now(timezone.utc)
+    payload = {"sub": username, "tipo": "2fa", "ver": version, "iat": ahora,
+               "exp": ahora + timedelta(minutes=DESAFIO_2FA_MIN)}
+    return jwt.encode(payload, get_config().jwt_secret, algorithm=ALGORITMO)
+
+
+def leer_desafio_2fa(token: str) -> Optional[dict]:
+    try:
+        datos = jwt.decode(token, get_config().jwt_secret, algorithms=[ALGORITMO])
+    except jwt.PyJWTError:
+        return None
+    return datos if datos.get("tipo") == "2fa" else None
 
 
 def token_ingesta_valido(presentado: str) -> bool:

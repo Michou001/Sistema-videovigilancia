@@ -37,6 +37,7 @@ class UsuarioLeido(FechasEnUtc, BaseModel):
     active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
+    totp_activo: bool = False
 
 
 class AltaUsuario(BaseModel):
@@ -67,6 +68,10 @@ class EdicionUsuario(BaseModel):
     active: Optional[bool] = None
     password: Optional[str] = Field(default=None, max_length=200,
                                     description="Restablece la contraseña")
+    restablecer_2fa: bool = Field(
+        default=False,
+        description="Quita la verificación en dos pasos (celular perdido). Si su "
+                    "rol la exige, tendrá que darla de alta otra vez al entrar.")
 
     @field_validator("role")
     @classmethod
@@ -141,6 +146,13 @@ def editar(usuario_id: int, datos: EdicionUsuario, session: SesionBD, admin: Adm
             raise HTTPException(422, motivo)
         usuario.password_hash = hash_password(datos.password)
         cambios["contraseña"] = "restablecida"
+        invalida_sesiones = True
+    if datos.restablecer_2fa and (usuario.totp_activo or usuario.totp_secreto):
+        usuario.totp_activo = False
+        usuario.totp_secreto = None
+        usuario.totp_ultimo_paso = None
+        usuario.totp_respaldo_json = None
+        cambios["verificación en dos pasos"] = "restablecida"
         invalida_sesiones = True
 
     if not cambios:

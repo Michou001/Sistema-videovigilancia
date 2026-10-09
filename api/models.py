@@ -382,6 +382,18 @@ class Operator(EnUtc, table=True):
     )
     last_login: Optional[datetime] = None
 
+    # Verificacion en dos pasos (TOTP), ver api/doble_factor.py.
+    totp_secreto: Optional[str] = Field(
+        default=None,
+        description="Secreto de la app autenticadora, CIFRADO (AES-GCM). Existe "
+                    "desde que el usuario empieza el alta; solo cuenta si totp_activo.",
+    )
+    totp_activo: bool = Field(default=False)
+    totp_ultimo_paso: Optional[int] = Field(
+        default=None, description="Ultimo paso de 30 s aceptado: un codigo no sirve dos veces.")
+    totp_respaldo_json: Optional[str] = Field(
+        default=None, description="Hashes SHA-256 de los codigos de respaldo que quedan.")
+
 
 # --------------------------------------------------------------------------
 # Bitacora de auditoria
