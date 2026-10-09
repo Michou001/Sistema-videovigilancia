@@ -203,9 +203,11 @@ class EventosCamara:
         LookupError (404: la camara no tiene el servicio) o errores de red."""
         import httpx
 
-        # Las camaras traen certificado autofirmado: con ISAPI_HTTPS no hay
-        # CA contra la cual validarlo. Digest ya protege la contrasena en HTTP.
-        with httpx.Client(auth=httpx.DigestAuth(self.usuario, self.clave), verify=False,
+        # Para HTTPS, validar el certificado con la CA del sistema o con la CA
+        # de la camara. Digest no protege el contenido frente a un intermediario.
+        ca_bundle = getattr(self.cfg, "isapi_ca_bundle", "").strip()
+        with httpx.Client(auth=httpx.DigestAuth(self.usuario, self.clave),
+                          verify=ca_bundle or True,
                           timeout=httpx.Timeout(10.0, read=90.0)) as cliente:
             with cliente.stream("GET", self.url) as r:
                 if r.status_code in (401, 403):

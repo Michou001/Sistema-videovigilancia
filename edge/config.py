@@ -285,6 +285,7 @@ class EdgeConfig:
     video, cruce de linea e intrusion de su propia analitica)."""
     isapi_puerto: int = field(default_factory=lambda: _env_int("ISAPI_PUERTO", 80))
     isapi_https: bool = field(default_factory=lambda: _env_bool("ISAPI_HTTPS", False))
+    isapi_ca_bundle: str = field(default_factory=lambda: os.getenv("ISAPI_CA_BUNDLE", ""))
     isapi_eventos: str = field(default_factory=lambda: os.getenv(
         "ISAPI_EVENTOS", "sabotaje,perdida_video,deteccion_linea,intrusion_camara"))
     """Cuales reenviar a la API. movimiento_camara (VMD) es muy ruidoso y va

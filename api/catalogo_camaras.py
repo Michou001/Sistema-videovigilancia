@@ -401,9 +401,19 @@ def ws_discovery(espera: float = 2.5, ips_locales: Optional[list[str]] = None) -
 # Huella HTTP sin credenciales
 # --------------------------------------------------------------------------
 
+class _SinRedireccion(urllib.request.HTTPRedirectHandler):
+    """Una cámara no puede redirigir el diagnóstico a otro servidor."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_abridor_camaras = urllib.request.build_opener(_SinRedireccion)
+
+
 def _get_sin_credenciales(url: str, timeout: float = 2.0) -> tuple[Optional[int], dict, str]:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        with _abridor_camaras.open(url, timeout=timeout) as r:
             return r.status, dict(r.headers), r.read(4096).decode("utf-8", "ignore")
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers or {}), ""
@@ -602,7 +612,7 @@ class ClienteIsapi:
     def _abrir(self, ruta: str, autorizacion: Optional[str] = None):
         cabeceras = {"Authorization": autorizacion} if autorizacion else {}
         peticion = urllib.request.Request(self.base + ruta, headers=cabeceras)
-        return urllib.request.urlopen(peticion, timeout=self.timeout)
+        return _abridor_camaras.open(peticion, timeout=self.timeout)
 
     def get(self, ruta: str) -> Optional[str]:
         """Texto de la respuesta, None si el recurso no existe. Lanza
@@ -724,7 +734,7 @@ class ClienteOnvif:
         peticion = urllib.request.Request(url, data=datos, headers={
             "Content-Type": "application/soap+xml; charset=utf-8"})
         try:
-            with urllib.request.urlopen(peticion, timeout=self.timeout) as r:
+            with _abridor_camaras.open(peticion, timeout=self.timeout) as r:
                 return r.status, r.read(512 * 1024).decode("utf-8", "ignore")
         except urllib.error.HTTPError as e:
             try:

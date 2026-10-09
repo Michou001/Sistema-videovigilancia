@@ -407,6 +407,43 @@ def test_contrasena_mala_un_solo_intento():
         cam.cerrar()
 
 
+def test_diagnostico_no_sigue_redirecciones():
+    """Una cámara no puede enviar el diagnóstico a otra URL mediante 302."""
+    visitas = []
+
+    class Destino(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            visitas.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+    destino = ThreadingHTTPServer(("127.0.0.1", 0), Destino)
+
+    class Origen(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{destino.server_port}/secreto")
+            self.end_headers()
+
+    origen = ThreadingHTTPServer(("127.0.0.1", 0), Origen)
+    for servidor in (origen, destino):
+        threading.Thread(target=servidor.serve_forever, daemon=True).start()
+    try:
+        codigo, _, _ = cat._get_sin_credenciales(f"http://127.0.0.1:{origen.server_port}/")
+        assert codigo == 302
+        assert visitas == []
+    finally:
+        for servidor in (origen, destino):
+            servidor.shutdown()
+            servidor.server_close()
+
+
 def test_identificar_de_probe_camara_un_solo_intento():
     """REGRESION: tools/probe_camara.identificar (el boton "Probar conexion")
     usaba el manejador Digest de urllib, que reintenta solo: con una

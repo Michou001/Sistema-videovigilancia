@@ -187,6 +187,11 @@ con el mismo usuario de `SOURCE` y las manda a la API como eventos de cámara:
    `SOURCE` es `rtsp://usuario:contraseña@...`. Con un NVR, filtra por el canal
    de la URL (`Channels/102` → canal 1).
 
+Si activas `ISAPI_HTTPS=true`, el certificado de la cámara debe ser válido para
+su nombre o IP. Para una CA privada, indica el archivo PEM en
+`ISAPI_CA_BUNDLE`. El worker valida el certificado y rechaza la conexión si no
+puede comprobarlo.
+
 Independiente de esto, la API avisa si una cámara deja de entregar imagen
 (`NOTIFY_CAMARA_CAIDA_S`, 2 minutos por defecto), sea cual sea la marca.
 

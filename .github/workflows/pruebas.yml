@@ -94,7 +94,7 @@ jobs:
       - name: Validar docker-compose.yml
         run: |
           cp docker/compose.env.example /tmp/compose.env
-          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci/; s/^API_TOKEN=$/API_TOKEN=ci/; s/^JWT_SECRET=$/JWT_SECRET=ci/' /tmp/compose.env
+          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci/; s/^API_TOKEN=$/API_TOKEN=ci/; s/^JWT_SECRET=$/JWT_SECRET=ci/; s/^TOTP_KEY=$/TOTP_KEY=ci/' /tmp/compose.env
           docker compose --env-file /tmp/compose.env config -q
       - name: Construir la imagen de la API
         run: docker build -f docker/Dockerfile.api -t goss-api:ci .
