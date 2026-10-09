@@ -1,6 +1,6 @@
 /* Pantalla de acceso: hora del centro de monitoreo, sitio y estado del servidor.
  * Solo usa /api/health, que es publico y no dice nada de camaras ni usuarios. */
-import { $ } from './nucleo.js';
+import { $, accion, iconos } from './nucleo.js';
 
 const visible = () => $('login').style.display !== 'none';
 const fecha = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -43,3 +43,28 @@ new MutationObserver(() => {
   void f.offsetWidth;   // reinicia la animacion si se equivoca dos veces seguidas
   f.classList.add('sacudir');
 }).observe($('errorLogin'), { childList: true, characterData: true, subtree: true });
+
+// Bloq Mayus: la causa mas comun de "contrasena incorrecta", y cada intento
+// fallido cuenta para el bloqueo de 5 intentos.
+function revisarMayus(e) {
+  if (typeof e.getModifierState !== 'function') return;
+  $('avisoMayus').hidden = !e.getModifierState('CapsLock');
+}
+$('password').addEventListener('keydown', revisarMayus);
+$('password').addEventListener('keyup', revisarMayus);
+$('password').addEventListener('blur', () => { $('avisoMayus').hidden = true; });
+
+accion('ver-clave', (el) => {
+  const visible = $('password').type === 'password';
+  $('password').type = visible ? 'text' : 'password';
+  el.setAttribute('aria-pressed', String(visible));
+  el.title = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+  el.setAttribute('aria-label', el.title);
+  el.innerHTML = `<i data-lucide="${visible ? 'eye-off' : 'eye'}"></i>`;
+  iconos();
+  $('password').focus();
+});
+// Al enviar se vuelve a ocultar: no queda a la vista en una pantalla compartida.
+$('formLogin').addEventListener('submit', () => {
+  if ($('password').type === 'text') document.querySelector('[data-accion=ver-clave]').click();
+}, true);

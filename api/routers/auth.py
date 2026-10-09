@@ -28,6 +28,7 @@ from api.security import (
     poner_cookie_sesion,
     validar_password_nueva,
     verificar_password,
+    verificar_password_o_señuelo,
 )
 
 log = logging.getLogger(__name__)
@@ -133,8 +134,8 @@ def login(datos: Credenciales, session: SesionBD, request: Request, response: Re
 
     # Se responde lo mismo si el usuario no existe o si la contrasena es
     # incorrecta: distinguirlos permite enumerar usuarios validos.
-    if operador is None or not operador.active or \
-            not verificar_password(datos.password, operador.password_hash):
+    hash_guardado = operador.password_hash if operador is not None and operador.active else None
+    if not verificar_password_o_señuelo(datos.password, hash_guardado):
         limite_login.fallo(ip)
         log.warning("Login fallido para '%s' desde %s", datos.username, ip)
         registrar(session, "sesion.login_fallido", usuario=None,
@@ -237,8 +238,7 @@ def cambiar_password(datos: CambioPassword, operador: OperadorActual, session: S
                      request: Request, response: Response):
     """Cambio de la contrasena propia. Cierra todas las demas sesiones del
     usuario (sube token_version) y devuelve una sesion nueva para esta."""
-    if not verificar_password(datos.actual, operador.password_hash):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña actual no es correcta")
+    _comprobar_password(operador, datos.actual, request, "La contraseña actual no es correcta")
     motivo = validar_password_nueva(datos.nueva)
     if motivo:
         raise HTTPException(422, motivo)
@@ -260,9 +260,16 @@ def cambiar_password(datos: CambioPassword, operador: OperadorActual, session: S
 # Verificacion en dos pasos: alta, baja y codigos de respaldo
 # --------------------------------------------------------------------------
 
-def _exigir_password(operador: Operator, password: str) -> None:
+def _comprobar_password(operador: Operator, password: str, request: Request,
+                        mensaje: str = "La contraseña no es correcta") -> None:
+    """Contrasena de quien YA tiene sesion (cambiarla, alta o baja del 2FA).
+    Cuenta para el mismo limite de intentos que el login: con una sesion
+    abierta en un equipo descuidado no se puede adivinar la contrasena aqui."""
+    ip = _ip(request)
+    _frenar_si_abusa(ip)
     if not verificar_password(password, operador.password_hash):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña no es correcta")
+        limite_login.fallo(ip)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, mensaje)
 
 
 @router.get("/2fa")
@@ -276,14 +283,15 @@ def estado_2fa(operador: OperadorActual):
 
 
 @router.post("/2fa/iniciar")
-def iniciar_2fa(datos: ConPassword, operador: OperadorActual, session: SesionBD):
+def iniciar_2fa(datos: ConPassword, operador: OperadorActual, session: SesionBD,
+                request: Request):
     """Primer paso del alta: genera un secreto nuevo y devuelve el QR. No se
     activa hasta confirmar un codigo (POST /2fa/activar), asi un QR mal
     escaneado no deja a nadie fuera."""
     if operador.totp_activo:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "La verificación en dos pasos ya está activa.")
-    _exigir_password(operador, datos.password)
+    _comprobar_password(operador, datos.password, request)
     secreto = doble_factor.generar_secreto()
     operador.totp_secreto = doble_factor.cifrar(secreto, operador.username)
     operador.totp_ultimo_paso = None
@@ -305,7 +313,9 @@ def activar_2fa(datos: ConCodigo, operador: OperadorActual, session: SesionBD,
                             "La verificación en dos pasos ya está activa.")
     if not operador.totp_secreto:
         raise HTTPException(status.HTTP_409_CONFLICT, "Primero genera el código QR.")
+    _frenar_si_abusa(_ip(request))
     if _verificar_codigo(operador, datos.codigo, respaldo=False) is None:
+        limite_login.fallo(_ip(request))
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "El código no coincide. Revisa que la hora del celular sea automática.")
     codigos, hashes = doble_factor.generar_respaldo()
@@ -332,8 +342,9 @@ def desactivar_2fa(datos: ConPasswordYCodigo, operador: OperadorActual, session:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Tu rol la exige: no se puede desactivar. Pide al "
                             "administrador que la restablezca si cambiaste de celular.")
-    _exigir_password(operador, datos.password)
+    _comprobar_password(operador, datos.password, request)
     if _verificar_codigo(operador, datos.codigo, respaldo=True) is None:
+        limite_login.fallo(_ip(request))
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Código incorrecto o ya usado")
     operador.totp_activo = False
     operador.totp_secreto = None
@@ -354,8 +365,9 @@ def regenerar_respaldo(datos: ConPasswordYCodigo, operador: OperadorActual,
     if not operador.totp_activo:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "La verificación en dos pasos no está activa.")
-    _exigir_password(operador, datos.password)
+    _comprobar_password(operador, datos.password, request)
     if _verificar_codigo(operador, datos.codigo, respaldo=False) is None:
+        limite_login.fallo(_ip(request))
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Código incorrecto o ya usado")
     codigos, hashes = doble_factor.generar_respaldo()
     operador.totp_respaldo_json = hashes

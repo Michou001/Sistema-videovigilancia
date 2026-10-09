@@ -3,7 +3,7 @@
  */
 
 import {
-  $, accion, api, colorTexto, descargar, emitir, escapar, ETIQUETAS_SEVERIDAD, fechaHora,
+  $, accion, api, colorTexto, descargar, duracion, emitir, escapar, ETIQUETAS_SEVERIDAD, fechaHora,
   folio, iconoTag, iconos, NOMBRES, nombreCamara, puede, valorLegible,
 } from './nucleo.js';
 import { miniatura } from './evidencia.js';
@@ -326,7 +326,10 @@ export async function cargarMetricas() {
     } else {
       partes.push('Sin alertas revisadas con resultado');
     }
-    if (t.n) partes.push(`revisión: mediana ${Math.round(t.mediana)} s · p95 ${Math.round(t.p95)} s (n=${t.n})`);
+    if (t.n) {
+      partes.push(`tiempo hasta revisarlas: la mitad en menos de ${duracion(t.mediana)}`
+        + `, 95 % en menos de ${duracion(t.p95)} (${t.n} alertas)`);
+    }
     if (m.ensayos_excluidos) partes.push(`${m.ensayos_excluidos} de ensayo excluidas`);
     caja.textContent = partes.join(' · ');
   } catch {

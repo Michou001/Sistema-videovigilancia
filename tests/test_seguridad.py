@@ -123,7 +123,10 @@ def test_cabeceras_de_seguridad():
     assert "script-src 'self'" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
     assert "strict-transport-security" not in r.headers, "HSTS solo por HTTPS"
     # La pantalla de acceso lee esto sin sesion: solo sitio y version.
-    assert set(r.json()) == {"status", "dashboards", "multiproceso", "version", "sitio"}
+    assert set(r.json()) == {"status", "version", "sitio"}
+    # Sin API_DOCS el mapa de la API no se publica.
+    assert c.get("/docs").status_code == 404
+    assert c.get("/openapi.json").status_code == 404
 
 
 def test_websocket_con_cookie_y_sin_sesion():

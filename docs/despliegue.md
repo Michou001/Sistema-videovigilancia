@@ -111,7 +111,10 @@ After=network.target
 Type=simple
 User=vigilancia
 WorkingDirectory=/opt/sistema-videovigilancia
-ExecStart=/opt/sistema-videovigilancia/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+# python -m api lee del .env API_HOST, API_PORT y el certificado (SSL_CERTFILE /
+# SSL_KEYFILE). Por defecto escucha solo en 127.0.0.1: detras de un proxy
+# (Caddy/nginx en el mismo equipo) asi debe quedar. Ver docs/seguridad-red.md.
+ExecStart=/opt/sistema-videovigilancia/venv/bin/python -m api
 Restart=always
 RestartSec=10
 

@@ -344,7 +344,12 @@ def _cruzar_camara(evento: DetectionEvent) -> MatchResult:
     # El detalle concreto (cuanto tiempo lleva sin imagen, que reporto la
     # camara) lo pone quien genera el evento.
     extra = (evento.meta or {}).get("detalle")
-    motivo = " · ".join(str(x) for x in (motivo, extra) if x)
+    if extra and evento.value in ("sin_senal", "senal_recuperada"):
+        # La explicacion generica ("dejo de reportar O no entrega imagen") es
+        # el respaldo; con el diagnostico concreto, juntarlas se contradice.
+        motivo = str(extra)
+    else:
+        motivo = " · ".join(str(x) for x in (motivo, extra) if x)
     return MatchResult(event_id=evento.event_id, severity=severidad, match_kind=MatchKind.RULE,
                        matched_value=evento.value, score=evento.confidence,
                        titulo=titulo, reason=motivo or None)

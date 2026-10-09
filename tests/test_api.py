@@ -350,6 +350,18 @@ def test_rol_de_camara_se_conserva_al_editar_nombre():
     assert cam['funcion'] is None
 
 
+def test_estadisticas_del_dia_y_ultima_deteccion():
+    c, h = _cliente()
+    _ingerir(c, _evento("plate", "XYZ-987-A"))
+    s = c.get("/api/stats", headers=h).json()
+    assert s["eventos_hoy"] >= 1 and s["eventos_hoy_por_tipo"].get("plate", 0) >= 1
+    assert s["ultimo_evento"]["value"] == "XYZ-987-A"
+    assert s["ultimo_evento"]["type"] == "plate"
+    assert set(s["lista_negra"]) == {"placas", "rostros"}
+    # Los avisos de camara caida no cuentan como "detecciones de hoy".
+    assert "camera" not in s["ultimo_evento"]["type"]
+
+
 # --------------------------------------------------------------------------
 
 def main() -> int:

@@ -20,10 +20,11 @@ from api.deps import Admin, Operador, OperadorActual, SesionBD
 from api.exportacion import celda
 from api.ficha_evidencia import DESTINOS, RESULTADOS, armar_ficha, leer_canalizaciones
 from api.hub import hub
-from api.models import Alert, AuditLog, Camera, Event, FechasEnUtc
+from api.models import Alert, AuditLog, BlacklistFace, BlacklistPlate, Camera, Event, FechasEnUtc
 from shared.events import PATRON_CAMARA
 from shared.fechas import a_utc
 from shared.plates import limpiar
+from shared.zonas import zona_horaria
 
 log = logging.getLogger(__name__)
 
@@ -441,6 +442,23 @@ def estadisticas(session: SesionBD, _: OperadorActual):
         select(Event.type, func.count()).select_from(Event).group_by(Event.type)
     ).all())
 
+    # "Hoy" es el dia LOCAL del sitio: a las 23:00 en Toluca ya es otro dia en UTC.
+    inicio_hoy = a_utc(datetime.now(zona_horaria()).replace(hour=0, minute=0, second=0,
+                                                             microsecond=0))
+    hoy_por_tipo = dict(session.exec(
+        select(Event.type, func.count()).select_from(Event)
+        .where(col(Event.ts) >= inicio_hoy).group_by(Event.type)
+    ).all())
+    # Solo detecciones (no los avisos de camara caida): lo que el operador
+    # entiende por "lo ultimo que vio el sistema".
+    ultimo = session.exec(
+        select(Event).where(Event.type != "camera").order_by(col(Event.ts).desc()).limit(1)
+    ).first()
+    lista_placas = session.exec(
+        select(func.count()).select_from(BlacklistPlate).where(BlacklistPlate.active)).one()
+    lista_rostros = session.exec(
+        select(func.count()).select_from(BlacklistFace).where(BlacklistFace.active)).one()
+
     camaras = []
     for c in session.exec(select(Camera)).all():
         segundos = None
@@ -469,6 +487,9 @@ def estadisticas(session: SesionBD, _: OperadorActual):
                        and salud.get("connected", True) is not False),
             "segundos_sin_senal": round(segundos) if segundos is not None else None,
             "fps": salud.get("fps_procesados"),
+            # Que analiza de verdad el worker de esta camara (placas, rostros...).
+            "detectores": sorted((salud.get("detectores") or {}).keys())
+            if isinstance(salud.get("detectores"), dict) else [],
             "reconexiones": salud.get("reconnects"),
         })
 
@@ -477,6 +498,12 @@ def estadisticas(session: SesionBD, _: OperadorActual):
         "alertas_nuevas": alertas_nuevas,
         "alertas_criticas": criticas,
         "eventos_por_tipo": por_tipo,
+        "eventos_hoy": sum(v for k, v in hoy_por_tipo.items() if k != "camera"),
+        "eventos_hoy_por_tipo": hoy_por_tipo,
+        "ultimo_evento": None if ultimo is None else {
+            "ts": a_utc(ultimo.ts).isoformat(), "camera_id": ultimo.camera_id,
+            "type": ultimo.type, "value": ultimo.value},
+        "lista_negra": {"placas": lista_placas, "rostros": lista_rostros},
         "camaras": camaras,
         "dashboards_conectados": hub.conectados_total,
     }

@@ -53,7 +53,12 @@
           </div>
           <div class="campo">
             <label for="password">Contraseña</label>
-            <input id="password" type="password" autocomplete="current-password" required>
+            <div class="campo-clave">
+              <input id="password" type="password" autocomplete="current-password" required>
+              <button type="button" class="ver-clave" data-accion="ver-clave" aria-pressed="false"
+                      title="Mostrar contraseña" aria-label="Mostrar contraseña"><i data-lucide="eye"></i></button>
+            </div>
+            <div class="aviso-mayus" id="avisoMayus" hidden><i data-lucide="arrow-big-up"></i>Bloq Mayús está activado</div>
           </div>
         </div>
         <div id="pasoCodigo" hidden>
@@ -123,14 +128,18 @@
   </div><!-- /#barra -->
 
   <div class="dashboard-intro">
-    <div><p class="section-eyebrow">GOSS IP / CONTROL EN VIVO</p><h2 id="tituloVista">Todo a la vista.</h2><p id="descripcionVista">Observa tus cámaras. Identifica lo importante. Actúa con evidencia.</p></div>
-    <div class="dashboard-sello"><span class="punto on"></span><span>MONITOREO LOCAL<br><small>Video y análisis en tu equipo</small></span></div>
+    <div><p class="section-eyebrow" id="eyebrowVista">CENTRO DE MONITOREO / EN VIVO</p><h2 id="tituloVista">Monitoreo en vivo</h2><p id="descripcionVista" aria-live="polite">Cargando el estado de las cámaras…</p></div>
+    <div class="dashboard-sello" title="Sesión abierta: cada acción queda en la bitácora con este nombre"><span class="punto on"></span><span>EN TURNO<br><small id="selloTurno"></small></span></div>
   </div>
   <div class="metricas">
-    <div class="metrica"><div class="n" id="mEventos">0</div><div class="e">Eventos</div></div>
-    <div class="metrica critica"><div class="n" id="mAlertas">0</div><div class="e">Alertas sin ver</div></div>
-    <div class="metrica"><div class="n" id="mPlacas">0</div><div class="e">Placas leídas</div></div>
-    <div class="metrica" data-rol="admin"><div class="n" id="mLista">0</div><div class="e">En lista negra</div></div>
+    <button type="button" class="metrica" data-accion="metrica" data-destino="hoy" title="Ver las detecciones de hoy en el Registro">
+      <div class="n" id="mEventos">0</div><div class="e">Detecciones hoy<small id="mEventosTotal"></small></div></button>
+    <button type="button" class="metrica critica" data-accion="metrica" data-destino="alertas" title="Ir a las alertas por atender">
+      <div class="n" id="mAlertas">0</div><div class="e">Alertas sin atender<small id="mAlertasCriticas"></small></div></button>
+    <button type="button" class="metrica" data-accion="metrica" data-destino="placas" title="Ver las placas leídas hoy en el Registro">
+      <div class="n" id="mPlacas">0</div><div class="e">Placas leídas hoy<small id="mPlacasTotal"></small></div></button>
+    <button type="button" class="metrica" data-rol="admin" data-accion="abrir-lista-negra" title="Abrir la lista negra">
+      <div class="n" id="mLista">0</div><div class="e">En lista negra<small id="mListaDetalle"></small></div></button>
   </div>
 
   <!-- ---------- APARTADO 1: MONITOREO EN VIVO ---------- -->
@@ -243,8 +252,8 @@
       <div class="panel">
         <h2>Sin ubicación</h2>
         <div class="ubicacion-dispositivo" data-rol="admin">
-          <h3>Ubicación del stand</h3>
-          <p>Las cámaras están junto a la laptop. Obtén su ubicación y elige cuáles colocar en el mismo punto.</p>
+          <h3>Ubicar desde este equipo</h3>
+          <p>Para cámaras instaladas donde está este equipo: toma su ubicación y elige cuáles colocar en ese punto. Las demás se ubican con un clic en el mapa.</p>
           <button class="sec" data-accion="mapa-dispositivo"><i data-lucide="locate-fixed"></i>Usar mi ubicación</button>
           <p id="mapaPrecision" role="status"></p>
           <div id="mapaElegirCamaras"></div>

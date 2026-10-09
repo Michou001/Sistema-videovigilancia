@@ -85,7 +85,7 @@ function pintarAlbumes() {
     const info = document.createElement('div');
     info.className = 'album-info';
     info.innerHTML = `<strong>${escapar(titulo)}</strong>
-      <span>${ultima ? `Última: ${escapar(valorLegible(ultima))} · ${hora(ultima.ts)}` : 'Sin capturas todavía'}</span>
+      <span>${ultima ? `Última: ${escapar(valorLegible(ultima))} · ${fechaHora(ultima.ts)}` : 'Sin capturas todavía'}</span>
       <span class="album-ver">Ver todas <i data-lucide="chevron-right"></i></span>`;
     card.append(portada, info);
     const abrir = () => abrirGaleria(clave);

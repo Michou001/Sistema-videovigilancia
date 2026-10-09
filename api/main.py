@@ -3,7 +3,8 @@
     uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 El dashboard queda en http://localhost:8000
-La documentacion interactiva de la API en http://localhost:8000/docs
+La documentacion interactiva de la API (/docs) solo con API_DOCS=true: en
+produccion no se publica el mapa completo de la API a quien llegue al puerto.
 """
 
 from __future__ import annotations
@@ -123,9 +124,8 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     init_db()
-    log.info("Token de ingesta del worker: %s...%s",
-             cfg.ingest_token[:6], cfg.ingest_token[-4:])
-    log.info("Dashboard en http://localhost:8000")
+    # Solo el final, para reconocer cual es sin dejar el secreto en los logs.
+    log.info("Token de ingesta del worker: ...%s", cfg.ingest_token[-4:])
 
     from api import notificaciones
     from api.camaras_caidas import vigilar
@@ -202,11 +202,16 @@ async def _conectar_redis(url: str) -> None:
         await asyncio.sleep(5)
 
 
+_DOCS = os.getenv("API_DOCS", "").strip().lower() in {"1", "true", "si", "sí", "yes"}
+
 app = FastAPI(
     title="GOSS IP - Sistema de Videovigilancia",
     description="Deteccion de placas, rostros y movimiento con cruce contra lista negra",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _DOCS else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _DOCS else None,
 )
 def _conexiones_extra() -> list[str]:
     """Si go2rtc se publica en otro origen (GO2RTC_URL=http://host:1984), el
@@ -270,8 +275,7 @@ async def ws_alertas(websocket: WebSocket) -> None:
 def health() -> dict:
     # Publico: lo usa la pantalla de acceso. Nombre del sitio y version ya se
     # muestran ahi; nada de camaras, usuarios ni eventos.
-    return {"status": "ok", "dashboards": hub.conectados_total,
-            "multiproceso": hub.distribuido, "version": app.version,
+    return {"status": "ok", "version": app.version,
             "sitio": os.getenv("SITIO_NOMBRE", "").strip()}
 
 

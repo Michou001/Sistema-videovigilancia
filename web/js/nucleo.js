@@ -164,6 +164,28 @@ export function fechaHora(iso) {
   return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) + ' ' + hora(iso);
 }
 
+/* Duracion legible: "45 s", "12 min", "3 h 5 min", "4 días". Las metricas
+ * en segundos crudos ("69103 s") no se leen de un vistazo. */
+export function duracion(segundos) {
+  const s = Math.max(0, Math.round(Number(segundos) || 0));
+  if (s < 60) return `${s} s`;
+  const min = Math.round(s / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h < 24) return m && h < 10 ? `${h} h ${m} min` : `${h} h`;
+  const d = Math.round(h / 24);
+  return `${d} día${d === 1 ? '' : 's'}`;
+}
+
+/* "hace 3 min", "hace 2 h", o la fecha si fue hace mas de un dia. */
+export function haceCuanto(iso) {
+  if (!iso) return '';
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 45) return 'hace un momento';
+  if (s < 86400) return 'hace ' + duracion(s);
+  return 'el ' + fechaHora(iso);
+}
+
 export function fechaCompleta(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', {

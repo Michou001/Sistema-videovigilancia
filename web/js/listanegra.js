@@ -1,6 +1,6 @@
 /* Lista negra: placas y personas. Solo administradores. */
 
-import { $, accion, api, escapar, iconos, modal } from './nucleo.js';
+import { $, accion, api, emitir, escapar, iconos, modal } from './nucleo.js';
 import { confirmar } from './avisos.js';
 import { validarEnVivo } from './placas.js';
 
@@ -22,7 +22,8 @@ accion('pestana-lista', (el) => {
 
 export async function cargarPlacas() {
   const placas = await api('/api/blacklist/plates');
-  $('mLista').textContent = placas.length;
+  // El contador de la cabecera (placas + rostros) lo pone /api/stats.
+  emitir('pedir-stats');
   if (!$('listaPlacas')) return placas;
   const ahora = Date.now();
   $('listaPlacas').innerHTML = placas.length

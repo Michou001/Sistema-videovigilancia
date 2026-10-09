@@ -100,7 +100,7 @@ export async function refrescarCamaras() {
     const saludCam = estadoCamara(meta, vivo, r.errorVideo);
     r.el.dataset.estado = saludCam.clave;
     r.el.querySelector('.estado-camara').textContent = saludCam.nombre;
-    r.el.querySelector('.rol-camara').textContent = nombreFuncion(meta && meta.funcion);
+    r.el.querySelector('.rol-camara').textContent = nombreFuncion(meta && meta.funcion, meta && meta.detectores);
     r.el.querySelector('.punto').className = 'punto ' +
       (saludCam.clave === 'en-linea' ? 'on' :
         ['reconectando', 'error-video'].includes(saludCam.clave) ? 'espera' :
@@ -156,7 +156,7 @@ function crearRecuadro(id) {
     </div>
     <div class="camara-contexto"><span class="rol-camara"></span><span class="estado-camara" role="status">Comprobando</span></div>
     <div class="camara-video">${PLACEHOLDER_SIN_SENAL}</div>
-    <div class="camara-evidencia"><span class="ultimo-evento">Esperando un evento de esta cámara</span><button class="sec" data-accion="evidencia-camara" data-camara="${escapar(id)}" disabled>Ver evidencia</button></div>`;
+    <div class="camara-evidencia"><span class="ultimo-evento">Sin capturas recientes de esta cámara</span><button class="sec" data-accion="evidencia-camara" data-camara="${escapar(id)}" disabled>Ver evidencia</button></div>`;
   $('rejilla').append(el);
 
   const r = { id, el, img: new Image(), cuerpo: el.querySelector('.camara-video'),
@@ -175,6 +175,8 @@ function crearRecuadro(id) {
   };
   r.img.onload = () => { r.errorVideo = false; };
   recuadros.set(id, r);
+  const ultimo = ultimosPorCamara.get(id);
+  if (ultimo) ponerUltimo(r, ultimo);
   return r;
 }
 
@@ -263,14 +265,23 @@ accion('anotaciones', el => {
 escuchar('fin-sesion', () => enfocarCamara());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') enfocarCamara(); });
 
+/* Lo ultimo que vio cada camara, de lo ya cargado: al recargar la pagina el
+ * recuadro no debe decir "esperando" si el sistema ya tiene capturas suyas. */
+const ultimosPorCamara = new Map();
+
+function ponerUltimo(r, ev) {
+  r.ultimoEvento = ev;
+  r.el.querySelector('.ultimo-evento').textContent = `Última: ${valorLegible(ev)} · ${fechaHora(ev.ts)}`;
+  r.el.querySelector('[data-accion="evidencia-camara"]').disabled = !ev.snapshot_path;
+}
+
 /* Marca en el recuadro de la camara lo ultimo que encontro. */
 export function marcarEnCamara(ev) {
+  if (ev.type !== 'camera') ultimosPorCamara.set(ev.camera_id, ev);
   const r = recuadros.get(ev.camera_id);
   if (!r) return;
-  r.ultimoEvento = ev;
   r.el.classList.remove('detecto'); void r.el.offsetWidth; r.el.classList.add('detecto');
-  r.el.querySelector('.ultimo-evento').textContent = `${valorLegible(ev)} · ${hora(ev.ts)}`;
-  r.el.querySelector('[data-accion="evidencia-camara"]').disabled = !ev.snapshot_path;
+  ponerUltimo(r, ev);
   if (!r.capa) return;
   r.capa.innerHTML =
     `<span>${iconoTag(ev.type)}</span>` +
@@ -333,6 +344,14 @@ export async function cargarDetecciones() {
   const eventos = await api('/api/events?limite=30');
   $('listaDetecciones').innerHTML = '';
   eventos.forEach((e) => agregarDeteccion(e));
+  // Vienen del mas reciente al mas viejo: el primero de cada camara es el ultimo.
+  for (const e of eventos) {
+    if (e.type !== 'camera' && !ultimosPorCamara.has(e.camera_id)) ultimosPorCamara.set(e.camera_id, e);
+  }
+  for (const [id, ev] of ultimosPorCamara) {
+    const r = recuadros.get(id);
+    if (r && !r.ultimoEvento) ponerUltimo(r, ev);
+  }
   $('sinDetecciones').style.display = eventos.length ? 'none' : 'block';
 }
 

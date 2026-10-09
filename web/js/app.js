@@ -197,6 +197,26 @@ function mostrarVista(nombre) {
 }
 
 accion('vista', (el) => mostrarVista(el.dataset.vista));
+
+/* Las tarjetas de numeros llevan a donde se ven esos numeros. */
+accion('metrica', async (el) => {
+  mostrarVista('registro');
+  if (el.dataset.destino === 'alertas') {
+    $('listaAlertas').closest('.panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  const d = new Date();
+  const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  $('fTexto').value = '';
+  $('fDescripcion').value = '';
+  $('fSeveridad').value = '';
+  $('fCamara').value = '';
+  $('fTipo').value = el.dataset.destino === 'placas' ? 'plate' : '';
+  $('fDesde').value = hoy;
+  $('fHasta').value = '';
+  try { await cargarEventos(); } catch {}
+  $('fTipo').closest('.panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 escuchar('ir-a-vista', mostrarVista);
 
 /* Desde el mapa: "Ver en vivo" lleva al recuadro de esa camara. */
@@ -254,9 +274,21 @@ function contar(id, valor) {
 async function refrescarStats() {
   try {
     const s = await api('/api/stats');
-    contar('mEventos', s.total_eventos);
+    const hoy = s.eventos_hoy_por_tipo || {};
+    contar('mEventos', s.eventos_hoy ?? 0);
     contar('mAlertas', s.alertas_nuevas);
-    contar('mPlacas', s.eventos_por_tipo.plate || 0);
+    contar('mPlacas', hoy.plate || 0);
+    const total = (n) => (n ? `${n.toLocaleString('es-MX')} en total` : '');
+    $('mEventosTotal').textContent = total(s.total_eventos - (s.eventos_por_tipo.camera || 0));
+    $('mPlacasTotal').textContent = total(s.eventos_por_tipo.plate || 0);
+    $('mAlertasCriticas').textContent = s.alertas_criticas
+      ? `${s.alertas_criticas} crítica${s.alertas_criticas === 1 ? '' : 's'}` : '';
+    if (s.lista_negra) {
+      const { placas, rostros } = s.lista_negra;
+      contar('mLista', placas + rostros);
+      $('mListaDetalle').textContent = `${placas} placa${placas === 1 ? '' : 's'} · `
+        + `${rostros} rostro${rostros === 1 ? '' : 's'}`;
+    }
 
     // Con el operador en Monitoreo, el globo del otro apartado es lo unico que
     // le dice que hay alertas esperando.

@@ -31,6 +31,20 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(_bytes(password), bcrypt.gensalt(rounds=12)).decode("ascii")
 
 
+# Hash de una contrasena que nadie tiene. Se compara contra el cuando el
+# usuario no existe, para que esa respuesta tarde lo mismo que una contrasena
+# equivocada: si no, medir el tiempo de respuesta dice que usuarios existen.
+_HASH_SEÑUELO = bcrypt.hashpw(secrets.token_bytes(16), bcrypt.gensalt(rounds=12)).decode("ascii")
+
+
+def verificar_password_o_señuelo(password: str, hash_guardado: Optional[str]) -> bool:
+    """verificar_password, gastando el mismo tiempo si no hay hash."""
+    if not hash_guardado:
+        verificar_password(password, _HASH_SEÑUELO)
+        return False
+    return verificar_password(password, hash_guardado)
+
+
 def verificar_password(password: str, hash_guardado: str) -> bool:
     try:
         return bcrypt.checkpw(_bytes(password), hash_guardado.encode("ascii"))

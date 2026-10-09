@@ -414,3 +414,20 @@ nav.apartados button.activo { color: #a1f0e1; background: #1b3f43; box-shadow: i
   .galeria-rejilla { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .tarjeta.galeria { padding: 14px; }
 }
+
+/* Las metricas son botones: llevan al Registro filtrado o a la lista negra. */
+button.metrica { font: inherit; color: inherit; text-align: left; cursor: pointer; width: auto; }
+button.metrica:hover { background: rgba(120, 190, 255, .06); }
+button.metrica:focus-visible { outline: 2px solid #6fd3ff; outline-offset: -2px; }
+.metrica .e small { display: block; color: #7f97a8; font-size: 11px; margin-top: 3px; }
+.metrica .e small:empty { display: none; }
+
+/* Contrasena: mostrar/ocultar y aviso de Bloq Mayus */
+.campo-clave { position: relative; }
+.campo-clave input { padding-right: 42px; width: 100%; }
+.ver-clave { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 30px;
+  padding: 0; display: grid; place-items: center; background: none; border: 0; color: #8fb0d6; cursor: pointer; border-radius: 6px; }
+.ver-clave:hover { color: #d8ecff; background: rgba(120,190,255,.08); }
+.ver-clave svg { width: 17px; height: 17px; }
+.aviso-mayus { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--aviso); }
+.aviso-mayus svg { width: 14px; height: 14px; }

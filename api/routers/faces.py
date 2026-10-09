@@ -93,7 +93,9 @@ async def agregar(
         raise HTTPException(422,
                             "severity debe ser 'critical' o 'warning'")
 
-    datos = await foto.read()
+    # Se lee como maximo un byte mas del limite: un archivo enorme no llega
+    # completo a memoria para luego rechazarlo.
+    datos = await foto.read(MAX_BYTES + 1)
     if len(datos) > MAX_BYTES:
         raise HTTPException(413,
                             "La foto supera los 8 MB")
@@ -102,6 +104,8 @@ async def agregar(
     if imagen is None:
         raise HTTPException(422,
                             "No se pudo leer la imagen (formato no soportado)")
+    if max(imagen.shape[:2]) > 10000:
+        raise HTTPException(422, "La imagen es demasiado grande (máximo 10 000 px por lado)")
 
     # Cargar el modelo (la primera vez) y correrlo tarda segundos: en el pool
     # de hilos, no en el bucle de eventos, o el video en vivo y el WebSocket

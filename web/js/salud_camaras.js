@@ -9,10 +9,20 @@ export function estadoCamara(meta, video, errorVideo = false) {
   if (meta?.online) return { clave: 'procesando', nombre: 'Conectada · esperando video' };
   return { clave: 'sin-senal', nombre: 'Sin señal' };
 }
-export function nombreFuncion(funcion) {
-  return ({ lpr: 'LPR · acceso vehicular', peatonal: 'Zona peatonal · pose',
+const DETECTORES = { plates: 'placas', faces: 'rostros', weapons: 'armas', motion: 'movimiento',
+  pose: 'posturas', zonas: 'zonas' };
+
+/* Funcion asignada a la camara o, si no tiene, lo que de verdad esta
+ * analizando su worker: "Rol sin asignar" no le dice nada al operador. */
+export function nombreFuncion(funcion, detectores = []) {
+  const nombre = ({ lpr: 'LPR · acceso vehicular', peatonal: 'Zona peatonal · pose',
     pasillo: 'Pasillo', zona: 'Zona de seguridad', patio: 'Patio',
-    estacionamiento: 'Estacionamiento' })[funcion] || 'Rol sin asignar';
+    estacionamiento: 'Estacionamiento' })[funcion];
+  if (nombre) return nombre;
+  const que = (detectores || []).map((d) => DETECTORES[d] || d);
+  if (!que.length) return 'Función sin definir';
+  const lista = que.length > 1 ? `${que.slice(0, -1).join(', ')} y ${que[que.length - 1]}` : que[0];
+  return 'Detecta: ' + lista;
 }
 /* Tiempo observado por el panel; no equivale al instante físico de desconexión. */
 export function observarRecuperacion(anterior, actual, ahora) {
