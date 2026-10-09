@@ -4,12 +4,18 @@
 
 Lee del .env (o del entorno):
 
-    API_HOST=0.0.0.0            interfaz donde escucha
+    API_HOST=127.0.0.1          interfaz donde escucha. Por defecto SOLO este
+                                equipo; 0.0.0.0 la abre a toda la red (ver abajo)
     API_PORT=8000
     SSL_CERTFILE=data/tls/servidor.crt   con estas dos, sirve por HTTPS
     SSL_KEYFILE=data/tls/servidor.key    (genera un par con tools/generar_certificado.py)
     FORWARDED_ALLOW_IPS=127.0.0.1        proxys de confianza (Caddy, nginx) cuyas
                                          cabeceras X-Forwarded-* se respetan
+
+Por que 127.0.0.1 por defecto: una laptop conectada al Wi-Fi de la escuela (o
+a una red con IP publica) quedaria con el dashboard visible para cualquiera en
+esa red. Abrirlo es una decision explicita (API_HOST=0.0.0.0), y si se abre
+sin HTTPS el arranque lo advierte en grande.
 
 Por que HTTPS aunque sea una red interna: por esa conexion pasan contrasenas,
 fotos de personas y video en vivo. En una LAN compartida (una escuela, un
@@ -40,13 +46,38 @@ def _ruta(valor: str) -> str:
     return str(ruta if ruta.is_absolute() else RAIZ / ruta)
 
 
+def _es_local(host: str) -> bool:
+    return host in {"127.0.0.1", "localhost", "::1"} or host.startswith("127.")
+
+
+def _advertir_red_abierta(host: str, con_tls: bool) -> None:
+    """Escuchar en toda la red por HTTP en claro deja pasar contrasenas,
+    codigos de verificacion, fotos y video sin cifrar por la red."""
+    if _es_local(host) or con_tls:
+        return
+    # Detras de Caddy/nginx el HTTPS lo pone el proxy (Docker): ahi esta bien.
+    if os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1").strip() not in {"", "127.0.0.1"}:
+        return
+    linea = "!" * 74
+    print(f"""
+{linea}
+  ATENCION: el dashboard escucha en {host} (toda la red) SIN HTTPS.
+  Cualquiera conectado a esta red puede abrirlo, y las contrasenas y el
+  video viajan sin cifrar. Para uso en un solo equipo deja API_HOST vacio
+  (127.0.0.1). Para abrirlo a la red genera un certificado:
+      python tools/generar_certificado.py
+  y define SSL_CERTFILE / SSL_KEYFILE en el .env (docs/seguridad-red.md).
+{linea}
+""", file=sys.stderr)
+
+
 def main() -> int:
     import uvicorn
 
     from api.config import get_config
 
     get_config()  # carga el .env en el entorno
-    host = os.getenv("API_HOST", "0.0.0.0")
+    host = os.getenv("API_HOST", "").strip() or "127.0.0.1"
     puerto = int(os.getenv("API_PORT", "8000"))
     cert = os.getenv("SSL_CERTFILE", "").strip()
     llave = os.getenv("SSL_KEYFILE", "").strip()
@@ -73,6 +104,7 @@ def main() -> int:
             return 1
         opciones["workers"] = procesos
 
+    _advertir_red_abierta(host, "ssl_certfile" in opciones)
     esquema = "https" if "ssl_certfile" in opciones else "http"
     print(f"  Dashboard en {esquema}://{'localhost' if host in ('0.0.0.0', '::') else host}:{puerto}")
     uvicorn.run(

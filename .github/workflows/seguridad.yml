@@ -1,0 +1,69 @@
+# Revision de seguridad en cada push y pull request, y cada lunes aunque nadie
+# toque el codigo (salen vulnerabilidades nuevas en paquetes que no cambiaron).
+#
+#   dependencias  pip-audit sobre lo que se instala con constraints.txt
+#   secretos      gitleaks sobre TODO el historial de git (llaves, tokens,
+#                 contrasenas que se hayan colado alguna vez)
+#   contenedores  Trivy: configuracion de los Dockerfile (usuario root,
+#                 secretos en la imagen...) y secretos en archivos
+#
+# Las herramientas van con version fija: una accion o imagen "latest" que
+# cambia sola es justo el ataque a la cadena de suministro que se quiere evitar.
+name: Seguridad
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 13 * * 1"   # lunes 07:17 en Ciudad de Mexico
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seguridad-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencias:
+    name: Dependencias (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar pip-audit
+        run: python -m pip install pip-audit==2.10.1
+      - name: Auditar requirements-api.txt y requirements-ci.txt
+        run: python tools/auditar_dependencias.py
+
+  secretos:
+    name: Secretos en el historial (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # todo el historial, no solo el ultimo commit
+      - name: gitleaks
+        # El binario de la release oficial (no la imagen Docker): dentro de un
+        # contenedor git rechaza el repo por "dubious ownership".
+        run: |
+          curl -sSLf https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          ./gitleaks git . --no-banner --redact --exit-code 1
+
+  contenedores:
+    name: Contenedores y archivos (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (configuracion de Dockerfile y secretos)
+        run: |
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.74.0 \
+            fs /repo --scanners misconfig,secret --severity HIGH,CRITICAL \
+            --exit-code 1 --no-progress
