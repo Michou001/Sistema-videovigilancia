@@ -7,6 +7,24 @@ Para mantener el sistema accesible si se apaga la laptop, consulta
 **[contingencia-web.md](contingencia-web.md)**: requiere un servidor independiente
 y acceso privado a las camaras.
 
+## Equipo de respaldo con una memoria USB
+
+Si el equipo principal falla, otra PC en la misma red puede tomar su lugar:
+
+1. En el equipo principal, `copiar_a_memoria.bat`: detiene el sistema, copia la
+   carpeta con `.env`, base de datos, evidencias y modelos (sin `venv` ni
+   `respaldos`) y comprueba la copia y la integridad de la base de datos.
+2. En la PC de respaldo, copiar la carpeta de la memoria al disco y, solo la
+   primera vez, `preparar_respaldo.bat` (necesita internet): crea el entorno de
+   Python e instala torch con CUDA y las dependencias. El `venv` no se copia
+   porque apunta al Python del equipo donde se creó.
+3. Arrancar con `iniciar_api.bat` y los `iniciar_worker*.bat`.
+
+La memoria lleva contraseñas de las cámaras y datos personales: debe ir
+cifrada con BitLocker To Go (el script avisa si no lo está). Repetir la copia
+después de cambios en la lista de alertas, usuarios o zonas; los eventos
+posteriores a la última copia no estarán en el equipo de respaldo.
+
 Para red física, VLAN, switches PoE, fibra entre edificios, alturas de cámara,
 ancho de banda y escalamiento por campus, ver
 **[arquitectura-despliegue.md](arquitectura-despliegue.md)**.
