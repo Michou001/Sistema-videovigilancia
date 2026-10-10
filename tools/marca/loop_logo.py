@@ -1,6 +1,6 @@
 """Loop del logo de GOSS IP para el monitor del stand (1920x1080, 12 s, sin corte).
 
-    python tools/marca/loop_logo.py 3_mercadotecnia/loop/GOSS_IP_Loop_Stand.mp4
+    python tools/marca/loop_logo.py GOSS_IP_Loop_Stand.mp4
     python tools/marca/loop_logo.py salida.mp4 --cuadros 0,150,359   # solo PNG de revision
 
 La frase, la linea de identidad y el pie estan en FRASE, IDENTIDAD y PIE.

@@ -164,9 +164,7 @@ levantamiento por cámara:
 ├── tests/               301 pruebas sin cámara ni GPU
 ├── docs/                Hikvision, despliegue, campus, privacidad, licencias,
 │                        reentrenamiento, validación, evidencias medidas
-├── demo/                Placa de prueba imprimible; videos del plan de contingencia
-├── 2_documentacion_fase2/  Memoria técnica, portafolio de evidencias, bitácora del Bootcamp
-└── 3_mercadotecnia/       Presentación, loop del logo para el stand y presskit
+└── demo/                Placa de prueba imprimible; videos del plan de contingencia
 ```
 
 ---
@@ -419,12 +417,8 @@ almacenamiento. Ver
 | `python tools/metricas.py --resumen --desde AAAA-MM-DD` | Alertas, tiempo de atención, placas corregidas, caídas y recuperación, desde la base de datos |
 | `python tools/placa_demo.py` | Placa de prueba imprimible (serie sin entidad asignada), validada con el detector y el OCR |
 | `python tools/grabar_video.py --segundos 90` | Graba la cámara en el ensayo, para usar el video como cámara si en la sede falla la real |
-| `python tools/marca/loop_logo.py 3_mercadotecnia/loop/GOSS_IP_Loop_Stand.mp4` | Loop del logo para el monitor del stand (12 s, 1080p, sin corte); la frase se cambia en el script |
+| `python tools/marca/loop_logo.py salida.mp4` | Loop del logo para el monitor del stand (12 s, 1080p, sin corte); la frase se cambia en el script |
 
-Entregables de la Fase 2: memoria técnica, portafolio de evidencias y bitácora
-del Bootcamp en [2_documentacion_fase2/](2_documentacion_fase2/); presentación y
-loop del stand en [3_mercadotecnia/](3_mercadotecnia/)
-(`loop/GOSS_IP_Loop_Stand.html` lo reproduce a pantalla completa sin internet).
 Resultados medidos en [docs/evidencias/](docs/evidencias/README.md).
 
 ---
