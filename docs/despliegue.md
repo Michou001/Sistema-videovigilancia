@@ -3,6 +3,10 @@
 Guía para pasar el proyecto de tu laptop a la máquina que van a usar los
 monitoristas.
 
+Para mantener el sistema accesible si se apaga la laptop, consulta
+**[contingencia-web.md](contingencia-web.md)**: requiere un servidor independiente
+y acceso privado a las camaras.
+
 Para red física, VLAN, switches PoE, fibra entre edificios, alturas de cámara,
 ancho de banda y escalamiento por campus, ver
 **[arquitectura-despliegue.md](arquitectura-despliegue.md)**.

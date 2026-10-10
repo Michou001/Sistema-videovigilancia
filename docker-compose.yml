@@ -78,7 +78,9 @@ services:
       # Solo Caddy llega a la API (no se publica ningun puerto): se confia en
       # sus cabeceras X-Forwarded-* para la IP real y el HTTPS.
       FORWARDED_ALLOW_IPS: "*"
-      GO2RTC_URL: /go2rtc
+      # En una contingencia publica puede dejarse vacio para usar MJPEG
+      # autenticado por la API, sin abrir el puerto WebRTC.
+      GO2RTC_URL: ${GO2RTC_URL-/go2rtc}
       ZONA_HORARIA: ${ZONA_HORARIA:-America/Mexico_City}
     volumes:
       - datos:/app/data
@@ -119,8 +121,8 @@ services:
     ports:
       # Solo el puerto del VIDEO WebRTC. La API de go2rtc (1984) no se publica:
       # se llega por Caddy en /go2rtc, con sesion.
-      - "8555:8555/tcp"
-      - "8555:8555/udp"
+      - "${GO2RTC_BIND_IP:-0.0.0.0}:8555:8555/tcp"
+      - "${GO2RTC_BIND_IP:-0.0.0.0}:8555:8555/udp"
 
   caddy:
     <<: *comun
