@@ -141,6 +141,12 @@ async def lifespan(app: FastAPI):
         tareas.append(asyncio.create_task(_conectar_redis(url_redis())))
     if notificador.cfg.camara_caida_s > 0:
         tareas.append(asyncio.create_task(vigilar(notificador.cfg.camara_caida_s)))
+    # Si se apaga el equipo entero, el aviso lo da un servicio externo que deja
+    # de recibir este latido (ver api/latido_externo.py).
+    from api.latido_externo import configuracion as latido_configurado, latir
+
+    if (latido := latido_configurado()) is not None:
+        tareas.append(asyncio.create_task(latir(latido)))
 
     from api import semantica
     from api.database import engine

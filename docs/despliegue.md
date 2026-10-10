@@ -25,6 +25,30 @@ cifrada con BitLocker To Go (el script avisa si no lo está). Repetir la copia
 después de cambios en la lista de alertas, usuarios o zonas; los eventos
 posteriores a la última copia no estarán en el equipo de respaldo.
 
+## Aviso si se apaga el equipo completo
+
+Si cae una cámara o un worker, la API avisa por Telegram. Si se apaga el equipo
+entero (luz, red, falla de la laptop), ya no queda nadie que avise. Para eso la
+API manda un latido a un servicio externo, que avisa cuando deja de recibirlo:
+
+1. Crear una cuenta gratuita en [healthchecks.io](https://healthchecks.io) y un
+   chequeo con periodo de 1 minuto y gracia de 3 minutos.
+2. En **Integrations**, agregar **Telegram** y seguir el enlace con el bot de
+   healthchecks.io al chat o grupo de los monitoristas.
+3. Copiar la URL de ping del chequeo en el `.env` del equipo que corre la API:
+
+   ```env
+   LATIDO_EXTERNO_URL=https://hc-ping.com/<uuid-del-chequeo>
+   LATIDO_EXTERNO_S=60
+   ```
+
+4. Reiniciar la API y comprobar en healthchecks.io que el chequeo está en
+   verde. Para probarlo, cerrar la API: en unos 4 minutos llega el aviso a
+   Telegram, y otro cuando vuelve.
+
+Solo viaja la petición, sin datos de cámaras, eventos ni personas. La URL lleva
+un identificador secreto: no se escribe en los logs ni se sube al repositorio.
+
 Para red física, VLAN, switches PoE, fibra entre edificios, alturas de cámara,
 ancho de banda y escalamiento por campus, ver
 **[arquitectura-despliegue.md](arquitectura-despliegue.md)**.
