@@ -79,6 +79,8 @@ class EventoLeido(FechasEnUtc, BaseModel):
     confidence: float
     severity: str
     observations: int
+    bbox_x1: Optional[int] = None
+    bbox_x2: Optional[int] = None
     snapshot_path: Optional[str]
     meta: dict = Field(default_factory=dict)
 

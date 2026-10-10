@@ -376,6 +376,11 @@ class Notificador:
 
     def debe_notificar(self, datos: dict) -> bool:
         severidad = NIVELES.get(datos.get("severity", "info"), 0)
+        if ((datos.get("type") == "plate" and datos.get("match_kind") in {"exact", "fuzzy"})
+                or (datos.get("type") == "face" and datos.get("match_kind") == "biometric")):
+            # Una coincidencia posible tambien debe llegar al responsable,
+            # aunque el minimo general este configurado como critical.
+            return severidad >= NIVELES["warning"]
         if datos.get("type") == "camera" and self.cfg.camara_caida_s > 0:
             # Una camara sin senal o saboteada deja un punto ciego: se avisa
             # desde "warning" aunque el minimo general sea "critical".
@@ -444,13 +449,16 @@ class Notificador:
                 texto = texto.replace(secreto, "***")
         return texto
 
-    async def enviar_a_todos(self, m: Mensaje, reintentos: Optional[int] = None) -> dict[str, str]:
+    async def enviar_a_todos(self, m: Mensaje, reintentos: Optional[int] = None,
+                            solo: Optional[str] = None) -> dict[str, str]:
         """Manda a todos los canales con reintentos. Devuelve el resultado
         por canal ('ok' o el error)."""
         resultados: dict[str, str] = {}
         intentos = reintentos or self.REINTENTOS
         async with self._http() as http:
             for canal in self.canales:
+                if solo and canal.nombre != solo:
+                    continue
                 for intento in range(1, intentos + 1):
                     try:
                         await canal.enviar(m, http)
@@ -487,6 +495,17 @@ class Notificador:
             return {}
         # Un solo intento: el administrador espera la respuesta en pantalla.
         return await self.enviar_a_todos(m, reintentos=1)
+
+    async def prueba_telegram(self, tipo: str) -> dict[str, str]:
+        """Ensayo de coincidencia, enviado solamente al chat de Telegram."""
+        if tipo not in {"plate", "face"}:
+            raise ValueError("Tipo de prueba no valido")
+        nombre = "placa" if tipo == "plate" else "rostro"
+        m = Mensaje(titulo=f"PRUEBA · Coincidencia de {nombre} en lista negra",
+                    severidad="critical", tipo="prueba",
+                    detalle="Simulacion solicitada desde el panel. No es una deteccion real.",
+                    enlace=f"{self.cfg.url_dashboard}/" if self.cfg.url_dashboard else "")
+        return await self.enviar_a_todos(m, reintentos=1, solo="telegram")
 
     def resumen(self) -> dict:
         return {"canales": [{"nombre": c.nombre, "descripcion": c.descripcion()} for c in self.canales],

@@ -2,7 +2,7 @@
 
 import { $, accion, escapar, iconoTag, iconos } from './nucleo.js';
 
-export function mostrarBanner(a) {
+export function mostrarBanner(a, { sonar = false } = {}) {
   $('bannerTitulo').textContent = a.title;
   $('bannerDetalle').textContent = a.detail || '';
   // El banner vive dentro de #barra, asi que al mostrarlo empuja la cabecera
@@ -10,14 +10,14 @@ export function mostrarBanner(a) {
   $('banner').style.display = 'flex';
   // Una alerta critica tambien suena, y distinto que un aviso: el operador
   // puede estar mirando otra pantalla.
-  sonarAviso(true);
+  if (sonar) sonarAviso();
 }
 
 accion('cerrar-banner', () => { $('banner').style.display = 'none'; });
 
 /* Aviso (warning): se nota aunque el operador este viendo Monitoreo pero no
  * bloquea como el banner critico. Se apila con los demas y se retira solo. */
-export function mostrarToast(a, { sonar = true, tipo = 'aviso', icono = null } = {}) {
+export function mostrarToast(a, { sonar = false, tipo = 'aviso', icono = null } = {}) {
   const div = document.createElement('div');
   div.className = 'toast ' + tipo;
   const simbolo = icono ? `<i data-lucide="${icono}"></i>`
@@ -52,27 +52,15 @@ export function confirmar(texto) {
   mostrarToast({ title: texto, type: null }, { sonar: false, tipo: 'ok', icono: 'circle-check' });
 }
 
-/* Chime generado en el navegador (dos tonos suaves) -- nada de un archivo de
- * audio que cargar. Los navegadores bloquean audio antes de cualquier
- * interaccion; para cuando llega la primera alerta el operador ya inicio
- * sesion (eso cuenta). Si aun asi se bloquea, el aviso visual sigue igual. */
-let audioCtx = null;
-export function sonarAviso(critico = false) {
+/* Aviso de cinco segundos para coincidencias con la lista negra. Si llegan
+ * varias casi juntas, se termina el aviso actual antes de empezar otro para
+ * evitar que los sonidos se superpongan. El navegador puede bloquear audio
+ * antes de la primera interaccion; el aviso visual permanece visible. */
+let audioAviso = null;
+export function sonarAviso() {
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const ahora = audioCtx.currentTime;
-    const tonos = critico ? [988, 740, 988, 740] : [880, 660];
-    tonos.forEach((frecuencia, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = frecuencia;
-      gain.gain.setValueAtTime(0.0001, ahora + i * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.12, ahora + i * 0.12 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ahora + i * 0.12 + 0.18);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(ahora + i * 0.12);
-      osc.stop(ahora + i * 0.12 + 0.2);
-    });
+    if (audioAviso && !audioAviso.paused) return;
+    audioAviso = new Audio('/static/audio/ensayo-alerta-evento.wav');
+    audioAviso.play().catch(() => {});
   } catch {}
 }

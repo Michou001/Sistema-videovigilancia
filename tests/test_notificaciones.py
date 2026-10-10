@@ -320,6 +320,9 @@ def test_filtro_de_severidad_y_camaras():
     n = _notificador(_Servicios())
     assert n.debe_notificar(_alerta(severity="critical"))
     assert not n.debe_notificar(_alerta(severity="warning"))
+    assert n.debe_notificar(_alerta(type="plate", match_kind="fuzzy", severity="warning"))
+    assert n.debe_notificar(_alerta(type="face", match_kind="biometric", severity="warning"))
+    assert not n.debe_notificar(_alerta(type="face", match_kind="none", severity="warning"))
     assert n.debe_notificar(_alerta(severity="warning", type="camera")), \
         "una camara caida deja un punto ciego: se avisa aunque el minimo sea critical"
     assert not n.debe_notificar(_alerta(severity="info", type="camera"))
@@ -409,6 +412,13 @@ def test_endpoint_de_estado_y_prueba():
         datos = r.json()
         assert datos["resultados"]["telegram"] == "ok" and not datos["ok"]
         assert len(servicios.de("hooks.ejemplo.mx")) == 1, "la prueba no reintenta: el admin espera"
+        r = c.post("/api/notificaciones/prueba-telegram", headers=h, json={"tipo": "face"})
+        assert r.status_code == 200 and r.json()["resultados"] == {"telegram": "ok"}
+        assert len(servicios.de("hooks.ejemplo.mx")) == 1, "el ensayo solo va a Telegram"
+        assert c.post("/api/notificaciones/prueba-telegram", headers=h_op,
+                      json={"tipo": "plate"}).status_code == 403
+        assert c.post("/api/notificaciones/prueba-telegram", headers=h,
+                      json={"tipo": "weapon"}).status_code == 422
         assert c.post("/api/notificaciones/prueba", headers=h_op).status_code == 403
         # Mutacion: solo con cabecera, la cookie sola no basta (CSRF).
         assert c.post("/api/notificaciones/prueba").status_code == 401

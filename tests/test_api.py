@@ -191,6 +191,9 @@ def test_foto_de_rostro_sin_coincidencia_no_se_conserva():
     c, h = _cliente()
     from api.config import get_config
     cfg = get_config()
+    # Se fija aqui: el .env de quien corre las pruebas puede tenerlo activado.
+    previo = cfg.fotos_rostro_sin_coincidencia
+    cfg.fotos_rostro_sin_coincidencia = False
     jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes([2]) * 64 + bytes([0xFF, 0xD9])
     # Un rostro que no se parece a nadie de la lista (vector aleatorio).
     ajeno = np.random.default_rng(99).normal(size=512).astype(np.float32).tolist()
@@ -219,7 +222,7 @@ def test_foto_de_rostro_sin_coincidencia_no_se_conserva():
         _archivos_creados.append(destino)
         assert destino.exists()
     finally:
-        cfg.fotos_rostro_sin_coincidencia = False
+        cfg.fotos_rostro_sin_coincidencia = previo
 
 
 def test_baja_de_rostro_borra_vector_y_foto():

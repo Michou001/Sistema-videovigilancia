@@ -32,6 +32,7 @@ import numpy as np
 
 from edge.config import BASE_DIR, EdgeConfig
 from edge.detectors.base import Detector, caja
+from edge.evidencia import componer
 from edge.snapshot_hd import SnapshotHD, escalar_bbox
 from edge.sources import FrameInfo
 from edge.tracking import Deteccion, IoUTracker, Track
@@ -50,6 +51,57 @@ from shared.plates import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def enderezar_placa(recorte: np.ndarray) -> Optional[np.ndarray]:
+    """Rectifica una placa oblicua si se distingue su borde de cuatro lados.
+
+    No inventa geometria cuando el borde no es claro: en ese caso el OCR usa
+    el recorte original. El resultado se compara con la lectura original.
+    """
+    alto, ancho = recorte.shape[:2]
+    if ancho < 50 or alto < 18:
+        return None
+    gris = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+    bordes = cv2.Canny(cv2.GaussianBlur(gris, (5, 5), 0), 45, 130)
+    bordes = cv2.morphologyEx(bordes, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    contornos, _ = cv2.findContours(bordes, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    for contorno in sorted(contornos, key=cv2.contourArea, reverse=True)[:12]:
+        perimetro = cv2.arcLength(contorno, True)
+        puntos = cv2.approxPolyDP(contorno, 0.025 * perimetro, True)
+        if len(puntos) != 4 or not cv2.isContourConvex(puntos):
+            continue
+        area = cv2.contourArea(puntos)
+        if area < 0.25 * ancho * alto:
+            continue
+        pts = puntos.reshape(4, 2).astype(np.float32)
+        suma, diferencia = pts.sum(axis=1), np.diff(pts, axis=1).ravel()
+        orden = np.array([pts[np.argmin(suma)], pts[np.argmin(diferencia)],
+                          pts[np.argmax(suma)], pts[np.argmax(diferencia)]], dtype=np.float32)
+        if len(np.unique(orden, axis=0)) != 4:
+            continue
+        arriba = np.linalg.norm(orden[1] - orden[0])
+        abajo = np.linalg.norm(orden[2] - orden[3])
+        izquierda = np.linalg.norm(orden[3] - orden[0])
+        derecha = np.linalg.norm(orden[2] - orden[1])
+        salida_ancho = int(max(arriba, abajo))
+        salida_alto = int(max(izquierda, derecha))
+        if salida_ancho < 45 or salida_alto < 14 or not 1.1 <= salida_ancho / salida_alto <= 7:
+            continue
+        # Una caja casi frontal no necesita otra pasada de OCR.
+        inclinacion = abs(orden[1, 1] - orden[0, 1]) / max(1, arriba)
+        if max(arriba, abajo) / max(1, min(arriba, abajo)) < 1.12 \
+                and max(izquierda, derecha) / max(1, min(izquierda, derecha)) < 1.12 \
+                and inclinacion < 0.06:
+            continue
+        # La perspectiva lateral comprime el ancho visible. Restaurar una
+        # relacion conservadora de 2:1 ayuda al OCR sin completar caracteres.
+        salida_ancho = max(salida_ancho, 2 * salida_alto)
+        destino = np.float32([[0, 0], [salida_ancho - 1, 0],
+                              [salida_ancho - 1, salida_alto - 1], [0, salida_alto - 1]])
+        matriz = cv2.getPerspectiveTransform(orden, destino)
+        return cv2.warpPerspective(recorte, matriz, (salida_ancho, salida_alto))
+    return None
 
 
 def color_vehiculo(frame: np.ndarray, bbox: tuple[float, float, float, float]) -> Optional[str]:
@@ -102,7 +154,7 @@ class PlateDetector(Detector):
     # con EasyOCR: se lee cada track en frames alternos y se juntan mas
     # lecturas para el consenso.
     OCR_CADA_N_FRAMES = 2       # por track, no global
-    MAX_LECTURAS_POR_TRACK = 10  # pasadas de OCR por vehiculo
+    MAX_LECTURAS_POR_TRACK = 24  # conservar vistas posteriores, de mejor angulo
     MAX_OCR_POR_FRAME = 6        # techo aunque haya muchas placas visibles
     # Cuanto se espera la foto HD antes de emitir en cuanto la placa queda
     # confirmada: lo normal es que llegue en menos de un segundo.
@@ -285,6 +337,17 @@ class PlateDetector(Detector):
         t0 = time.perf_counter()
         try:
             texto, conf, region, prob_region = self._leer(recorte)
+            margen_x = max(3, int((x2 - x1) * 0.15))
+            margen_y = max(2, int((y2 - y1) * 0.20))
+            ampliado = frame[max(0, y1 - margen_y):min(alto, y2 + margen_y),
+                             max(0, x1 - margen_x):min(ancho, x2 + margen_x)]
+            rectificado = enderezar_placa(ampliado)
+            if rectificado is not None:
+                alterno = self._leer(rectificado)
+                if alterno[1] >= self.cfg.ocr_conf and \
+                        (es_placa_valida(alterno[0])[0], alterno[1]) > \
+                        (es_placa_valida(texto)[0], conf):
+                    texto, conf, region, prob_region = alterno
         except Exception as e:  # noqa: BLE001 - un OCR fallido no debe tumbar el worker
             log.warning("OCR fallo en track %d: %s", track.track_id, e)
             return False
@@ -314,6 +377,7 @@ class PlateDetector(Detector):
                 track.state["mejor_conf"] = conf_lectura
                 track.state["recorte"] = recorte.copy()
                 track.state["bbox_bajo"] = (float(x1), float(y1), float(x2), float(y2))
+                track.state["escena"] = frame.copy()
                 track.state["color"] = color_vehiculo(frame, (x1, y1, x2, y2))
         return True
 
@@ -371,6 +435,42 @@ class PlateDetector(Detector):
                 round((px2 - x1) / ancho, 4), round((py2 - y1) / alto, 4))
         self._hd_usados += 1
         return recorte_hd, caja
+
+    def _evidencia(self, track: Track
+                   ) -> tuple[Optional[np.ndarray], tuple[float, float, float, float]]:
+        """Foto de evidencia y donde queda la placa en ella (fraccion).
+
+        La escena completa del momento de la mejor lectura (la HD si llego)
+        con la placa marcada y, en una esquina, el recorte ampliado. La caja
+        apunta a la placa DENTRO del acercamiento, que es la version mas
+        nitida: de ahi recorta el dataset para reentrenar el OCR.
+        """
+        recorte, caja_placa = self._recorte_hd_o_normal(track)
+        bbox_bajo = track.state.get("bbox_bajo")
+        if (recorte is None or bbox_bajo is None
+                or not getattr(self.cfg, "evidencia_escena_completa", True)):
+            return recorte, caja_placa
+
+        frame_hd = SnapshotHD.resultado_listo(track.state.get("hd_future"))
+        if caja_placa != (0.0, 0.0, 1.0, 1.0) and frame_hd is not None:
+            escena = frame_hd
+            caja_escena = escalar_bbox(bbox_bajo, self._forma_frame, frame_hd.shape[:2])
+        else:
+            escena, caja_escena = track.state.get("escena"), bbox_bajo
+        if escena is None or escena.size == 0:
+            return recorte, caja_placa
+
+        vista, detalle, objeto = componer(escena, caja_escena, recorte)
+        alto, ancho = vista.shape[:2]
+        if detalle is not None:
+            dx1, dy1, dx2, dy2 = detalle
+            w, h = dx2 - dx1, dy2 - dy1
+            fx1, fy1, fx2, fy2 = caja_placa
+            caja = (dx1 + fx1 * w, dy1 + fy1 * h, dx1 + fx2 * w, dy1 + fy2 * h)
+        else:
+            caja = objeto
+        return vista, (round(caja[0] / ancho, 4), round(caja[1] / alto, 4),
+                       round(caja[2] / ancho, 4), round(caja[3] / alto, 4))
 
     def _construir_evento(self, track: Track) -> Optional[DetectionEvent]:
         """Consolida un track terminado en un unico evento."""
@@ -475,7 +575,7 @@ class PlateDetector(Detector):
             },
         )
 
-        recorte, caja_placa = self._recorte_hd_o_normal(track)
+        recorte, caja_placa = self._evidencia(track)
         if recorte is not None:
             evento.meta["placa_en_evidencia"] = list(caja_placa)
             ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"

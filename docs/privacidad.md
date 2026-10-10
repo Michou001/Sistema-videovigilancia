@@ -33,7 +33,7 @@ Los plazos son los valores por defecto y se cambian por variables de entorno.
 |---|---|---|
 | Placa vehicular (texto) sin coincidencia | Personal | 30 días (`RETENCION_EVENTOS_DIAS`) |
 | Placa con alerta | Personal | Con su alerta: 365 días (`RETENCION_ALERTAS_DIAS`) |
-| Foto de un evento sin coincidencia (vehículo, persona en una zona) | Personal | 7 días (`RETENCION_FOTOS_DIAS`) |
+| Foto de un evento sin coincidencia (vehículo, persona en una zona) | Personal (la escena completa: también quien pasaba) | 7 días (`RETENCION_FOTOS_DIAS`) |
 | **Rostro sin coincidencia** | **Sensible** | **No se guarda ni el vector ni la foto.** Queda el evento (hora y cámara), 30 días. Conservar la foto exige `FOTOS_ROSTRO_SIN_COINCIDENCIA=true` y declararlo en el aviso de privacidad |
 | **Vector facial que coincidió** | **Sensible** | 7 días (`RETENCION_EMBEDDINGS_DIAS`) |
 | Foto de un rostro que coincidió | Sensible | Con su alerta: 365 días |
@@ -47,6 +47,11 @@ Los plazos son los valores por defecto y se cambian por variables de entorno.
 | Vector de búsqueda por descripción (opcional) | Personal (apariencia) | Lo que viva su foto |
 | Cuadros para reentrenar (opcional) | Personal | Solo alertas, 30 días (`RETENCION_DATASET_DIAS`) |
 | Cuentas de operadores | Personal | Mientras exista la cuenta |
+
+Las fotos de placas y rostros son la **escena completa** con el objeto marcado y un
+acercamiento en una esquina, para que el operador vea dónde y en qué situación
+ocurrió. Eso incluye a quien estuviera alrededor; por eso caducan a los 7 días si
+no hay alerta. `EVIDENCIA_ESCENA_COMPLETA=false` vuelve a guardar solo el recorte.
 
 La purga corre **automáticamente cada 24 horas** dentro de la API y también a
 mano:

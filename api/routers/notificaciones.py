@@ -7,12 +7,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
+from typing import Literal
 
 from api import notificaciones
 from api.auditoria import registrar
 from api.deps import Admin, SesionBD
 
 router = APIRouter(prefix="/api/notificaciones", tags=["notificaciones"])
+
+
+class EnsayoTelegram(BaseModel):
+    tipo: Literal["plate", "face"]
 
 
 def _notificador() -> notificaciones.Notificador:
@@ -41,3 +47,18 @@ async def prueba(request: Request, session: SesionBD, operador: Admin) -> dict:
     await run_in_threadpool(registrar, session, "notificaciones.prueba", usuario=operador.username,
                             detalle=resultados, request=request, confirmar=True)
     return {"resultados": resultados, "ok": all(v == "ok" for v in resultados.values())}
+
+
+@router.post("/prueba-telegram")
+async def prueba_telegram(datos: EnsayoTelegram, request: Request, session: SesionBD,
+                          operador: Admin) -> dict:
+    """Envia un ensayo de coincidencia solo al Telegram configurado."""
+    n = _notificador()
+    if not any(c.nombre == "telegram" for c in n.canales):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Telegram no esta configurado")
+    resultados = await n.prueba_telegram(datos.tipo)
+    await run_in_threadpool(registrar, session, "notificaciones.prueba_telegram",
+                            usuario=operador.username,
+                            detalle={"tipo": datos.tipo, "resultados": resultados},
+                            request=request, confirmar=True)
+    return {"resultados": resultados, "ok": resultados.get("telegram") == "ok"}

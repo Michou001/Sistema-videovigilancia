@@ -35,6 +35,7 @@ import numpy as np  # noqa: E402
 
 from edge.config import BASE_DIR, EdgeConfig  # noqa: E402
 from edge.detectors.base import Detector, caja  # noqa: E402
+from edge.evidencia import componer  # noqa: E402
 from edge.snapshot_hd import SnapshotHD, escalar_bbox  # noqa: E402
 from edge.sources import FrameInfo  # noqa: E402
 from edge.tracking import Deteccion, IoUTracker, Track  # noqa: E402
@@ -313,6 +314,7 @@ class FaceDetector(Detector):
             if calidad > track.state.get("calidad", 0.0):
                 track.state["calidad"] = calidad
                 track.state["recorte"] = recorte
+                track.state["escena"] = (frame.frame.copy(), tuple(float(v) for v in rostro.bbox))
                 track.state["det_score"] = float(rostro.det_score)
                 track.state["pose"] = pose
 
@@ -430,6 +432,8 @@ class FaceDetector(Detector):
         # frente: mas pixeles de un perfil no le ganan a una vista frontal.
         if factor_pose(getattr(mejor, "kps", None)) >= track.state.get("pose", 0.0) - 0.1:
             track.state["recorte"] = recorte
+            bx1, by1, bx2, by2 = (float(v) for v in mejor.bbox)
+            track.state["escena"] = (frame_hd, (bx1 + x1, by1 + y1, bx2 + x1, by2 + y1))
             track.state["det_score"] = float(mejor.det_score)
             self._hd_usados += 1
 
@@ -460,8 +464,14 @@ class FaceDetector(Detector):
 
         recorte = track.state.get("recorte")
         if recorte is not None and recorte.size > 0:
+            # Escena completa con el rostro marcado y el recorte ampliado en
+            # una esquina: el operador ve donde estaba y que hacia.
+            imagen = recorte
+            escena = track.state.get("escena")
+            if escena is not None and getattr(self.cfg, "evidencia_escena_completa", True):
+                imagen, _, _ = componer(escena[0], escena[1], recorte, color=(255, 140, 0))
             ruta = self.cfg.snapshot_dir / f"{evento.event_id}.jpg"
-            cv2.imwrite(str(ruta), recorte)
+            cv2.imwrite(str(ruta), imagen)
             evento.snapshot_path = ruta.relative_to(BASE_DIR).as_posix()
 
         self._eventos_emitidos += 1

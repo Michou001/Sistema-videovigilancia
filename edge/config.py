@@ -224,6 +224,12 @@ class EdgeConfig:
     """Canal ISAPI del stream principal. 101 es el de fabrica en Hikvision
     para el primer canal; en un NVR con varias camaras seria 201, 301, etc."""
 
+    evidencia_escena_completa: bool = field(
+        default_factory=lambda: _env_bool("EVIDENCIA_ESCENA_COMPLETA", True))
+    """La foto de placas y rostros es la escena completa con el objeto marcado
+    y un acercamiento en una esquina, no solo el recorte: da contexto (donde,
+    que vehiculo, que pasaba). En false se guarda solo el recorte."""
+
     # --- Vista en vivo en el dashboard -------------------------------------
     preview_enabled: bool = field(default_factory=lambda: _env_bool("PREVIEW_ENABLED", True))
     """Manda el frame anotado a la API para que el operador vea la camara en el

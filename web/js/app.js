@@ -16,9 +16,10 @@
  */
 
 import {
-  $, accion, almacen, api, emitir, escuchar, estado, iconos, NOMBRES_ROL, puede,
+  $, accion, almacen, api, emitir, escuchar, estado, iconos, NOMBRES_ROL,
+  nombreCamara, puede,
 } from './nucleo.js';
-import { mostrarBanner, mostrarToast } from './avisos.js';
+import { confirmar, mostrarBanner, mostrarToast } from './avisos.js';
 import {
   agregarDeteccion, cargarDetecciones, detenerCamaras, iniciarCamaras, marcarEnCamara,
 } from './monitoreo.js';
@@ -37,6 +38,7 @@ import './mapa.js';
 import './titulos.js';
 import './acceso.js';
 import './galeria.js';
+import './perspectiva.js';
 import { abrir2fa } from './doble_factor.js';
 
 iconos();
@@ -312,6 +314,17 @@ async function refrescarStats() {
 /* Mensajes en vivo                                                    */
 /* ------------------------------------------------------------------ */
 
+function esCoincidenciaListaNegra(a) {
+  return (a.type === 'plate' && ['exact', 'fuzzy'].includes(a.match_kind))
+    || (a.type === 'face' && a.match_kind === 'biometric');
+}
+
+function presentarAlerta(a) {
+  const sonar = esCoincidenciaListaNegra(a);
+  if (a.severity === 'critical') mostrarBanner(a, { sonar });
+  else if (a.severity === 'warning') mostrarToast(a, { sonar });
+}
+
 escuchar('ws:event', (ev) => {
   // Con una busqueda activa, la tabla muestra el resultado de esa busqueda:
   // meterle eventos en vivo que quiza no cumplen el filtro la contradiria.
@@ -321,11 +334,43 @@ escuchar('ws:event', (ev) => {
   pedirStats();
 });
 
+accion('probar-coincidencia', async (el) => {
+  const tipo = el.dataset.tipo === 'face' ? 'face' : 'plate';
+  const camara = estado.camaras.find((c) => c.online) || estado.camaras[0];
+  const cameraId = camara?.camera_id || 'cam-01';
+  const placa = tipo === 'plate';
+  const ev = {
+    event_id: `prueba-${Date.now()}`,
+    camera_id: cameraId,
+    type: tipo, value: placa ? 'ABC-123-A' : 'rostro', severity: 'critical', observations: 3,
+    ts: new Date().toISOString(), snapshot_path: null, prueba: true,
+  };
+  if ($('listaDetecciones').hidden) $('btnListaDetecciones').click();
+  agregarDeteccion(ev, true);
+  presentarAlerta({
+    type: tipo, severity: 'critical', match_kind: placa ? 'exact' : 'biometric',
+    title: placa ? 'PRUEBA · Placa en lista negra' : 'PRUEBA · Rostro en lista negra',
+    detail: `Simulación local en ${nombreCamara(cameraId)}. No se guardó ningún evento.`,
+  });
+  el.disabled = true;
+  try {
+    const resultado = await api('/api/notificaciones/prueba-telegram', {
+      method: 'POST', body: JSON.stringify({ tipo }),
+    });
+    if (resultado.ok) confirmar('Prueba enviada a Telegram');
+    else mostrarToast({ title: 'Telegram no recibió la prueba',
+      detail: resultado.resultados?.telegram || 'Revisa la configuración del canal.' });
+  } catch (err) {
+    mostrarToast({ title: 'Telegram no recibió la prueba', detail: err.message });
+  } finally {
+    el.disabled = false;
+  }
+});
+
 escuchar('ws:alert', (a) => {
   agregarAlerta(a, true);
   pedirStats();
-  if (a.severity === 'critical') mostrarBanner(a);
-  else if (a.severity === 'warning') mostrarToast(a);
+  presentarAlerta(a);
 });
 
 escuchar('ws:alert_resolved', () => { cargarAlertas(); pedirStats(); });

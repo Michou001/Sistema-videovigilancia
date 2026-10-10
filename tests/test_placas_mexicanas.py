@@ -317,6 +317,72 @@ def test_duplicado_suprimido_no_se_reintenta_cada_frame():
     assert det._duplicados_suprimidos == 1
 
 
+def _escena_con_placa():
+    """Frame de 1280x720 gris con una "placa" blanca en (100,100)-(220,160)."""
+    escena = np.full((720, 1280, 3), 60, np.uint8)
+    escena[100:160, 100:220] = 255
+    return escena, escena[100:160, 100:220].copy()
+
+
+def test_evidencia_de_placa_es_la_escena_completa_con_acercamiento():
+    import cv2
+
+    det = _detector()
+    track = _track([("JHK123A", 0.95)] * 3)
+    escena, recorte = _escena_con_placa()
+    track.state.update(recorte=recorte, escena=escena, bbox_bajo=(100.0, 100.0, 220.0, 160.0))
+    ev = det._construir_evento(track)
+    try:
+        foto = cv2.imread(str(RAIZ / ev.snapshot_path))
+        assert foto.shape[:2] == (720, 1280), "la evidencia debe ser la escena completa"
+        # La caja apunta a la placa dentro del acercamiento: recortada de ahi,
+        # es la placa (blanca) sin el marco encima.
+        x1, y1, x2, y2 = ev.meta["placa_en_evidencia"]
+        placa = foto[int(y1 * 720) + 2:int(y2 * 720) - 2, int(x1 * 1280) + 2:int(x2 * 1280) - 2]
+        assert placa.size and placa.mean() > 230, placa.mean()
+        assert x2 - x1 > 120 / 1280, "el acercamiento debe ser mas grande que la placa original"
+    finally:
+        if ev and ev.snapshot_path:
+            (RAIZ / ev.snapshot_path).unlink(missing_ok=True)
+
+
+def test_evidencia_solo_recorte_si_se_desactiva_la_escena():
+    det = _detector()
+    det.cfg.evidencia_escena_completa = False
+    track = _track([("JHK123A", 0.95)] * 3)
+    escena, recorte = _escena_con_placa()
+    track.state.update(recorte=recorte, escena=escena, bbox_bajo=(100.0, 100.0, 220.0, 160.0))
+    ev = det._construir_evento(track)
+    try:
+        assert ev.meta["placa_en_evidencia"] == [0.0, 0.0, 1.0, 1.0]
+    finally:
+        if ev and ev.snapshot_path:
+            (RAIZ / ev.snapshot_path).unlink(missing_ok=True)
+
+
+def test_acercamiento_nunca_tapa_el_objeto():
+    from edge.evidencia import componer
+
+    escena = np.zeros((720, 1280, 3), np.uint8)
+    detalle = np.full((60, 120, 3), 200, np.uint8)
+    for caja in [(10, 10, 130, 70), (1150, 10, 1270, 70), (10, 650, 130, 710),
+                 (1150, 650, 1270, 710), (580, 330, 700, 390)]:
+        _, acercamiento, objeto = componer(escena, caja, detalle)
+        assert acercamiento is not None, caja
+        a, o = acercamiento, objeto
+        assert a[2] < o[0] or a[0] > o[2] or a[3] < o[1] or a[1] > o[3], (caja, a)
+
+
+def test_escena_hd_se_reduce_pero_el_acercamiento_no():
+    from edge.evidencia import ANCHO_MAX, componer
+
+    escena = np.zeros((1800, 3200, 3), np.uint8)
+    detalle = np.full((100, 300, 3), 200, np.uint8)
+    vista, acercamiento, _ = componer(escena, (200, 200, 500, 300), detalle)
+    assert vista.shape[1] == ANCHO_MAX
+    assert acercamiento[2] - acercamiento[0] >= 300
+
+
 def main() -> int:
     pruebas = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     fallos = 0

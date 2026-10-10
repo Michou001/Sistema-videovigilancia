@@ -241,6 +241,13 @@ main { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px
              border-bottom: 1px solid var(--borde-sutil); border-left: 3px solid transparent;
              transition: background-color .15s ease; }
 .deteccion:hover { background: var(--panel2); }
+.ensayo-perspectiva { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--borde);
+  border-radius: 6px; background: var(--panel2); }
+.ensayo-perspectiva summary { cursor: pointer; font-weight: 700; }
+.ensayo-campos { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 14px 0 9px; }
+.ensayo-campos label { display: grid; gap: 4px; font-size: 12px; color: var(--tenue); }
+.ensayo-campos input, .ensayo-campos select { min-width: 105px; }
+.ensayo-resultado { margin-top: 10px; font-size: 13px; line-height: 1.5; }
 .deteccion.critical { border-left-color: var(--critico); background: rgba(255,71,87,.07); }
 .deteccion.warning  { border-left-color: var(--aviso);   background: rgba(240,168,58,.05); }
 .deteccion img { width: 66px; height: 44px; object-fit: cover; border-radius: 4px;

@@ -311,7 +311,7 @@ export function agregarDeteccion(ev, nueva = false) {
 
   div.innerHTML = `
     <div class="crece">
-      <div class="v">${iconoTag(ev.type)} ${escapar(valorLegible(ev))}</div>
+      <div class="v">${iconoTag(ev.type)} ${escapar(valorLegible(ev))}${ev.prueba ? ' · PRUEBA' : ''}</div>
       <div class="m">${hora(ev.ts)} · ${escapar(nombreCamara(ev.camera_id))}${colorTexto(ev)}
         ${ev.observations ? '· ' + Number(ev.observations) + ' frames' : ''}</div>
     </div>`;

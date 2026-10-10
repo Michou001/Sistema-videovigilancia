@@ -149,8 +149,21 @@
         <h2><span class="section-eyebrow">01 / EN VIVO</span> Cámaras <span class="crece" id="contadorCamaras"></span>
           <button class="sec chico" data-accion="ver-ambas" id="verAmbas" hidden><i data-lucide="layout-grid"></i>Ver todas</button>
           <button class="sec chico" data-accion="anotaciones" id="toggleAnotaciones" aria-pressed="true"><i data-lucide="scan"></i>Análisis visible</button>
+          <button class="sec chico" data-rol="admin" data-accion="probar-coincidencia" data-tipo="plate" type="button" title="Ensayo sin evento real; envía aviso a Telegram"><i data-lucide="volume-2"></i>Probar placa</button>
+          <button class="sec chico" data-rol="admin" data-accion="probar-coincidencia" data-tipo="face" type="button" title="Ensayo sin evento real; envía aviso a Telegram"><i data-lucide="scan-face"></i>Probar rostro</button>
         </h2>
         <div id="rejilla"></div>
+        <details class="ensayo-perspectiva">
+          <summary>Ensayo de perspectiva · cámaras montadas a 2–3 m</summary>
+          <div class="ensayo-campos">
+            <label>Cámara <select id="ensayoCamara"></select></label>
+            <label>Objetivo <select id="ensayoTipo"><option value="face">Rostro</option><option value="plate">Placa</option></select></label>
+            <label>Distancia horizontal medida (m) <input id="ensayoDistancia" type="number" min="0.5" max="30" step="0.5" placeholder="ej. 3"></label>
+            <button type="button" data-accion="ensayar-perspectiva" id="btnEnsayoPerspectiva">Medir 30 s</button>
+          </div>
+          <p class="sub">Marca la distancia en el piso. Haz tres pasadas y sal del cuadro entre ellas. El montaje a 2–3 m se declara; el sistema mide el tamaño visto por la cámara.</p>
+          <div id="resultadoEnsayoPerspectiva" class="ensayo-resultado" aria-live="polite"></div>
+        </details>
         <div class="vacio" id="sinCamaras">
           No hay video disponible.<br>Revisa la conexión de las cámaras y su estado en el apartado Cámaras.
         </div>
